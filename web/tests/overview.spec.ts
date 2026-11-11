@@ -524,7 +524,7 @@ test('the events feed carries the fleet’s other news, not only the scheduler�
   // panel's whole length: what is being tested is that the other kinds are
   // there at all, not where an hour-old job sits in a list that keeps moving.
   // That the switch works is the Events page's own test.
-  await goto(page, '/settings/events', 'Events');
+  await goto(page, '/settings/events', 'Event feed');
   await page.getByRole('switch', { name: 'Scaling decisions' }).click();
   await goto(page, '/', 'Overview');
 
@@ -555,7 +555,7 @@ test('an empty feed says when it is the operator’s own choices that emptied it
   // has plenty to say and every kind is switched off, so the panel is empty
   // for exactly the reason it gives, and says how many lines it is holding
   // back so that "empty" and "silenced" cannot be mistaken for each other.
-  await goto(page, '/settings/events', 'Events');
+  await goto(page, '/settings/events', 'Event feed');
   const switches = page.getByRole('switch');
   const count = await switches.count();
   expect(count, 'the Events page lists the kinds').toBeGreaterThan(0);

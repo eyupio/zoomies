@@ -98,7 +98,7 @@ renting, a pool somebody changed, and what the controller changed on its own abo
 [size classes and automatic pools](auto-pools.md) with its reason, *maximum
 runners 5 → 10: host build-2 joined*. What went right is in it as much as what
 went wrong. Which of those it carries is yours to choose, one switch per
-kind on **Settings → Events**, and the panel counts what it is showing rather
+kind on **Settings → Event feed**, and the panel counts what it is showing rather
 than quietly leaving the rest out. When the
 fleet itself needs a person it is one line and a *Review* button, never a list
 that pushes the fleet below the fold. The exception is the failures nobody has
@@ -1194,9 +1194,9 @@ something is a warning or an error. On a phone the section index is one
 scrollable row rather than a wall of chips, and a row's value and its control
 share a line under the description.
 
-### Eli AI Assistant
+### Eli assistant
 
-Each user connects their own API provider in **Settings, Eli AI Assistant**. Administrators
+Each user connects their own API provider in **Settings, Eli assistant**. Administrators
 also manage installation providers for unattended repairs and can add their own
 Claude, ChatGPT or GitHub Copilot subscription through the controller’s vendor tool.
 Existing API providers stay in the installation scope after an upgrade.
@@ -1226,8 +1226,8 @@ repairs on your own provider and, for administrators, the repository policies an
 automatic repair budgets now are. Administrators still manage installation
 providers here. See [Eli](eli.md) for setup, GitHub permissions and repair limits.
 
-![Eli AI Assistant settings: the personal provider area, the built-in demo model, provider controls and the card that opens Eli](screenshots/eli-providers-dark.webp#only-dark){ .zoomies-shot }
-![Eli AI Assistant settings: the personal provider area, the built-in demo model, provider controls and the card that opens Eli](screenshots/eli-providers-light.webp#only-light){ .zoomies-shot }
+![Eli assistant settings: the personal provider area, the built-in demo model, provider controls and the card that opens Eli](screenshots/eli-providers-dark.webp#only-dark){ .zoomies-shot }
+![Eli assistant settings: the personal provider area, the built-in demo model, provider controls and the card that opens Eli](screenshots/eli-providers-light.webp#only-light){ .zoomies-shot }
 
 ### Backups
 

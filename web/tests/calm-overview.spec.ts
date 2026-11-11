@@ -240,7 +240,7 @@ test('page navigation follows the section reached by a jump or scrolling', async
 });
 
 test('a silenced preview keeps category settings reachable', async ({ page }) => {
-  await goto(page, '/settings/events', 'Events');
+  await goto(page, '/settings/events', 'Event feed');
   const categories = page.getByRole('switch');
   expect(await categories.count()).toBeGreaterThan(0);
   for (const category of await categories.all()) {
@@ -250,7 +250,7 @@ test('a silenced preview keeps category settings reachable', async ({ page }) =>
   const preview = page.getByRole('region', { name: 'Recent events', exact: true });
   await expect(preview).toContainText('Nothing in the kinds you are watching');
   await preview.getByRole('link', { name: 'Choose', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Events', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Event feed', exact: true })).toBeVisible();
 });
 
 // The default must not override an explicit side chosen in this browser.

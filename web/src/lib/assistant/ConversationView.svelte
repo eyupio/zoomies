@@ -248,7 +248,7 @@
               fleet yet, so for anything about yours, use Ask Eli to share displayed details or
               paste what I need.
             {/if}
-            Request code changes through PR repairs in Eli AI Assistant settings.
+            Request code changes through PR repairs in Eli assistant settings.
           </p>
           {#if answering}
             <ul class="starters" aria-label="Things to ask">
@@ -331,7 +331,7 @@
                   {turn.content
                     ? 'before it finished, so this answer is cut short'
                     : 'while it was still thinking'}. Lower the provider's reasoning effort under
-                  Settings, Eli AI Assistant, or raise its output limit.
+                  Settings, Eli assistant, or raise its output limit.
                   {#if raisable(turn) && turn === last && !conversation.busy}
                     Raising it writes the new number to the provider's Output limit, which a repair
                     on this provider then keeps exactly instead of raising it as needed.

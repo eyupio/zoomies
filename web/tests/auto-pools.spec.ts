@@ -276,7 +276,7 @@ test.describe('a host and its class', () => {
     await expect(entry).toContainText(`${NAME}: 11.4 CPUs and 30.4 GB of memory allocatable`);
     // And it is a kind of its own, which an operator can switch off without
     // losing who changed what.
-    await goto(page, '/settings/events', 'Events');
+    await goto(page, '/settings/events', 'Event feed');
     await expect(page.getByRole('switch', { name: 'Automatic changes' })).toHaveAttribute(
       'aria-checked',
       'true',

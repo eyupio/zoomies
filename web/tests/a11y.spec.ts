@@ -50,7 +50,7 @@ const PAGES = [
   { path: `/machines/${FIXTURE.readyMachineId}`, heading: FIXTURE.readyMachine },
   // The page with a conversation on it: a log that scrolls, a box that grows, and
   // buttons that are only icons.
-  { path: '/settings/assistant', heading: 'Eli AI Assistant' },
+  { path: '/settings/assistant', heading: 'Eli assistant' },
   { path: '/installations', heading: 'Installations' },
   { path: '/migrate', heading: 'Migrate repositories' },
   // Kennel Club is off in the fixture fleet, so these are the pages somebody
@@ -64,7 +64,7 @@ const PAGES = [
   // each of which has to name itself without the label beside it.
   { path: '/settings/users', heading: 'Users' },
   { path: '/settings/configuration', heading: 'Configuration' },
-  { path: '/settings/events', heading: 'Events' },
+  { path: '/settings/events', heading: 'Event feed' },
   // Facts and sentences rather than controls, read from a status the controller
   // works out; on this fixture the mode is off, which is the state an operator
   // meets first. updates.spec.ts audits it once there is a release on offer.
@@ -386,7 +386,7 @@ const SETTINGS_OUTLINES = [
   { path: '/settings/backups', heading: 'Backups', loaded: '#backup-schedule' },
   { path: '/settings/configuration', heading: 'Configuration', loaded: '[id^="section-"]' },
   { path: '/settings/about', heading: 'About', loaded: '#docs-heading' },
-  { path: '/settings/events', heading: 'Events', loaded: '[id^="feed-group-"]' },
+  { path: '/settings/events', heading: 'Event feed', loaded: '[id^="feed-group-"]' },
   { path: '/settings/updates', heading: 'Updates', loaded: '#update-reason' },
 ];
 
