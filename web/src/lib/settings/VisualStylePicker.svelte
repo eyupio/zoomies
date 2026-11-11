@@ -13,10 +13,7 @@
 
 <fieldset>
   <legend>Visual style</legend>
-  <p class="description">
-    Choose a palette and type size. Your colour mode, logo, Zoomies vocabulary and other saved
-    choices stay as you set them. This choice stays in this browser, including sign-in.
-  </p>
+  <p class="description">The palette and type size. Your other choices stay as you set them.</p>
   <div class="choices">
     {#each UI_STYLE_OPTIONS as option (option.value)}
       <label class="choice" class:selected={visualStyle.choice === option.value}>

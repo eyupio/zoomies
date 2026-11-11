@@ -251,6 +251,35 @@
         {#if checkError}<p class="refusal" role="alert">{checkError}</p>{/if}
       </Panel>
 
+      <!--
+        The mode comes second, before the panels it decides. While it is off
+        the two below say only "set the mode", and the control they were
+        pointing at used to be four panels further down the page.
+      -->
+      <Panel title="Update mode">
+        <dl class="facts">
+          <dt>Mode</dt>
+          <dd>
+            <Badge tone="neutral" label={modeLabel(status.mode)} dot={false} />
+            <p class="detail">{describeMode(status.mode)}</p>
+          </dd>
+          <dt>Soak</dt>
+          <dd>
+            {soakText(status.soak)}
+            <p class="detail">{soakNote(status.mode)}</p>
+          </dd>
+        </dl>
+        {#if canUpdate}
+          <UpdateSettings />
+        {:else}
+          <p class="note">
+            The platform role changes both, as the settings <code>updates.mode</code> and
+            <code>updates.soak</code>{#if settingHref}, on
+              <a href={settingHref}>the Configuration page</a>{/if}.
+          </p>
+        {/if}
+      </Panel>
+
       <Panel title="Standard releases">
         {#snippet actions()}
           {#if badge}<Badge tone={badge.tone} label={badge.label} dot={false} />{/if}
@@ -416,30 +445,6 @@
           Each host reports its own progress; running jobs continue.
         </p>
         <a href="/hosts">Review hosts and update progress</a>
-      </Panel>
-
-      <Panel title="Update mode">
-        <dl class="facts">
-          <dt>Mode</dt>
-          <dd>
-            <Badge tone="neutral" label={modeLabel(status.mode)} dot={false} />
-            <p class="detail">{describeMode(status.mode)}</p>
-          </dd>
-          <dt>Soak</dt>
-          <dd>
-            {soakText(status.soak)}
-            <p class="detail">{soakNote(status.mode)}</p>
-          </dd>
-        </dl>
-        {#if canUpdate}
-          <UpdateSettings />
-        {:else}
-          <p class="note">
-            The platform role changes both, as the settings <code>updates.mode</code> and
-            <code>updates.soak</code>{#if settingHref}, on
-              <a href={settingHref}>the Configuration page</a>{/if}.
-          </p>
-        {/if}
       </Panel>
 
       <Panel title="This controller">

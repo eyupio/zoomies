@@ -216,9 +216,10 @@ The small cross at the top right of a band removes it. It asks first, and says w
 to bring it back. The size icons beside it ask which pages the new cut should reach;
 the dog itself asks the same about its size, or about being removed. The answers are
 kept with the account where there is one, and in the browser otherwise.
-**Settings → Appearance → Page bands** has a switch and the same four sizes for each
-page, the Overview's included, a line for that page's dog, and one control that sets
-every band at once; every band is on until you switch it off.
+**Settings → Appearance → Page bands** is a table with a row for each page, the
+Overview's included: a switch, the same four sizes and a switch for that page's
+picture, under one row that sets every band at once; every band is on until you
+switch it off.
 
 ## Pools
 
@@ -1140,11 +1141,15 @@ so nothing here can leak one.
 
 ## Settings
 
-A section of pages rather than a page of tabs, with its own rail beside them:
-your account, appearance and which events the Overview's feed shows; the
-accounts that can sign in and their roles, and the API tokens; the
-configuration this controller is actually running with, its backups, which
-release an update would take, and what it is. Appearance also holds the **Page bands** switches (see [Page bands](#page-bands)).
+A section of pages rather than a page of tabs, with its own rail beside them,
+in four groups. **You** is your account, appearance and which events the
+Overview's feed shows. **Connections** is what you have plugged into that
+account: your Eli providers, your API tokens and your MCP connections.
+**Access** is the accounts that can sign in and their roles, and the MCP
+clients. **Controller** is the configuration this controller is actually
+running with, which release an update would take, its backups, and what it is.
+Appearance is three sections (Look, Layout and Page bands), and the last is a
+table with a row for each page (see [Page bands](#page-bands)).
 Each page has an address of its
 own, so a settings page is a link. Zoomies refuses any change that would leave
 no enabled administrator, and the pages that need that role are listed for

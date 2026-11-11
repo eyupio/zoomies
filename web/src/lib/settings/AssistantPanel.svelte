@@ -201,6 +201,13 @@
   <AssistantStyleCard />
 {/if}
 
+<RepairsCard />
+
+<!--
+  What the administrator decides for everybody comes last and in a panel of its
+  own. It used to sit unframed between the reader's own cards, where it read as
+  one more thing about their account.
+-->
 {#if session.can('admin')}
   <section class="switches" aria-labelledby="assistant-switches">
     <h3 id="assistant-switches">Where its traffic may go</h3>
@@ -220,8 +227,6 @@
     />
   </section>
 {/if}
-
-<RepairsCard />
 
 <AssistantProviderForm
   bind:open={formOpen}
@@ -263,8 +268,11 @@
     display: flex;
     flex-direction: column;
     gap: var(--z-space-4);
-    padding-top: var(--z-space-5);
-    border-top: var(--z-border-width) solid var(--z-border);
+    margin-top: var(--z-space-5);
+    padding: var(--z-space-4);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-md);
+    background: var(--z-surface);
   }
   .switches h3 {
     margin: 0;

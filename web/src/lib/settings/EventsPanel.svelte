@@ -3,9 +3,11 @@
 
   One switch per category, each row saying what an entry of that kind is, so
   the choice is made against the thing itself rather than against a word. The
-  categories that have no history to show -- the ones the feed can only fill
-  from the live stream -- say so, because a category that is on and empty
-  otherwise looks exactly like one that is broken.
+  categories that have no history to show (the ones the feed can only fill
+  from the live stream) are marked Live only, because a category that is on
+  and empty otherwise looks exactly like one that is broken. The mark is two
+  words beside the name and is explained once at the foot: as a sentence at
+  the end of seven descriptions it was the longest thing on the page.
 
   What goes right is a category as much as what goes wrong, and both are on by
   default: the ones that are off to begin with are off because something else
@@ -52,15 +54,9 @@
             <p class="label">
               <row.category.icon size={14} aria-hidden="true" />
               {row.category.label}
+              {#if !row.category.history}<span class="live">Live only</span>{/if}
             </p>
-            <p class="description">
-              {row.category.description}
-              {#if !row.category.history}
-                <span class="live"
-                  >Shown from the moment it happens; this one has no past to load.</span
-                >
-              {/if}
-            </p>
+            <p class="description">{row.category.description}</p>
           </div>
           <Switch
             label={row.category.label}
@@ -75,10 +71,9 @@
 {/each}
 
 <p class="note">
-  {on} of {categories.length} kinds are on. The feed keeps the last few hundred entries this tab has seen
-  and shows the newest twelve; everything in it also lives on the page it is about, which is where the
-  whole of it is, every decision on the pool, every failure on the runner, every recorded action on the
-  Audit page.
+  {on} of {categories.length} kinds are on. A kind marked Live only has no past to load, so it is shown
+  from the moment it happens. The feed shows the newest twelve entries; the whole of each lives on the
+  page it is about, and every recorded action on the Audit page.
 </p>
 
 <style>
@@ -130,6 +125,8 @@
     color: var(--z-text-muted);
   }
   .live {
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
     color: var(--z-text-subtle);
   }
   /* The control sits on the label's line, not the description's. */
