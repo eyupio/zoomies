@@ -308,7 +308,7 @@ func tools() []*tool {
 			Description: "A recommendation worked out from what this fleet measured of itself: how much CPU one working runner used, how much memory its jobs peaked at, and how much of the time jobs waited was spent with no room for another runner. " +
 				"A host's slots are its machine less the reserve, divided by what one runner asks, which for a pool that leaves its size to the host is the fleet's default (runners.default_cpus, runners.default_memory_mb). " +
 				"verdict is raise (a smaller ask and more slots: recommended, the slots each host would gain in hosts, and the max_runners that leaves room for them), keep (the evidence is there and the answer is to leave it) or unknown (too little measured). " +
-				"It reads and changes nothing; applying a raise is update_settings on the two runner defaults and edit_pool's max_runners, each of which needs an administrator. A runner keeps the size it was created with, so new slots fill as running jobs finish. " +
+				"It reads and changes nothing; applying a raise is update_settings on the two runner defaults, which needs an administrator, and update_pool's max_runners, which an operator can set. A runner keeps the size it was created with, so new slots fill as running jobs finish. " +
 				"Leave pool_id out to ask about a pool not yet made.",
 			InputSchema: object(nil, map[string]any{
 				"pool_id": str("the pool to ask about, starting pool_; leave out for a pool not yet made"),

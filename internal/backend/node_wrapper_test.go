@@ -140,6 +140,26 @@ func TestTheWrapperKeepsTheNodeOptionsTheJobAlreadyHad(t *testing.T) {
 	}
 }
 
+func TestTheWrapperQuotesARedirectPathNodeWouldSplitOnASpace(t *testing.T) {
+	runner := fakeRunner(t)
+	wrap(t, runner)
+	dir := filepath.Join(t.TempDir(), "my preload")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	redirect := filepath.Join(dir, "runner-cache-redirect.cjs")
+	if err := os.WriteFile(redirect, []byte("// stand-in\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := runNode(t, runner, []string{
+		EnvCacheServiceURL + "=http://172.17.0.1:41234/", "ZOOMIES_CACHE_REDIRECT_FILE=" + redirect,
+		"ACTIONS_CACHE_SERVICE_V2=true",
+	}, "main.js")
+	if want := "options=--require=\"" + redirect + "\"\n"; !strings.Contains(out, want) {
+		t.Fatalf("node saw:\n%s\nwant it to contain %q, one token for node's option parser", out, want)
+	}
+}
+
 func TestTheWrapperLeavesGitHubsCacheAloneWithoutTheVariable(t *testing.T) {
 	// A pool that has not turned the service on gets exactly today's behaviour.
 	runner := fakeRunner(t)

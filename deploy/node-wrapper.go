@@ -74,7 +74,7 @@ func main() {
 
 	env := os.Environ()
 	if redirect, ok := cacheRedirect(); ok {
-		options := "--require=" + redirect
+		options := "--require=" + quoteNodeOption(redirect)
 		if existing := os.Getenv(envNodeOptions); existing != "" {
 			options += " " + existing
 		}
@@ -106,6 +106,21 @@ func cacheRedirect() (string, bool) {
 	}
 	f.Close()
 	return redirect, true
+}
+
+// quoteNodeOption makes a value safe inside NODE_OPTIONS, which node splits on
+// spaces. A path with a space in it, as a pool's override of the redirect file
+// may have, would otherwise be read as a path and a second option, and the
+// preload would not load. Node reads a double-quoted run as one token and a
+// backslash inside it as an escape; a value with nothing to protect is left as
+// it is.
+func quoteNodeOption(v string) string {
+	if !strings.ContainsAny(v, " \t\"\\'") {
+		return v
+	}
+	v = strings.ReplaceAll(v, `\`, `\\`)
+	v = strings.ReplaceAll(v, `"`, `\"`)
+	return `"` + v + `"`
 }
 
 // withEnv returns env with key set to value, and every other entry untouched,

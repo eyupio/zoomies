@@ -34,7 +34,7 @@ Either way, a missing cache must make a job slower and never make it fail.
 | Preinstalled image tools/libraries | Runner image layers | Immutable image reference; inventory inside image |
 | DinD daemon state | One runner's isolated sidecar lifetime | Do not share live `/var/lib/docker` between daemons |
 | BuildKit build cache | External registry, or another explicitly managed BuildKit cache service | Separate cache reference and write credentials per repository and trust boundary |
-| Actions cache (`actions/cache`, the `setup-*` actions) | A cache service on the host, when the pool turns it on, in the host's shared folder | The pool cache's scope; a pull request reads its base branch and writes only its own, checked from the token's claim and not verified |
+| Actions cache (`actions/cache`, the `setup-*` actions) | A cache service on the host, when the pool turns it on, in the host's shared folder | The pool cache's scope; a pull request reads its base branch and writes only its own, checked from the token's claim and not verified, so code that can reach the pool's cache address can forge it |
 
 ## Enable a pool cache
 

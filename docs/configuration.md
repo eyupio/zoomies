@@ -2574,6 +2574,17 @@ it, so it guards against a workflow doing the wrong thing and not against code
 that is trying to. The boundary is the pool: keep untrusted pull requests on a
 pool of their own, as [Security](security.md) says for any self-hosted runner.
 
+What the service does check, without being able to verify GitHub's signature: a
+token that is not shaped like a runtime token (three parts, a JSON payload)
+cannot restore or save anything, and a token with no write scope cannot save. Both
+are a miss or a failed save, never a failed build. What it cannot do is tell a
+real token from a forged one, so code that can reach a pool's address can read
+every entry the pool holds by sending a well-formed token that names no scopes,
+and can write under any ref it names. The `size_limit` holds for the whole pool,
+across the repositories of a repository-scoped cache, and bytes of saves still in
+flight count against it; the number of open saves, the blocks in one save and the
+bytes they hold are bounded too.
+
 It needs the cache on and a container backend. On a docker-in-docker pool it also needs an agent that keeps the runner image's wrapper in the externals volume: agents before that put the real Node over it, so the runner never loaded the redirect and the service sat unused. The volume is refilled once, under a new name, and the old one is swept. Only JavaScript actions are
 redirected, so a Docker action keeps GitHub's cache, and so, by default, does
 Buildx's `type=gha` image-layer cache: BuildKit is a separate program that reads

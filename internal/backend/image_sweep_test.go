@@ -49,7 +49,12 @@ func sweepFixture(t *testing.T) (*DockerBackend, *[]string, *[]string) {
 	})
 	b := dockerBackendFor(t, f, DockerOptions{})
 	b.imagesSince = time.Now().Add(-time.Hour)
-	b.noteImage(runnerRepo+":dev", "sha256:current")
+	// The tag moved through each of these digests before it reached the current
+	// one, which is the history that makes them superseded.
+	for _, d := range []string{"sha256:aaa", "sha256:bbb", "sha256:ccc", "sha256:eee", "sha256:ggg", "sha256:current"} {
+		b.noteImage(runnerRepo+":dev", d)
+	}
+	clear(b.images.handed)
 	b.images.handed["sha256:ccc"] = time.Now()
 	return b, &deleted, &queries
 }
@@ -136,5 +141,46 @@ func TestRepositoriesAreComparedInTheDaemonsSpelling(t *testing.T) {
 		if got := canonicalRepository(name); got != want {
 			t.Errorf("canonicalRepository(%q) = %q, want %q", ref, got, want)
 		}
+	}
+}
+
+// An untagged image the agent never saw a tag resolve to has no history to be
+// superseded from: it may be a stranger's build, or one pinned by digest. Nor is
+// the digest a tag resolves to now ever superseded, however idle it is.
+func TestTheImageSweepLeavesAnImageThatWasNeverSupersededByATag(t *testing.T) {
+	b, deleted, _ := sweepFixture(t)
+	b.noteImage(runnerRepo+"@sha256:pinned", "sha256:pinned")
+	b.images.handed = map[string]time.Time{}
+	b.images.current[runnerRepo+":stable"] = "sha256:bbb"
+
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"GET " + v + "/images/json": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusOK, []ImageSummary{
+				{ID: "sha256:never-seen", RepoTags: []string{"<none>:<none>"}, RepoDigests: []string{runnerRepo + "@sha256:zzz"}},
+				{ID: "sha256:pinned-img", RepoTags: []string{"<none>:<none>"}, RepoDigests: []string{runnerRepo + "@sha256:pinned"}},
+				{ID: "sha256:current-img", RepoTags: []string{"<none>:<none>"}, RepoDigests: []string{runnerRepo + "@sha256:bbb"}},
+			})
+		},
+		"DELETE " + v + "/images/{id...}": func(w http.ResponseWriter, r *http.Request) {
+			*deleted = append(*deleted, r.PathValue("id"))
+			writeJSON(w, http.StatusOK, []map[string]string{})
+		},
+	})
+	b.api = dockerBackendFor(t, f, DockerOptions{}).api
+	*deleted = nil
+	removed, err := b.SweepImages(context.Background())
+	if err != nil || removed != 0 || len(*deleted) != 0 {
+		t.Fatalf("sweep removed %d (%v, err %v); an image with no tag history, one pinned by digest and one a tag still names must all stay", removed, *deleted, err)
+	}
+}
+
+// A digest handed out long ago protects nothing, so the ledger forgets it
+// instead of growing for the life of the agent.
+func TestTheImageLedgerForgetsDigestsOlderThanTheHandoff(t *testing.T) {
+	b, _, _ := sweepFixture(t)
+	b.images.handed["sha256:old"] = time.Now().Add(-2 * imageHandoff)
+	b.noteImage(runnerRepo+":dev", "sha256:newer")
+	if _, ok := b.images.handed["sha256:old"]; ok {
+		t.Fatal("a digest handed out twice the handoff ago is still remembered")
 	}
 }

@@ -132,6 +132,11 @@ func TestRecommendPerformanceSaysNothingWhereTheEvidenceIsThinOrPointsElsewhere(
 			if rec.Recommended != rec.Current || rec.SlotsAfter != rec.SlotsBefore {
 				t.Errorf("a %q answer changed something: %+v", rec.Verdict, rec)
 			}
+			// The API contract promises hosts is an array, so a keep or unknown
+			// answer must serialise as [] and never as null.
+			if rec.Hosts == nil {
+				t.Errorf("a %q answer left hosts nil, which serialises as null", rec.Verdict)
+			}
 		})
 	}
 }

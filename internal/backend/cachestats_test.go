@@ -3,14 +3,17 @@ package backend
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
-	"path/filepath"
 	"testing"
 
-	"github.com/eyupio/zoomies/internal/cacheservice"
 	"github.com/eyupio/zoomies/internal/store"
 )
+
+// jobToken is shaped like a runtime token whose claim names no scopes, which the
+// service reads as one shared scope. A bare word would be refused as malformed.
+var jobToken = "h." + base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"job"}`)) + ".s"
 
 // twirpCall makes one cache protocol call as a job would, with a token the
 // service reads as naming no scopes, which is enough to be counted.
@@ -21,7 +24,7 @@ func twirpCall(t *testing.T, base, method string, body any) map[string]any {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Header.Set("Authorization", "Bearer job")
+	req.Header.Set("Authorization", "Bearer "+jobToken)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -89,10 +92,11 @@ func TestCacheStatsAreReportedByPoolAndSummedAcrossItsServices(t *testing.T) {
 	}
 }
 
-// A service that stops and is started again must not hand the pool's counters
+// A listener that stops and is started again must not hand the pool's counters
 // back at zero: downstream, a counter that falls means the agent restarted, and
-// the controller would then treat everything before it as lost.
-func TestCacheStatsSurviveAServiceThatStoppedAndWasStartedAgain(t *testing.T) {
+// the controller would then treat everything before it as lost. The service
+// outlives its listeners, so its counters are not added a second time either.
+func TestCacheStatsSurviveAListenerThatStoppedAndWasStartedAgain(t *testing.T) {
 	c, _ := newServices(t, t.TempDir(), loopback)
 	ctx := context.Background()
 	spec := serviceSpec("pool_1")
@@ -103,14 +107,13 @@ func TestCacheStatsSurviveAServiceThatStoppedAndWasStartedAgain(t *testing.T) {
 	c.mu.Lock()
 	for key, r := range c.running {
 		delete(c.running, key)
-		c.retireLocked(r)
 		_ = r.srv.Close()
 	}
 	c.mu.Unlock()
 
 	again := c.urlFor(ctx, spec, "")
 	if again == "" || again == url {
-		t.Fatalf("the service was not started again (%q)", again)
+		t.Fatalf("the listener was not started again (%q)", again)
 	}
 	restoreFinds(t, again, "k")
 
@@ -120,40 +123,67 @@ func TestCacheStatsSurviveAServiceThatStoppedAndWasStartedAgain(t *testing.T) {
 	}
 	s := got[0].Stats
 	if s.PutsFinalised != 1 || s.RestoreHits != 2 {
-		t.Errorf("counters = %+v, want the first service's save and hit kept and the second's hit added", s)
+		t.Errorf("counters = %+v, want the first listener's save and hit kept and the second's hit added", s)
 	}
-	// The gauges are the folder as it is now, which the new service read back.
 	if s.Entries != 1 || s.StoredBytes != 5 {
 		t.Errorf("gauges = %d entries, %d bytes, want 1 and 5", s.Entries, s.StoredBytes)
 	}
 }
 
-// The same folder is served on a second address when runners are attached to a
-// second network. Adding the two services' gauges would say the pool holds
-// twice what is on its disk.
-func TestCacheStatsCountAFolderOnceWhenTwoServicesShareIt(t *testing.T) {
-	shared := t.TempDir()
-	c, _ := newServices(t, shared, loopback)
+// The same identity is served on a second address when runners are attached to a
+// second network. It is one service: two over one folder would count the pool's
+// bytes twice, and the second would sweep the first's open uploads away.
+func TestTwoNetworksShareOneServiceAndCountItsFolderOnce(t *testing.T) {
+	c, _ := newServices(t, t.TempDir(), func(_ context.Context, network string) (string, error) {
+		if network == "second" {
+			return "127.0.0.2", nil
+		}
+		return "127.0.0.1", nil
+	})
 	spec := serviceSpec("pool_1")
-	url := c.urlFor(context.Background(), spec, "")
+	url := c.urlFor(context.Background(), spec, "first")
+	second := c.urlFor(context.Background(), spec, "second")
+	if url == "" || second == "" || url == second {
+		t.Fatalf("addresses %q and %q, want one listener for each network", url, second)
+	}
 	saveEntry(t, url, "k", []byte("12345"))
-
-	identity, err := cacheIdentity(spec)
-	if err != nil {
-		t.Fatal(err)
+	if !restoreFinds(t, second, "k") {
+		t.Fatal("the second network's listener is a different cache from the first's")
 	}
-	// A second service over the same folder, as a second network would start.
-	second, err := cacheservice.New(cacheservice.Options{Dir: filepath.Join(shared, "cache", "service", identity)})
-	if err != nil {
-		t.Fatal(err)
+	if len(c.services) != 1 {
+		t.Fatalf("%d services over one folder, want 1", len(c.services))
 	}
-	c.mu.Lock()
-	c.running["second"] = &runningCacheService{svc: second, poolID: spec.PoolID, identity: identity, srv: &http.Server{}}
-	c.mu.Unlock()
-
 	got := c.stats()
-	if len(got) != 1 || got[0].Entries != 1 || got[0].StoredBytes != 5 {
+	if len(got) != 1 || got[0].Entries != 1 || got[0].StoredBytes != 5 || got[0].PutsFinalised != 1 {
 		t.Errorf("stats = %+v, want the one entry of 5 bytes counted once", got)
+	}
+}
+
+// A pool split by repository keeps to the one limit it was given.
+func TestARepositoryScopedPoolKeepsToOneSizeLimit(t *testing.T) {
+	c, _ := newServices(t, t.TempDir(), loopback)
+	ctx := context.Background()
+	one, two := serviceSpec("pool_b"), serviceSpec("pool_b")
+	one.Cache.SizeLimit, two.Cache.SizeLimit = 12, 12
+	one.Cache.Scope, one.Cache.Repository = store.CacheScopeRepository, "acme/widgets"
+	two.Cache.Scope, two.Cache.Repository = store.CacheScopeRepository, "acme/gadgets"
+	urlOne, urlTwo := c.urlFor(ctx, one, ""), c.urlFor(ctx, two, "")
+	saveEntry(t, urlOne, "a", []byte("1234567890"))
+	saveEntry(t, urlTwo, "b", []byte("1234567890"))
+	got := c.stats()
+	if len(got) != 1 || got[0].StoredBytes > 12 {
+		t.Fatalf("stats = %+v, want the pool held to its 12 byte limit across both repositories", got)
+	}
+}
+
+func TestNothingIsStartedAfterClose(t *testing.T) {
+	c, _ := newServices(t, t.TempDir(), loopback)
+	c.close()
+	if url := c.urlFor(context.Background(), serviceSpec("pool_1"), ""); url != "" {
+		t.Fatalf("a listener was started after close: %q", url)
+	}
+	if len(c.running) != 0 {
+		t.Fatal("a closed set of services is running something")
 	}
 }
 

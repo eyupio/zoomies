@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
@@ -83,5 +84,36 @@ func TestPrunePreMigrationWhereThereAreNoCopiesIsNotAnError(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "zoomies.db")
 	if removed, err := PrunePreMigration(dbPath, 2); err != nil || removed != nil {
 		t.Errorf("PrunePreMigration = %v, %v, want nothing and no error", removed, err)
+	}
+}
+
+// Only the controller reads its configuration before it opens the database, so a
+// command that opens it and migrates it (an upgrade run from the CLI) passes the
+// number it has read, and the copies are pruned once the migration has worked.
+// Without a number, Open removes nothing, because it must not guess one.
+func TestOpenPrunesThePreMigrationCopiesAfterAMigrationWhenGivenANumber(t *testing.T) {
+	stamps := []string{"20230101-000000", "20240101-000000", "20250101-000000"}
+
+	kept := atSchema(t, 1)
+	plantPreMigrationCopies(t, kept, stamps...)
+	st, err := Open(context.Background(), Options{Path: kept})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	st.Close()
+	// The migration took one more copy, and nothing was pruned.
+	if got := preMigrationCopies(t, kept); len(got) != len(stamps)+1 {
+		t.Errorf("copies after Open with no number = %v, want all %d planted and the new one", got, len(stamps))
+	}
+
+	pruned := atSchema(t, 1)
+	plantPreMigrationCopies(t, pruned, stamps...)
+	st, err = Open(context.Background(), Options{Path: pruned, PreMigrationKeep: 2})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	st.Close()
+	if got := preMigrationCopies(t, pruned); len(got) != 2 {
+		t.Errorf("copies after Open keeping two = %v, want two, the newest of which is the one just taken", got)
 	}
 }

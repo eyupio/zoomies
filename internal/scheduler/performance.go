@@ -147,7 +147,7 @@ type PerformanceMeasured struct {
 // RecommendPerformance works out whether the runner ask should change and what
 // it should change to.
 func RecommendPerformance(e PerformanceEvidence) PerformanceRecommendation {
-	rec := PerformanceRecommendation{Verdict: PerformanceUnknown, Current: e.Ask, Recommended: e.Ask, Followers: slices.Clone(e.Followers)}
+	rec := PerformanceRecommendation{Verdict: PerformanceUnknown, Current: e.Ask, Recommended: e.Ask, Hosts: []PerformanceHostChange{}, Followers: slices.Clone(e.Followers)}
 	slices.Sort(rec.Followers)
 
 	samples, weighted := 0, 0.0
@@ -220,7 +220,7 @@ func RecommendPerformance(e PerformanceEvidence) PerformanceRecommendation {
 		rec.SlotsAfter = rec.SlotsBefore
 		rec.Reason = fmt.Sprintf("Runners were measured at about %s of a core each, which a share of %s already covers on these hosts, so there are no more slots to find.",
 			formatCPUs(rec.Measured.CPUPerRunner), formatCPUs(e.Ask.CPUs))
-		rec.Hosts = nil
+		rec.Hosts = []PerformanceHostChange{}
 		return rec
 	}
 	rec.Verdict = PerformanceRaise

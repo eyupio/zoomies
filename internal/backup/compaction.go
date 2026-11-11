@@ -32,6 +32,11 @@ type CompactionResult struct {
 	// Skipped says why a conversion that was asked for was refused, as a sentence
 	// that names what to do. It is empty when nothing was refused.
 	Skipped string `json:"skipped,omitempty"`
+	// ConversionFailed says the rewrite itself was attempted and failed, which is
+	// what the controller backs off from: a rewrite holds the writer and the backup
+	// gate for as long as it runs, and a pass that retried it every interval would
+	// do that every interval.
+	ConversionFailed bool `json:"conversion_failed,omitempty"`
 	// Error says what failed. A rewrite that fails leaves the original file as it
 	// was.
 	Error string `json:"error,omitempty"`
@@ -77,6 +82,7 @@ func Compact(ctx context.Context, st *store.Store, cfg *config.Config, now time.
 		result.Converted = converted
 		if err != nil {
 			result.Error = err.Error()
+			result.ConversionFailed = !converted
 		}
 		if after, perr := st.PageStats(ctx); perr == nil {
 			result.FreedBytes = max((stats.PageCount-after.PageCount)*after.PageSize, 0)
@@ -113,16 +119,41 @@ func refuseConversion(cfg *config.Config, now time.Time) string {
 		return fmt.Sprintf("the database file could not be read to say how much room a rewrite needs: %v", err)
 	}
 	free, ok := freeDiskBytes(dir)
+	// VACUUM builds its working copy in the temporary directory, which is not the
+	// database's and on many hosts is a small tmpfs. A rewrite that fills it fails
+	// after it has held the writer for as long as it took to get that far.
+	tmp := os.TempDir()
+	tmpFree, tmpOK := freeDiskBytes(tmp)
+	dirNeeds, tmpNeeds := 2*info.Size(), info.Size()
+	if sameDirectory(tmp, dir) {
+		// One disk holds the new file and the working copy both.
+		dirNeeds, tmpNeeds = 3*info.Size(), 0
+	}
 	switch {
 	case !ok:
 		return "this platform cannot say how much disk is free, so a rewrite of the database, which needs room for a second copy, is not attempted; leave maintenance.compact at incremental"
-	case free < 2*info.Size():
-		return fmt.Sprintf("the disk has %s free and rewriting the %s database needs about twice its size; free some space, or leave maintenance.compact at incremental", sizeText(free), sizeText(info.Size()))
+	case !tmpOK:
+		return fmt.Sprintf("this platform cannot say how much room %s has, and the rewrite of the database builds a working copy there; leave maintenance.compact at incremental", tmp)
+	case tmpFree < tmpNeeds:
+		return fmt.Sprintf("the temporary directory %s has %s free and rewriting the %s database builds a working copy there; free some space or point TMPDIR at a bigger disk, or leave maintenance.compact at incremental", tmp, sizeText(tmpFree), sizeText(info.Size()))
+	case free < dirNeeds:
+		return fmt.Sprintf("the disk has %s free and rewriting the %s database needs about %s; free some space, or leave maintenance.compact at incremental", sizeText(free), sizeText(info.Size()), sizeText(dirNeeds))
 	}
 	if cfg.Backup.Interval > 0 && !hasRecentBackup(cfg, now) {
 		return fmt.Sprintf("there is no backup of this database from the last day in %s, and the rewrite holds the writer while it runs; take one (zoomies backup, or the Backups page) and the next pass will convert it", Dir(cfg))
 	}
 	return ""
+}
+
+// sameDirectory says two paths are one directory, so that the room both of a
+// rewrite's needs ask for is not counted twice over.
+func sameDirectory(a, b string) bool {
+	ai, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	bi, err := os.Stat(b)
+	return err == nil && os.SameFile(ai, bi)
 }
 
 // hasRecentBackup says the controller or an operator took a backup of this

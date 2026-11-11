@@ -127,6 +127,7 @@ func (h *harness) ageEntries(when time.Time) {
 	h.svc.mu.Lock()
 	defer h.svc.mu.Unlock()
 	for _, e := range h.svc.entries {
+		e.Used = when
 		_ = os.Chtimes(h.svc.blobPath(e.ID), when, when)
 	}
 }
@@ -441,7 +442,7 @@ func TestTheLeastRecentlyUsedEntryIsEvictedFirst(t *testing.T) {
 	old := time.Now().Add(-time.Hour)
 	for _, e := range h.svc.entries {
 		if e.Key == "b" {
-			_ = os.Chtimes(h.svc.blobPath(e.ID), old, old)
+			e.Used = old
 		}
 	}
 	h.restore(mainToken, "a", "v")
@@ -460,9 +461,7 @@ func TestAnEntryJustSavedIsNeverEvictedByItsOwnSave(t *testing.T) {
 	h := newHarness(t, Options{MaxBytes: 15})
 	h.save(mainToken, "old", "v", bytes.Repeat([]byte("o"), 10))
 	old := time.Now().Add(-time.Hour)
-	for _, e := range h.svc.entries {
-		_ = os.Chtimes(h.svc.blobPath(e.ID), old, old)
-	}
+	h.ageEntries(old)
 	if !h.save(mainToken, "new", "v", bytes.Repeat([]byte("n"), 10)) {
 		t.Fatal("the save failed")
 	}
@@ -543,5 +542,220 @@ func TestTheEntryIdIsADecimalInteger(t *testing.T) {
 	id, _ := fin["entry_id"].(string)
 	if n, err := strconv.ParseInt(id, 10, 64); err != nil || n < 0 {
 		t.Fatalf("entryId %q is not a non-negative int64", id)
+	}
+}
+
+// reserve opens a reservation and returns its upload address.
+func (h *harness) reserve(tok, key string) (string, int) {
+	h.t.Helper()
+	status, out := h.call(tok, "CreateCacheEntry", map[string]string{"key": key, "version": "v"})
+	url, _ := out["signed_upload_url"].(string)
+	return url, status
+}
+
+func blockList(ids ...string) []byte {
+	list := "<BlockList>"
+	for _, id := range ids {
+		list += "<Latest>" + id + "</Latest>"
+	}
+	return []byte(list + "</BlockList>")
+}
+
+func TestACommitNamingOneBlockOverAndOverIsRefusedBeforeAnythingIsCopied(t *testing.T) {
+	// One 60 byte block named a thousand times would be 60,000 bytes copied from
+	// 60 staged, past a ceiling of 100, so the commit has to fail on the sum.
+	h := newHarness(t, Options{MaxBytes: 100})
+	url, _ := h.reserve(mainToken, "k")
+	id := base64.StdEncoding.EncodeToString([]byte("b1"))
+	if st := h.put(url+"?comp=block&blockid="+id, bytes.Repeat([]byte("x"), 60)); st != http.StatusCreated {
+		t.Fatalf("stage answered %d", st)
+	}
+	ids := make([]string, 1000)
+	for i := range ids {
+		ids[i] = id
+	}
+	if st := h.put(url+"?comp=blocklist", blockList(ids...)); st == http.StatusCreated {
+		t.Fatal("a block list that adds up to far more than the ceiling was committed")
+	}
+	pendingID := strings.TrimSuffix(strings.TrimPrefix(url, h.srv.URL+blobPrefix), "/archive")
+	if _, err := os.Stat(h.svc.pendingData(pendingID)); err == nil {
+		t.Fatal("bytes were assembled before the commit was refused")
+	}
+	if got := h.svc.Stats().PutsFailed; got != 1 {
+		t.Fatalf("PutsFailed = %d, want the save counted as failed", got)
+	}
+	if !h.save(mainToken, "k", "v", []byte("ok")) {
+		t.Fatal("the refused commit left its key reserved")
+	}
+}
+
+func TestMoreBlocksThanTheServiceAllowsFailTheSave(t *testing.T) {
+	h := newHarness(t, Options{MaxBlocks: 2})
+	url, _ := h.reserve(mainToken, "k")
+	b64 := base64.StdEncoding.EncodeToString
+	for i, want := range []int{http.StatusCreated, http.StatusCreated} {
+		if st := h.put(url+"?comp=block&blockid="+b64([]byte{byte('a' + i)}), []byte("x")); st != want {
+			t.Fatalf("block %d answered %d", i, st)
+		}
+	}
+	if st := h.put(url+"?comp=block&blockid="+b64([]byte("c")), []byte("x")); st == http.StatusCreated {
+		t.Fatal("a third block was staged past the limit")
+	}
+}
+
+func TestOnlyAFewReservationsCanBeOpenAtOnce(t *testing.T) {
+	h := newHarness(t, Options{MaxPending: 2})
+	for _, k := range []string{"a", "b"} {
+		if _, st := h.reserve(mainToken, k); st != http.StatusOK {
+			t.Fatalf("reservation %q answered %d", k, st)
+		}
+	}
+	if _, st := h.reserve(mainToken, "c"); st == http.StatusOK {
+		t.Fatal("a third reservation was opened past the bound")
+	}
+}
+
+func TestStagedBytesAreBoundedAcrossOpenUploads(t *testing.T) {
+	h := newHarness(t, Options{MaxBytes: 1000, MaxPendingBytes: 30})
+	one, _ := h.reserve(mainToken, "one")
+	two, _ := h.reserve(mainToken, "two")
+	if st := h.put(one, bytes.Repeat([]byte("x"), 20)); st != http.StatusCreated {
+		t.Fatalf("first upload answered %d", st)
+	}
+	if st := h.put(two, bytes.Repeat([]byte("y"), 20)); st == http.StatusCreated {
+		t.Fatal("an upload was staged beyond the bytes open uploads may hold")
+	}
+}
+
+func TestBytesInFlightCountAgainstTheCeilingWhenEvicting(t *testing.T) {
+	// The ceiling is 25. An upload of 10 is open, so only 15 of finished entries
+	// fit beside it: finishing a 10 byte save must push the older entry out.
+	h := newHarness(t, Options{MaxBytes: 25})
+	h.save(mainToken, "old", "v", bytes.Repeat([]byte("o"), 10))
+	h.ageEntries(time.Now().Add(-time.Hour))
+	open, _ := h.reserve(mainToken, "open")
+	if st := h.put(open, bytes.Repeat([]byte("p"), 10)); st != http.StatusCreated {
+		t.Fatalf("open upload answered %d", st)
+	}
+	h.save(mainToken, "new", "v", bytes.Repeat([]byte("n"), 10))
+	if key, _ := h.restore(mainToken, "old", "v"); key != "" {
+		t.Fatal("the pool went over its ceiling because an open upload was not counted")
+	}
+}
+
+func TestServicesOfOneBudgetShareOneCeiling(t *testing.T) {
+	b := NewBudget(25)
+	one := newHarness(t, Options{Budget: b})
+	two := newHarness(t, Options{Budget: b})
+	one.save(mainToken, "a", "v", bytes.Repeat([]byte("a"), 10))
+	one.ageEntries(time.Now().Add(-time.Hour))
+	two.save(mainToken, "b", "v", bytes.Repeat([]byte("b"), 10))
+	two.save(mainToken, "c", "v", bytes.Repeat([]byte("c"), 10))
+	if key, _ := one.restore(mainToken, "a", "v"); key != "" {
+		t.Fatal("the other service's saves did not count against the shared ceiling")
+	}
+	if one.svc.Stats().Evictions != 1 {
+		t.Fatalf("evictions = %d, want the entry counted by the service that held it", one.svc.Stats().Evictions)
+	}
+	for _, key := range []string{"b", "c"} {
+		if got, _ := two.restore(mainToken, key, "v"); got == "" {
+			t.Errorf("%q was evicted though the budget had room", key)
+		}
+	}
+}
+
+func TestAServiceStartedOverALiveFolderLeavesItsFilesAlone(t *testing.T) {
+	dir := t.TempDir()
+	live := newHarness(t, Options{Dir: dir})
+	url, _ := live.reserve(mainToken, "k")
+	id := base64.StdEncoding.EncodeToString([]byte("b1"))
+	live.put(url+"?comp=block&blockid="+id, []byte("part"))
+	live.save(mainToken, "whole", "v", []byte("kept"))
+	// A blob renamed into place whose index is not written yet.
+	_ = os.WriteFile(live.svc.blobPath("midflight"), []byte("x"), 0o640)
+
+	newHarness(t, Options{Dir: dir})
+
+	if st := live.put(url+"?comp=blocklist", blockList(id)); st != http.StatusCreated {
+		t.Fatalf("a second service over the folder broke a live upload (%d)", st)
+	}
+	if _, err := os.Stat(live.svc.blobPath("midflight")); err != nil {
+		t.Fatal("a fresh blob with no index was deleted by another service")
+	}
+	if _, got := live.restore(mainToken, "whole", "v"); string(got) != "kept" {
+		t.Fatalf("a live entry was lost: %q", got)
+	}
+}
+
+func TestAFolderOverTheCeilingIsTrimmedAtStart(t *testing.T) {
+	dir := t.TempDir()
+	h := newHarness(t, Options{Dir: dir})
+	h.save(mainToken, "a", "v", bytes.Repeat([]byte("a"), 10))
+	h.save(mainToken, "b", "v", bytes.Repeat([]byte("b"), 10))
+	again := newHarness(t, Options{Dir: dir, MaxBytes: 12})
+	if n := again.svc.Stats().StoredBytes; n > 12 {
+		t.Fatalf("a folder of %d bytes was kept under a ceiling of 12", n)
+	}
+}
+
+func TestATokenThatIsNotAJWTCanNeitherReadNorWrite(t *testing.T) {
+	h := newHarness(t, Options{})
+	h.save(mainToken, "k", "v", []byte("secret"))
+	for _, tok := range []string{"job", "a.b", "a.!!!.c", "a." + base64.RawURLEncoding.EncodeToString([]byte("not json")) + ".c"} {
+		if _, st := h.reserve(tok, "other"); st != http.StatusUnauthorized {
+			t.Errorf("token %q was allowed to start a save (%d)", tok, st)
+		}
+		if key, _ := h.restore(tok, "k", "v"); key != "" {
+			t.Errorf("token %q restored an entry", tok)
+		}
+	}
+}
+
+func TestAReadOnlyTokenCannotSaveIntoTheScopeClaimlessTokensShare(t *testing.T) {
+	h := newHarness(t, Options{})
+	readOnly := token(map[string]int{"refs/heads/main": 1})
+	if _, st := h.reserve(readOnly, "k"); st != http.StatusUnauthorized {
+		t.Fatalf("a read-only token started a save (%d)", st)
+	}
+	odd := "x." + base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"job"}`)) + ".y"
+	if key, _ := h.restore(odd, "k", "v"); key != "" {
+		t.Fatal("a claimless token restored what a read-only token saved")
+	}
+}
+
+func TestARangedReadCountsAsAUse(t *testing.T) {
+	h := newHarness(t, Options{MaxBytes: 25})
+	h.save(mainToken, "a", "v", bytes.Repeat([]byte("a"), 10))
+	h.save(mainToken, "b", "v", bytes.Repeat([]byte("b"), 10))
+	h.ageEntries(time.Now().Add(-time.Hour))
+	_, out := h.call(mainToken, "GetCacheEntryDownloadURL", map[string]any{"key": "a", "version": "v"})
+	r, _ := http.NewRequest(http.MethodGet, out["signed_download_url"].(string), nil)
+	r.Header.Set("Range", "bytes=0-3")
+	resp, err := http.DefaultClient.Do(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	h.save(mainToken, "c", "v", bytes.Repeat([]byte("c"), 10))
+	if key, _ := h.restore(mainToken, "a", "v"); key == "" {
+		t.Fatal("the entry that was being read was evicted as if idle")
+	}
+	if key, _ := h.restore(mainToken, "b", "v"); key != "" {
+		t.Fatal("the idle entry was kept over the one being read")
+	}
+}
+
+func TestABlockArrivingForAnExpiredReservationLeavesNoFolderBehind(t *testing.T) {
+	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	h := newHarness(t, Options{PendingTTL: time.Hour, Now: func() time.Time { return now }})
+	url, _ := h.reserve(mainToken, "k")
+	id := strings.TrimSuffix(strings.TrimPrefix(url, h.srv.URL+blobPrefix), "/archive")
+	now = now.Add(2 * time.Hour)
+	h.reserve(mainToken, "other") // reclaims the expired reservation
+	if st := h.put(url+"?comp=block&blockid="+base64.StdEncoding.EncodeToString([]byte("b")), []byte("x")); st != http.StatusNotFound {
+		t.Fatalf("a block for an expired reservation answered %d", st)
+	}
+	if _, err := os.Stat(h.svc.pendingPath(id)); err == nil {
+		t.Fatal("the expired reservation's folder was recreated")
 	}
 }

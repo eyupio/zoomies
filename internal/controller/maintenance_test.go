@@ -385,3 +385,36 @@ func (h *harness) autoVacuumMode() int64 {
 	}
 	return stats.AutoVacuum
 }
+
+// A conversion that failed holds the writer and the backup gate while it runs, so
+// the scheduled pass must not start it again every interval. The failure stays on
+// the problems list, and the rewrite is tried again once the back-off is over.
+func TestAFailedConversionIsNotRetriedUntilTheBackOffIsOver(t *testing.T) {
+	h := newHarness(t)
+	h.fileStore(true)
+	h.c.UpdateConfig(func(c *config.Config) {
+		c.Maintenance.Interval = time.Hour
+		c.Maintenance.Compact = "convert"
+		c.Backup.Interval = 0
+	})
+	now := h.c.Now()
+	failed := &backup.CompactionResult{Mode: "convert", Error: "no space left", ConversionFailed: true}
+	h.c.maintenance.mu.Lock()
+	h.c.maintenance.notCompacted, h.c.maintenance.notCompactedAt = failed, now.Add(-time.Hour)
+	h.c.maintenance.mu.Unlock()
+
+	if got := h.c.compact(h.ctx, h.c.cfg(), now); got != nil {
+		t.Fatalf("compact = %+v an hour after a failed conversion, want it left alone", got)
+	}
+	if stats, err := h.st.PageStats(h.ctx); err != nil || stats.AutoVacuum == store.AutoVacuumIncremental {
+		t.Fatalf("the database was converted inside the back-off (stats %+v, err %v)", stats, err)
+	}
+	if len(h.c.compactionProblems()) != 1 {
+		t.Error("the failed conversion left the problems list during its back-off")
+	}
+
+	got := h.c.compact(h.ctx, h.c.cfg(), now.Add(conversionRetryAfter))
+	if got == nil || !got.Converted {
+		t.Fatalf("compact = %+v after the back-off, want the conversion tried again", got)
+	}
+}

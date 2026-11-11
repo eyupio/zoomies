@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"testing"
 	"time"
@@ -308,5 +309,63 @@ func TestAPassThatStartsGivesBackDownToTheShareAndNotDownToTheMinimum(t *testing
 	}
 	if stats.FreelistCount*100 > stats.PageCount*20 {
 		t.Errorf("%d of %d pages are still free after a pass that started: it stopped above the 20%% share, at the minimum (file %d from %d)", stats.FreelistCount, stats.PageCount, fileSize(t, s.path), before)
+	}
+}
+
+// A slice that leaves the free list as long as it found it will leave it so next
+// time, so the pass stops and does not hold the writer slice after slice until the
+// budget runs out. The hook frees as many pages as the slice gave back.
+func TestReclaimStopsWhenASliceLeavesTheFreeListUnchanged(t *testing.T) {
+	ctx := context.Background()
+	s := newFileStore(t)
+	fillAndEmpty(t, s)
+
+	result, err := s.Reclaim(ctx, ReclaimOptions{
+		MinFreePercent: 20, MinFreeBytes: 1 << 20, SliceBytes: 1 << 20, Budget: time.Minute,
+		AfterSlice: func() {
+			if _, err := s.exec(ctx, `DELETE FROM compaction_scratch WHERE rowid IN (SELECT rowid FROM compaction_scratch LIMIT 600)`); err != nil {
+				t.Errorf("freeing pages between slices: %v", err)
+			}
+		},
+	})
+	if err != nil {
+		t.Fatalf("Reclaim: %v", err)
+	}
+	if result.Slices != 1 {
+		t.Errorf("the pass took %d slices, want it to stop after the first that made no progress", result.Slices)
+	}
+}
+
+// The mode is chosen by a connection-string pragma whose effect depends on the
+// order the driver runs them in, so a new database is checked after opening and a
+// file that missed the mode is rewritten while it is still empty. An existing file
+// with tables is never converted by this check.
+func TestAnEmptyDatabaseThatMissedIncrementalModeIsPutRightAndOneWithTablesIsNot(t *testing.T) {
+	ctx := context.Background()
+	open := func(withTable bool) int {
+		path := t.TempDir() + "/missed.db"
+		db, err := sql.Open("sqlite", "file:"+path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		db.SetMaxOpenConns(1)
+		t.Cleanup(func() { db.Close() })
+		if withTable {
+			if _, err := db.ExecContext(ctx, `CREATE TABLE t (id INTEGER)`); err != nil {
+				t.Fatal(err)
+			}
+		}
+		ensureIncrementalVacuum(ctx, db, path)
+		var mode int
+		if err := db.QueryRowContext(ctx, `PRAGMA auto_vacuum`).Scan(&mode); err != nil {
+			t.Fatal(err)
+		}
+		return mode
+	}
+	if got := open(false); got != AutoVacuumIncremental {
+		t.Errorf("an empty database is in mode %d after the check, want incremental", got)
+	}
+	if got := open(true); got != AutoVacuumNone {
+		t.Errorf("a database with a table was converted to mode %d by the check", got)
 	}
 }
