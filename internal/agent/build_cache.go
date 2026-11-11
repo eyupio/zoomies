@@ -16,6 +16,7 @@ func (a *Agent) buildCacheLoop(ctx context.Context) error {
 	for {
 		a.pruneBuildCache(ctx)
 		a.sweepExternals(ctx)
+		a.sweepImages(ctx)
 		select {
 		case <-ctx.Done():
 			return nil
@@ -69,6 +70,31 @@ func (a *Agent) sweepExternals(ctx context.Context) {
 			a.log.Warn("could not sweep superseded externals volumes; will retry", "backend", kind, "error", err)
 		} else if removed > 0 {
 			a.log.Info("removed superseded externals volumes", "backend", kind, "volumes", removed)
+		}
+	}
+}
+
+// sweepImages removes the runner images a pool's tag has moved away from. Like
+// the externals sweep it runs whatever the builder-cache target, because the
+// images are ones this agent pulled and each image update would otherwise leave
+// one behind; the backend says what it will and will not touch.
+func (a *Agent) sweepImages(ctx context.Context) {
+	for _, kind := range a.opts.Backends.Kinds() {
+		b, err := a.opts.Backends.Get(kind)
+		if err != nil {
+			continue
+		}
+		sweeper, ok := b.(backend.ImageSweeper)
+		if !ok {
+			continue
+		}
+		cleanupCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		removed, err := sweeper.SweepImages(cleanupCtx)
+		cancel()
+		if err != nil {
+			a.log.Warn("could not sweep superseded runner images; will retry", "backend", kind, "error", err)
+		} else if removed > 0 {
+			a.log.Info("removed superseded runner images", "backend", kind, "images", removed)
 		}
 	}
 }

@@ -106,9 +106,11 @@ func TestTheAgentListsOnlyContainersCarryingItsLabel(t *testing.T) {
 }
 
 // Nothing anywhere in the tree may ask a daemon to prune images, containers,
-// volumes or networks, or delete an image or a volume, but for one volume
-// delete: APIClient.VolumeRemove, whose only caller removes the externals
-// volumes the agent labelled itself (see the test after this one). This reads
+// volumes or networks, or delete an image or a volume, but for two deletes:
+// APIClient.VolumeRemove, whose only caller removes the externals volumes the
+// agent labelled itself, and APIClient.ImageRemove, whose only caller removes
+// the untagged images the agent's own pulls superseded (see the tests after
+// this one). This reads
 // the source rather than a fake daemon because the promise is about every code
 // path, including one written next year that no fake here would think to
 // exercise.
@@ -119,9 +121,12 @@ func TestNothingInTheTreePrunesImagesVolumesOrUnlabelledContainers(t *testing.T)
 		regexp.MustCompile(`"DELETE",\s*"/(images|volumes)/`),
 		regexp.MustCompile(`"(docker|podman)",\s*"(image|volume|system|container)",\s*"prune"`),
 	}
-	// The one exception, matched whole so a second delete beside it still fails.
-	allowed := map[string]string{
-		filepath.Join("internal", "backend", "dockerapi.go"): `return c.do(ctx, http.MethodDelete, "/volumes/"+name, nil, nil, nil)`,
+	// The two exceptions, each matched whole so a third delete beside them still fails.
+	allowed := map[string][]string{
+		filepath.Join("internal", "backend", "dockerapi.go"): {
+			`return c.do(ctx, http.MethodDelete, "/volumes/"+name, nil, nil, nil)`,
+			`return c.do(ctx, http.MethodDelete, "/images/"+id, url.Values{"noprune": {"true"}}, nil, nil)`,
+		},
 	}
 	root := filepath.Join("..", "..")
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
@@ -143,8 +148,10 @@ func TestNothingInTheTreePrunesImagesVolumesOrUnlabelledContainers(t *testing.T)
 			return err
 		}
 		rel, _ := filepath.Rel(root, path)
-		if ok := allowed[rel]; ok != "" && strings.Count(string(body), ok) == 1 {
-			body = []byte(strings.Replace(string(body), ok, "", 1))
+		for _, ok := range allowed[rel] {
+			if strings.Count(string(body), ok) == 1 {
+				body = []byte(strings.Replace(string(body), ok, "", 1))
+			}
 		}
 		for _, re := range forbidden {
 			if m := re.Find(body); m != nil {
@@ -210,6 +217,61 @@ func TestVolumeRemoveIsCalledOnlyByTheExternalsSweep(t *testing.T) {
 	}
 	if !strings.Contains(fn, ".VolumeRemove(") {
 		t.Fatalf("VolumeRemove is called outside removeExternals (%s)", agentOwnsPromise)
+	}
+}
+
+// The image delete the test above allows has one caller, SweepImages, which
+// reaches it only through supersededImageRepository: an untagged image, of a
+// repository the agent prepared a runner from, that no recent create was handed.
+// A second call site would be a new kind of image the agent deletes, which
+// docs/security.md has to say first.
+func TestImageRemoveIsCalledOnlyByTheImageSweep(t *testing.T) {
+	root := filepath.Join("..", "..")
+	var sites []string
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case "node_modules", ".git", "web", "site", "dist":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for i := 0; i < strings.Count(string(body), ".ImageRemove("); i++ {
+			sites = append(sites, path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sites) != 1 || filepath.Base(sites[0]) != "image_sweep.go" {
+		t.Fatalf("ImageRemove is called from %v; its one caller is SweepImages in image_sweep.go (%s)", sites, agentOwnsPromise)
+	}
+	body, err := os.ReadFile(filepath.Join(root, "internal", "backend", "image_sweep.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := strings.ReplaceAll(string(body), "\r\n", "\n")
+	start := strings.Index(src, "func (b *DockerBackend) SweepImages(")
+	if start < 0 {
+		t.Fatalf("SweepImages is not in image_sweep.go; this test has to follow it (%s)", agentOwnsPromise)
+	}
+	fn := src[start:]
+	if end := strings.Index(fn, "\n}\n"); end >= 0 {
+		fn = fn[:end]
+	}
+	if !strings.Contains(fn, ".ImageRemove(") || !strings.Contains(fn, "supersededImageRepository(") {
+		t.Fatalf("ImageRemove is called outside SweepImages, or SweepImages no longer asks supersededImageRepository first (%s)", agentOwnsPromise)
 	}
 }
 

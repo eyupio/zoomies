@@ -370,7 +370,12 @@ type DockerBackend struct {
 	// only: a restart forgets it, which is safe because the runners being
 	// created when the agent stopped stopped with it.
 	externalsHanded map[string]time.Time
-	log             *slog.Logger
+	// images is what this agent has prepared, which is the whole of what
+	// SweepImages may clear superseded images from, and imagesSince is when the
+	// backend started, so that a fresh agent sweeps nothing for imageHandoff.
+	images      imageLedger
+	imagesSince time.Time
+	log         *slog.Logger
 	// nameRelease is how long a create waits for the daemon to release a name
 	// whose container has gone. A field rather than the constant so a test can
 	// exercise the wait without spending it.
@@ -463,6 +468,8 @@ func newContainerBackend(opts DockerOptions, fl flavor, detect func() []string, 
 		nameRelease: nameReleaseBudget,
 		nameSettle:  nameSettleBudget,
 		removalWait: removalWaitBudget,
+
+		imagesSince: time.Now(),
 	}
 	b.cacheSvcs = newCacheServices(b.sharedDir, b.sharedProblem, b.log, api.NetworkGateway)
 	return b, nil
@@ -1469,6 +1476,7 @@ func (b *DockerBackend) prepareImage(ctx context.Context, image string, policy s
 	if digest == "" {
 		return "", "", pull, duration, imageErr(fmt.Errorf("backend: image %s has no immutable digest", image))
 	}
+	b.noteImage(image, digest)
 	return createRef, digest, pull, duration, nil
 }
 
@@ -1584,6 +1592,18 @@ func (b *DockerBackend) cleanupFailedCreate(ctx context.Context, spec Spec, caus
 
 // ensureImage applies the pull policy.
 func (b *DockerBackend) ensureImage(ctx context.Context, image string) (bool, error) {
+	pulled, err := b.applyPullPolicy(ctx, image)
+	if err != nil {
+		return false, err
+	}
+	// The sidecar is an image this agent prepared like any other; its digest is
+	// best effort, because a daemon that cannot say only makes the sweep wait.
+	_, digest, _ := b.api.ImageIdentity(ctx, image)
+	b.noteImage(image, digest)
+	return pulled, nil
+}
+
+func (b *DockerBackend) applyPullPolicy(ctx context.Context, image string) (bool, error) {
 	if b.pull == PullAlways {
 		if err := b.api.ImagePull(ctx, image, b.auth); err != nil {
 			return false, imageErr(fmt.Errorf("backend: pulling %s: %w", image, err))
