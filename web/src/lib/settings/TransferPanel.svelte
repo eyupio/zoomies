@@ -357,7 +357,7 @@
     border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     padding: var(--z-space-5);
-    margin-bottom: var(--z-space-5);
+    margin-top: var(--z-space-5);
     background: var(--z-surface);
   }
   h2 {

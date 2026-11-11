@@ -471,7 +471,6 @@
 <style>
   .remotes {
     padding: var(--z-space-4) var(--z-space-5);
-    border-bottom: var(--z-border-width) solid var(--z-border);
   }
   header {
     display: flex;
