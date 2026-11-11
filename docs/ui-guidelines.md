@@ -739,12 +739,12 @@ fixed, because muscle memory is the point:
 1. **Overview**: fleet health at a glance
 2. **Command centre**: the whole fleet on one screen, live, for a second
    monitor or a wall. It is an immersive page at `/command`: it draws its own
-   bar (the wordmark, its name, the clock, Refresh, Full screen and Exit) in place of the
-   navigation, the top bar and the footer, and keeps the palette, the problems
-   drawer, the shortcut sheet and every shortcut. Exit returns to the page it
-   was opened from, or the Overview; `Esc` leaves full screen, then closes an
-   open overlay, then exits. It is not on the phone's bottom bar, only in the
-   menu More opens.
+   bar (the wordmark, its name, the clock, Refresh, Full screen and Exit) in
+   place of the navigation, the top bar and the footer, and keeps the palette,
+   the problems drawer, the shortcut sheet and every shortcut. Exit returns to
+   the page it was opened from, or the Overview; `Esc` leaves full screen, then
+   closes an open overlay, then exits. It is not on the phone's bottom bar, only
+   in the menu More opens.
 3. **Pools**: what runners to make
 4. **Runners**: what runners exist right now
 5. **Queue**: what is waiting for a runner, and why
@@ -1168,7 +1168,8 @@ So the control is one control, in one place, everywhere it means anything:
 
 * `PageHeader` renders it, first in the actions row, ahead of the page's own
   actions. It is a `secondary` button, never the primary one; the primary
-  action changes the fleet, not the view of it.
+  action changes the fleet, not the view of it. An immersive page, which has
+  no `PageHeader`, draws `RefreshButton` in its own bar, first of its controls.
 * A page declares what refreshing means for it by passing `onrefresh`, and
   `RefreshButton` registers that with `lib/state/refresh.svelte.ts`, which is
   also what the `R` shortcut and the palette entry run. The button and the key

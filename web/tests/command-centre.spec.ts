@@ -124,6 +124,20 @@ test('a browser that can go full screen is offered the control', async ({ page }
  */
 const COMMAND_READS = ['/api/v1/hosts', '/api/v1/provisioning', '/api/v1/jobs', '/api/v1/samples'];
 
+/**
+ * Resolves once each of the page's reads has answered for the first time.
+ * Made before the page is opened, so no answer can slip past it, and awaited
+ * before a refresh is recorded, so a first load's request that went out late
+ * cannot be counted as the refresh's.
+ */
+function firstLoad(page: Page): Promise<unknown> {
+  return Promise.all(
+    COMMAND_READS.map((path) =>
+      page.waitForResponse((response) => new URL(response.url()).pathname === path),
+    ),
+  );
+}
+
 function readsSeen(page: Page): Set<string> {
   const seen = new Set<string>();
   page.on('request', (request) => {
@@ -139,6 +153,7 @@ test('Refresh in the bar fetches the fleet, both lists and the chart again, and 
   // A wall display is the page most likely to have been left open through a
   // laptop lid or a controller restart, so it owes an operator the same way to
   // settle whether it is current as every other page, in the same words.
+  const loaded = firstLoad(page);
   await goto(page, '/command', 'Command centre');
   await expect(page.getByTestId('command-lane').first()).toBeVisible();
   const refresh = page.getByRole('button', { name: 'Refresh', exact: true });
@@ -152,6 +167,7 @@ test('Refresh in the bar fetches the fleet, both lists and the chart again, and 
   );
   expect(first, 'refresh comes before Exit').toBe(true);
 
+  await loaded;
   const seen = readsSeen(page);
   await refresh.click();
   await expect.poll(() => [...seen].sort()).toEqual([...COMMAND_READS].sort());
@@ -161,12 +177,59 @@ test('Refresh in the bar fetches the fleet, both lists and the chart again, and 
 });
 
 test('R refreshes the page as the button does', async ({ page }) => {
+  const loaded = firstLoad(page);
   await goto(page, '/command', 'Command centre');
   await expect(page.getByTestId('command-lane').first()).toBeVisible();
+  await loaded;
   const seen = readsSeen(page);
   await page.keyboard.press('r');
   await expect.poll(() => [...seen].sort()).toEqual([...COMMAND_READS].sort());
   await expect(page).toHaveURL(/\/command$/);
+});
+
+test('a refresh in which every read failed says so, and does not claim it refreshed', async ({
+  page,
+}) => {
+  // Each band reports its own failure in place, so one read failing leaves a
+  // refresh that happened. Every read failing is a refresh that did not, and
+  // a control reading "Refreshed" over it would be the page vouching for
+  // numbers it could not fetch.
+  await page.route('**/api/v1/events*', (route) => route.abort('connectionfailed'));
+  const loaded = firstLoad(page);
+  await goto(page, '/command', 'Command centre');
+  await loaded;
+  const refresh = page.getByRole('button', { name: 'Refresh', exact: true });
+  await expect(refresh).toHaveAccessibleDescription(/Fetch this page again/);
+
+  await page.route(
+    (url) => COMMAND_READS.includes(url.pathname),
+    (route) =>
+      route.fulfill({
+        status: 500,
+        json: { error: { code: 'internal', message: 'the database is locked' } },
+      }),
+  );
+  await refresh.click();
+  await expect(page.getByText('This page could not be refreshed')).toBeVisible();
+  await expect(refresh).not.toHaveAttribute('aria-busy', 'true');
+  await expect(refresh).not.toHaveAccessibleDescription(/^Refreshed /);
+  // The bands still say what failed, each in its own place.
+  await expect(rail(page, 'Waiting').getByRole('alert')).toBeVisible();
+});
+
+test('a queue longer than the read sends is counted in full', async ({ page }) => {
+  // The waiting read is capped, so a long queue sends its oldest jobs and
+  // reports how many there are. The count and "and N more" are the queue's,
+  // not the cap's.
+  await busyFleet(page, { hosts: 2, slots: 4, waiting: 12, waitingTotal: 640 });
+  await goto(page, '/command', 'Command centre');
+  const waiting = rail(page, 'Waiting');
+  await expect(waiting).toHaveAttribute('aria-busy', 'false');
+  await expect(waiting.getByRole('heading', { level: 2 })).toHaveText('Waiting 640');
+  await expect(waiting.getByRole('link', { name: 'and 635 more' })).toHaveAttribute(
+    'href',
+    /^\/queue/,
+  );
 });
 
 test('Ctrl+K opens the command palette on the page, and it lists the page', async ({ page }) => {
@@ -382,6 +445,27 @@ test('the page says it is not live when the stream goes away', async ({ page }) 
   const track = page.getByRole('region', { name: 'Recent events' }).locator('.track');
   await expect(track).toHaveCount(1);
   expect(await track.evaluate((el) => getComputedStyle(el).animationPlayState)).toBe('paused');
+});
+
+test('when the stream drops, the page counts from the last thing it heard, not from noticing', async ({
+  page,
+}) => {
+  // A stream can fall silent long before anything notices: a proxy holding a
+  // dead socket is only found out by the watchdog. Counting "last heard" from
+  // the moment the drop was noticed would understate how stale the page is by
+  // exactly that silence. The clock is moved on while nothing arrives, so the
+  // two moments are ten minutes apart.
+  await page.clock.install();
+  await goto(page, '/command', 'Command centre');
+  await expect(page.getByText('Live', { exact: true })).toBeVisible();
+  await page.clock.setSystemTime(Date.now() + 10 * 60_000);
+  await page.route('**/api/v1/events*', (route) => route.abort('connectionfailed'));
+  await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+  await expect(page.getByRole('heading', { name: 'Not live.' })).toBeVisible();
+  // The page's ten-second clock is what the sentence counts on.
+  await page.clock.runFor(11_000);
+  const hero = page.locator('section[aria-labelledby="command-verdict"]');
+  await expect(hero.locator('.sentence')).toContainText(/Last heard from the controller 10m/);
 });
 
 test('while the jobs are still loading the rail shows their shape and the deck is drawn', async ({

@@ -42,19 +42,25 @@
     return { at: Date.now(), queued: own.queued_jobs ?? 0, running: own.running_jobs ?? 0 };
   }
 
-  /** Fetch the hour again. The page's refresh calls it as well as a reconnect. */
-  export async function reload(): Promise<void> {
+  /**
+   * Fetch the hour again. The page's refresh calls it as well as a reconnect,
+   * and is told whether the samples arrived, since a refresh in which nothing
+   * answered has to say so. A read overtaken by a newer one has not failed.
+   */
+  export async function reload(): Promise<boolean> {
     pending?.abort();
     const controller = new AbortController();
     pending = controller;
     try {
       const page = await listSamples({ window: '1h' }, controller.signal);
-      if (pending !== controller) return;
+      if (pending !== controller) return true;
       samples = page.items ?? [];
       failed = false;
+      return true;
     } catch {
-      if (controller.signal.aborted || pending !== controller) return;
+      if (controller.signal.aborted || pending !== controller) return true;
       failed = true;
+      return false;
     }
   }
 

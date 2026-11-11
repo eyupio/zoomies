@@ -41,10 +41,11 @@
   /**
    * The page's refresh reaches the chart through here: its samples are its
    * own read, which no fleet reconcile repeats. While the fleet is loading no
-   * chart is drawn, and the one that mounts fetches for itself.
+   * chart is drawn, and the one that mounts fetches for itself. Resolves to
+   * whether the samples arrived; with no chart there was nothing to fail.
    */
-  export function reloadChart(): Promise<void> {
-    return chart?.reload() ?? Promise.resolve();
+  export function reloadChart(): Promise<boolean> {
+    return chart?.reload() ?? Promise.resolve(true);
   }
 
   function openProblems(): void {

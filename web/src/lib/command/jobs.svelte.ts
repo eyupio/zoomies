@@ -19,8 +19,8 @@ import {
   replayFrames,
 } from './jobs-merge';
 
-// The most a request may ask for. A queue longer than this is a fleet with a
-// bigger problem than a count that stops at five hundred.
+// The most a request may ask for. A longer queue is still counted, from the
+// total the read reports, but only this many of its jobs are held.
 const WAITING_LIMIT = 500;
 const FINISHED_LIMIT = 50;
 
@@ -32,6 +32,14 @@ let finished = $state.raw<Job[]>([]);
  * return ages out they have all gone too, and this goes to zero.
  */
 let unfetched = $state(0);
+/**
+ * Queued jobs past the fetch's cap: the newest of the queue, since the fetch is
+ * oldest first. They are counted from the read's total so "and N more" is the
+ * queue's length, not the cap's. Frames do not move it (a job that leaves the
+ * queue from here was never listed, and one that joins it is listed), so it
+ * stands until the next fetch, which a refresh or a reconnect makes.
+ */
+let unlisted = $state(0);
 let error = $state.raw<ApiError | null>(null);
 /**
  * True once a fetch has answered, either way. Until then the rail draws its
@@ -99,6 +107,7 @@ async function load(): Promise<void> {
     held = [];
     pending = null;
     unfetched = Math.max(0, (done.total ?? 0) - items.length);
+    unlisted = Math.max(0, (queue.total ?? 0) - (queue.items ?? []).length);
     error = null;
     loaded = true;
   } catch (e) {
@@ -120,6 +129,10 @@ export const commandJobs = {
   },
   get finished(): Job[] {
     return finished;
+  },
+  /** How many wait: the jobs held, and any past the fetch's cap. */
+  get waitingCount(): number {
+    return waiting.length + unlisted;
   },
   get finishedCount(): number {
     return finished.length + unfetched;
@@ -166,6 +179,7 @@ export const commandJobs = {
     waiting = [];
     finished = [];
     unfetched = 0;
+    unlisted = 0;
     error = null;
     loaded = false;
   },

@@ -12,6 +12,7 @@
   import { notifications } from '$lib/state/notifications.svelte';
   import { severityStatus } from '$lib/status';
   import { PROBLEMS_SHOWN } from './jobs-merge';
+  import RailSection from './RailSection.svelte';
   import { problemHref } from './links';
 
   interface Props {
@@ -27,10 +28,7 @@
   }
 </script>
 
-<section class="rail-section" aria-labelledby="command-attention">
-  <h2 id="command-attention">
-    Needs attention <span class="count">{problems.length}</span>
-  </h2>
+<RailSection id="command-attention" title="Needs attention" count={problems.length}>
   <ul>
     {#each shown as problem (problemKey(problem))}
       {@const href = problemHref(problem)}
@@ -56,7 +54,7 @@
   {#if more > 0}
     <button type="button" class="more" onclick={openDrawer}>and {more} more</button>
   {/if}
-</section>
+</RailSection>
 
 <style>
   .detail {

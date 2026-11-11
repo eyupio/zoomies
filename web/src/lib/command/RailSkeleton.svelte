@@ -1,7 +1,7 @@
 <!--
   The rows a rail list is about to draw, before its first read has answered.
 
-  Drawn in the rows' own box (the rail's shared `.row`), so the list does not
+  Drawn in the rows' own box (the `.row` RailSection gives every list), so the list does not
   jump when the real rows replace these, and hidden from assistive technology:
   the section says it is busy instead, which is what a screen reader can use.
 -->

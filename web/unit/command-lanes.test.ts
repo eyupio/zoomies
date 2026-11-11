@@ -153,3 +153,22 @@ test('an idle runner is a runner cell with no job', () => {
   assert.equal(lane!.cells[0]!.kind, 'runner');
   assert.equal(lane!.cells[0]!.runner?.current_job, undefined);
 });
+
+// A runner without an id has no page of its own. It still takes its slot, so
+// the lane counts it, and its cell opens the host instead of a link to nowhere.
+test('a runner the API sent without an id holds its slot, and its cell opens the host', () => {
+  const nameless: Runner = { host_id: 'a', state: 'busy' };
+  const [lane] = lanes([host('a', 2)], [nameless], []);
+  assert.equal(lane!.cells[0]!.kind, 'runner');
+  assert.equal(lane!.cells[0]!.runner, nameless);
+  assert.equal(lane!.cells[0]!.href, '/hosts/a');
+  assert.equal(lane!.note, '1 of 2 slots');
+});
+
+test('a host with no slots and no runners says so, not "0 of 0 slots"', () => {
+  const [lane] = lanes([host('a', 0)], [], []);
+  assert.equal(lane!.cells.length, 0);
+  assert.equal(lane!.state, 'ok');
+  assert.equal(lane!.note, 'no slots');
+  assert.equal(lane!.tone, null);
+});

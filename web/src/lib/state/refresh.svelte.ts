@@ -93,18 +93,25 @@ class Refresh {
 
   async #cycle(handler: RefreshHandler): Promise<void> {
     const started = Date.now();
+    let landed = true;
     try {
       await handler();
     } catch (cause) {
       // Most handlers report their own failures -- a grid renders its error,
       // the fleet cache keeps the last truth on screen. This is for the ones
       // that throw anyway, so a press is never silently swallowed.
+      landed = false;
       toasts.fromError(cause, 'This page could not be refreshed');
     } finally {
       const spent = Date.now() - started;
       if (spent < MIN_SPIN_MS) await sleep(MIN_SPIN_MS - spent);
-      this.#at = Date.now();
-      this.#count += 1;
+      // A refresh that failed did not land, so the control does not say it
+      // did: the time it gives is still the last one that did, and nothing is
+      // announced over the toast that says what went wrong.
+      if (landed) {
+        this.#at = Date.now();
+        this.#count += 1;
+      }
     }
   }
 }

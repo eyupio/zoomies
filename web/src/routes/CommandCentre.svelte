@@ -50,10 +50,12 @@
     A wall display that has quietly stopped updating is the one failure this
     page must not have. While the stream is down the second-by-second clock
     stops, so no age or wait goes on counting from numbers nobody can vouch
-    for, and the page remembers when it last heard anything. When the stream
-    returns, everything the page holds is fetched again (the replay buffer is
-    finite and may not cover the gap) before the clock is let go. The clock
-    exists for this page alone, so it stops with it.
+    for, and the page remembers when it last heard anything: the stream's
+    last frame or heartbeat, which can be well before the drop was noticed,
+    and never earlier than the moment the page itself went live. When the
+    stream returns, everything the page holds is fetched again (the replay
+    buffer is finite and may not cover the gap) before the clock is let go.
+    The clock exists for this page alone, so it stops with it.
   */
   // The shapes the indicator borrows: busy and filled while live, pending and
   // dashed while not, so the change reads without colour.
@@ -62,12 +64,14 @@
 
   let lastHeardAt = $state<number | null>(null);
   let wasLive = false;
+  let liveSince = 0;
   // Set when the page goes, so a refetch that answers after it cannot start
   // a clock nothing will ever stop.
   let disposed = false;
   $effect(() => {
     if (live) {
       const returning = lastHeardAt !== null;
+      if (!wasLive) liveSince = Date.now();
       wasLive = true;
       if (!returning) {
         clock.start();
@@ -79,7 +83,7 @@
       return;
     }
     clock.stop();
-    if (wasLive) lastHeardAt = Date.now();
+    if (wasLive) lastHeardAt = Math.max(events.heardAt ?? 0, liveSince);
     wasLive = false;
   });
   onMount(() => () => {
@@ -135,7 +139,7 @@
     // the two never disagree; the stats figure stands in only until then.
     const listed = commandJobs.loaded && !commandJobs.error;
     const waiting = listed
-      ? commandJobs.waiting.length
+      ? commandJobs.waitingCount
       : (fleet.stats?.fleet?.queued_jobs ?? fleet.stats?.queued_jobs ?? 0);
     const problems = notifications.active;
     return {
@@ -225,15 +229,21 @@
     likely to have sat through a closed lid or a controller restart, so it
     owes the same way to settle that as every other page: everything it reads,
     read again. The lists and the chart report their own failures in place,
-    so one that fails does not hold the others up.
+    so one that fails does not hold the others up. When every one of them
+    failed, the refresh did not happen at all, and the page says so the way
+    every page does, by throwing to the one refresh: a toast, and a control
+    that does not claim it refreshed.
   */
   let hero = $state<ReturnType<typeof Hero>>();
   async function refreshPage(): Promise<void> {
-    await Promise.allSettled([
+    const [, , chart] = await Promise.allSettled([
       fleet.reconcile(),
       commandJobs.retry(),
-      hero?.reloadChart() ?? Promise.resolve(),
+      hero?.reloadChart() ?? Promise.resolve(true),
     ]);
+    const chartFailed = chart.status === 'rejected' || !chart.value;
+    // reconcile() and retry() record a failure rather than throw it.
+    if (fleet.error && commandJobs.error && chartFailed) throw fleet.error;
   }
 </script>
 
@@ -279,10 +289,7 @@
         Full screen
       </Button>
     {/if}
-    <a class="exit" href="/" onclick={onExitClick}>
-      <X size={16} aria-hidden="true" />
-      Exit
-    </a>
+    <Button variant="secondary" icon={X} href="/" onclick={onExitClick}>Exit</Button>
   </header>
   <div class="stage">
     {#if fleet.loaded || !fleet.error}
@@ -307,6 +314,7 @@
         <div class="rail waiting">
           <WaitingList
             jobs={commandJobs.waiting}
+            count={commandJobs.waitingCount}
             loading={!commandJobs.loaded}
             error={commandJobs.error}
             onopen={showJob}
@@ -494,30 +502,6 @@
     font-size: var(--z-text-sm);
     color: var(--z-text-muted);
   }
-  .exit {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--z-space-2);
-    height: var(--z-space-8);
-    padding: 0 var(--z-space-3);
-    border: var(--z-border-width) solid var(--z-border);
-    border-radius: var(--z-radius-md);
-    color: var(--z-text);
-    font-size: var(--z-text-sm);
-    font-weight: var(--z-weight-medium);
-    text-decoration: none;
-    transition:
-      background-color var(--z-motion-fast) var(--z-ease),
-      border-color var(--z-motion-fast) var(--z-ease);
-  }
-  .exit:hover {
-    background: var(--z-surface-hover);
-    border-color: var(--z-border-strong);
-  }
-  .exit:focus-visible {
-    outline: none;
-    box-shadow: var(--z-focus-ring);
-  }
   .stage {
     display: flex;
     flex: 1;
@@ -590,125 +574,6 @@
   }
   .deck-error {
     grid-column: 1 / -1;
-  }
-  /* The rail's three lists share one look; each owns only what is its own. */
-  .rail :global(.rail-section) {
-    display: grid;
-    gap: var(--z-space-2);
-    min-width: 0;
-  }
-  .rail :global(.rail-section > h2) {
-    display: flex;
-    align-items: baseline;
-    gap: var(--z-space-2);
-    margin: 0;
-    font-size: var(--z-text-sm);
-    line-height: var(--z-leading-sm);
-    font-weight: var(--z-weight-semibold);
-    color: var(--z-text);
-  }
-  .rail :global(.count) {
-    color: var(--z-text-muted);
-    font-variant-numeric: tabular-nums;
-  }
-  .rail :global(.rail-section > ul) {
-    display: grid;
-    gap: var(--z-space-1);
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-  .rail :global(.row) {
-    display: flex;
-    align-items: center;
-    gap: var(--z-space-2);
-    box-sizing: border-box;
-    width: 100%;
-    min-width: 0;
-    padding: var(--z-space-2);
-    border: var(--z-border-width) solid var(--z-border);
-    border-radius: var(--z-radius-md);
-    background: var(--z-surface-raised);
-    color: var(--z-text);
-    font: inherit;
-    text-align: left;
-    text-decoration: none;
-    cursor: pointer;
-    animation: rail-arrive var(--z-motion-base) var(--z-ease);
-    transition: border-color var(--z-motion-fast) var(--z-ease);
-  }
-  .rail :global(.row:hover),
-  .rail :global(.row:focus-visible) {
-    border-color: var(--z-accent);
-  }
-  .rail :global(.row:focus-visible),
-  .rail :global(.more:focus-visible) {
-    outline: none;
-    box-shadow: var(--z-focus-ring);
-  }
-  .rail :global(.mark) {
-    display: inline-flex;
-    flex: none;
-  }
-  .rail :global(.what) {
-    display: grid;
-    flex: 1;
-    min-width: 0;
-  }
-  /* Names are somebody else's text: cut, never allowed to widen the rail. */
-  .rail :global(.name),
-  .rail :global(.where) {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .rail :global(.name) {
-    font-size: var(--z-text-sm);
-    font-weight: var(--z-weight-medium);
-  }
-  .rail :global(.where) {
-    font-family: var(--z-font-mono);
-    font-size: var(--z-text-2xs);
-    color: var(--z-text-muted);
-  }
-  .rail :global(.side) {
-    display: grid;
-    flex: none;
-    justify-items: end;
-    font-size: var(--z-text-xs);
-  }
-  .rail :global(.empty) {
-    margin: 0;
-    font-size: var(--z-text-sm);
-    color: var(--z-text-muted);
-  }
-  .rail :global(.more) {
-    justify-self: start;
-    padding: 0;
-    border: 0;
-    background: none;
-    color: var(--z-accent);
-    font: inherit;
-    font-size: var(--z-text-sm);
-    text-decoration: underline;
-    text-underline-offset: var(--z-underline-offset);
-    cursor: pointer;
-  }
-  @keyframes rail-arrive {
-    from {
-      opacity: 0;
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .rail :global(.row) {
-      animation: none;
-    }
-  }
-  @media (pointer: coarse) {
-    .rail :global(.row) {
-      min-height: var(--z-control-touch);
-    }
   }
   @media (max-width: 768px) {
     .bar {

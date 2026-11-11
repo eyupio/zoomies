@@ -822,3 +822,20 @@ test('the facts panel is on the dark stage and holds an unbroken value', async (
     await facts.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length),
   ).toBe(1);
 });
+
+// The rail's lists carry their own look now, not the command centre page's,
+// so the loading rows drawn here away from that page are the rows it draws:
+// bordered boxes with the busy list announced, not bare list items.
+test('the command centre rail shows its loading rows in its own shape', async ({ page }) => {
+  await open(page, 'mission-control', 'dark');
+  const rail = page.getByTestId('gallery-command-rail');
+  await expect(rail.getByTestId('command-rail-skeleton')).toHaveCount(2);
+  await expect(rail.getByRole('region', { name: /^Waiting/ })).toHaveAttribute('aria-busy', 'true');
+  const row = rail.getByTestId('command-rail-skeleton').first().locator('li').first();
+  const [border, radius] = await Promise.all([
+    row.evaluate((el) => getComputedStyle(el).borderTopStyle),
+    row.evaluate((el) => parseFloat(getComputedStyle(el).borderTopLeftRadius)),
+  ]);
+  expect(border).toBe('solid');
+  expect(radius).toBeGreaterThan(0);
+});
