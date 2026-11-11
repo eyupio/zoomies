@@ -8,12 +8,15 @@
 -->
 <script lang="ts">
   import type { Problem } from '$lib/api/types';
+  import Tooltip from '$lib/components/Tooltip.svelte';
+  import { fleet } from '$lib/state/fleet.svelte';
   import { problemKey } from '$lib/problems/identity';
   import { notifications } from '$lib/state/notifications.svelte';
   import { severityStatus } from '$lib/status';
   import { PROBLEMS_SHOWN } from './jobs-merge';
   import RailSection from './RailSection.svelte';
   import { problemHref } from './links';
+  import { problemText, problemTip } from './tips';
 
   interface Props {
     problems: readonly Problem[];
@@ -22,6 +25,13 @@
 
   const shown = $derived(problems.slice(0, PROBLEMS_SHOWN));
   const more = $derived(problems.length - shown.length);
+
+  /** The name of what a problem is about, where the page holds it. */
+  function targetName(problem: Problem): string | undefined {
+    if (problem.target_kind === 'host') return fleet.host(problem.target_id)?.name;
+    if (problem.target_kind === 'pool') return fleet.pool(problem.target_id)?.name;
+    return undefined;
+  }
 
   function openDrawer(): void {
     notifications.open = true;
@@ -43,11 +53,17 @@
             {#if problem.detail}<span class="detail">{problem.detail}</span>{/if}
           </span>
         {/snippet}
-        {#if href}
-          <a class="row" {href}>{@render body()}</a>
-        {:else}
-          <button type="button" class="row" onclick={openDrawer}>{@render body()}</button>
-        {/if}
+        <Tooltip
+          bare
+          detail={() => problemTip(problem, targetName(problem))}
+          text={problemText(problem, targetName(problem))}
+        >
+          {#if href}
+            <a class="row" {href}>{@render body()}</a>
+          {:else}
+            <button type="button" class="row" onclick={openDrawer}>{@render body()}</button>
+          {/if}
+        </Tooltip>
       </li>
     {/each}
   </ul>

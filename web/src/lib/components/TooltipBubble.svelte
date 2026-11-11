@@ -17,6 +17,8 @@
   * plain help: an optional heading, a sentence, a reason (why the control
     cannot be used now, and what to do about it) and the keys that do the same
     thing;
+  * a structured card, given as `detail`: a title and a few label and value
+    rows, drawn as a heading and a `<dl>` with every value as text;
   * a rich card, given as `children`, with whatever layout it likes;
   * the matrix's data card, which is a rich card that is not interactive.
 
@@ -27,6 +29,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { Info, Lock } from '@lucide/svelte';
+  import { resolveDetail, type TipDetail, type TipSource } from '../tooltip-detail';
   import { NARROW_QUERY, narrowPlacement, place, type Box, type Side } from '../tooltip-place';
 
   interface Props {
@@ -45,6 +48,8 @@
     /** The reason is a permission, so its icon is a padlock rather than an "i". */
     lock?: boolean;
     keys?: readonly string[];
+    /** A title and label and value rows. Ignored when `children` is given; drawn instead of plain help. */
+    detail?: TipSource;
     /**
      * Whether the pointer can land on the bubble. A card over a grid of squares
      * must not, or it would catch the pointer on its way to the next one.
@@ -67,12 +72,20 @@
     reason,
     lock = false,
     keys,
+    detail,
     interactive = true,
     onclose,
     onenter,
     onleave,
     children,
   }: Props = $props();
+
+  /*
+    Worked out here, and only here: the bubble exists only while it is open,
+    so a card given as a function costs nothing until then, and while it is
+    open it follows whatever it reads (a clock, a frame) as it changes.
+  */
+  const card = $derived(detail ? resolveDetail(detail) : undefined);
 
   let bubble = $state<HTMLSpanElement | null>(null);
   const narrow = window.matchMedia(NARROW_QUERY);
@@ -128,6 +141,7 @@
     void text;
     void reason;
     void keys;
+    void card;
 
     // The browser's top layer escapes overflow clipping and stacking contexts,
     // while keeping the bubble in its owner's DOM and accessibility tree.
@@ -217,6 +231,27 @@
   {#if text}<span class="sentence" class:muted={Boolean(title)}>{text}</span>{/if}
 {/snippet}
 
+<!--
+  The card is a span, as the bubble and its scroller are: the bubble is drawn
+  inside its trigger's wrapper, which can stand in a sentence, a link or a
+  button, where only phrasing content belongs, so the bubble's own element
+  cannot take a div. The heading and the list inside are kept because they are
+  what the card is; the bubble is built through the DOM and never re-parsed,
+  so nothing moves them, and it is hidden from assistive technology, whose copy
+  is the trigger's description.
+-->
+{#snippet cardOf(tip: TipDetail)}
+  <span class="card"
+    ><h3 class="card-title">{tip.title}</h3>
+    {#if tip.rows.length > 0}<dl class="card-rows">
+        {#each tip.rows as row, i (i)}<div>
+            <dt>{row.label}</dt>
+            <dd>{row.value}</dd>
+          </div>{/each}
+      </dl>{/if}</span
+  >
+{/snippet}
+
 {#snippet why()}
   {#if reason}
     <span class="reason">
@@ -245,8 +280,8 @@
   onpointerenter={() => onenter?.()}
   onpointerleave={() => onleave?.()}
   ><span class="scroll"
-    >{#if children}{@render children()}{:else}<span class="plain"
-        >{@render head()}{@render sentence()}{@render why()}</span
+    >{#if children}{@render children()}{:else if card}{@render cardOf(card)}{:else}<span
+        class="plain">{@render head()}{@render sentence()}{@render why()}</span
       >{/if}</span
   ></span
 >
@@ -395,6 +430,40 @@
     top: calc(var(--arrow, 50%) - var(--z-border-width));
     border-width: 0 0 var(--z-border-width) var(--z-border-width);
     transform: translateY(-50%) rotate(45deg);
+  }
+
+  /*
+    The structured card.
+    A heading and a two-column list: the labels muted and as wide as the
+    longest, the values beside them and broken anywhere, because a value is
+    often somebody else's text with no spaces in it. */
+  .card {
+    display: grid;
+    gap: var(--z-space-1);
+    padding: var(--z-space-1) 0;
+  }
+  .card-title {
+    margin: 0;
+    font-size: inherit;
+    line-height: inherit;
+    font-weight: var(--z-weight-semibold);
+    color: var(--z-text);
+  }
+  .card-rows {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: var(--z-nudge-2) var(--z-space-3);
+    margin: 0;
+  }
+  .card-rows div {
+    display: contents;
+  }
+  .card-rows dt {
+    color: var(--z-text-muted);
+  }
+  .card-rows dd {
+    margin: 0;
+    font-variant-numeric: tabular-nums;
   }
 
   /* -- plain help ---------------------------------------------------------- */

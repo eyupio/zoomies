@@ -19,6 +19,7 @@
   import { fleet } from '$lib/state/fleet.svelte';
   import { areaPath, linePath } from './chart';
   import { HISTORY_HREF } from './links';
+  import { hourTip } from './tips';
 
   interface Props {
     /** Slots the fleet has, so a full fleet's line reaches the top. */
@@ -99,7 +100,11 @@
 </script>
 
 <div class="hour">
-  <Tooltip bare text="Open the Overview's history.">
+  <Tooltip
+    bare
+    detail={() => hourTip(points, "The Overview's history")}
+    text="Open the Overview's history."
+  >
     <a class="chart" href={HISTORY_HREF} data-testid="command-hour-chart">
       <span class="head" aria-hidden="true">
         <span class="title">Last hour</span>

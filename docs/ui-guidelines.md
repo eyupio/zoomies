@@ -1339,6 +1339,17 @@ There are three kinds of content, and one bubble under all of them:
 | Plain help | an optional heading, one sentence, an optional reason and the keys that do the same thing | the sidebar, icon buttons, row actions and menu items, `Badge`, `RelativeTime`, truncated values, grid headings |
 | Rich card | a `content` snippet with a layout of its own; `text` stays its one-sentence copy | the runner state card, the memory badges, the host memory ledger, the lifecycle flow, pool risks, field help, setting sources, backup badges |
 | Data card | a rich card that is not interactive and opens with no wait | the activity matrix |
+| Structured card | `detail`: a title and a short list of label and value rows, drawn as a heading and a `<dl>` in the wide bubble, every value as text; with no `text`, the card read as sentences is the description | the command centre's tiles, lanes, figures, rail rows and ticker |
+
+Reach for the structured card when the help is a handful of facts about one
+thing (a runner, a host, a job) rather than a sentence, and keep it to what is
+known: a row whose value is unknown is left out, never drawn empty. The item
+stays one link or one button with no control in the card, and the rows come
+from a pure function a unit test reads (`lib/command/tips.ts` for the command
+centre). A card that reads a clock is given as a function, which only the open
+bubble calls, with a short steady `text` as its description, so a page of them
+does no work for bubbles nobody has opened and no description ticks.
+`attachTip` takes the same `detail`.
 
 The heading is shown only for a control that does not show its own name: an icon
 button's label, a collapsed sidebar entry's page. When there is a heading the

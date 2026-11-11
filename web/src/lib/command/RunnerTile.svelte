@@ -1,48 +1,41 @@
 <!--
-  One slot of a host lane: a runner, a runner on its way, or room for one.
+  One cell of a host lane: a runner, a runner on its way, or the room left on
+  the host, counted in one cell.
 
   The whole tile is one link and holds no second control, so a wall display can
   be driven with Tab and every tile opens in a new tab like any other link. It
-  is one height whatever it holds, so a runner arriving or leaving changes the
-  tile's colour and mark and never the lane around it.
+  is one height whatever it holds. A runner arriving or leaving moves the tiles
+  after it along by one; each fades in where it lands, and nothing slides.
 
   Everything a workflow names (the job, the repository, the branch) is
   somebody else's text: it is rendered as text and cut with an ellipsis, so a
   four-hundred-character job name cannot widen the cell it sits in.
 -->
 <script lang="ts">
-  import type { Runner } from '$lib/api/types';
   import { formatDuration, NO_VALUE } from '$lib/format';
-  import { readableJobText } from '$lib/jobs/name';
   import { dogPhase } from '$lib/mascot/dog-motion';
+  import Tooltip from '$lib/components/Tooltip.svelte';
   import RunnerStatus from '$lib/runners/RunnerStatus.svelte';
+  import { prefs } from '$lib/state/prefs.svelte';
   import { cpuShare } from './chart';
   import { clock } from './clock.svelte';
-  import type { Cell } from './lanes';
+  import type { Cell, Lane } from './lanes';
+  import { cellTitle, freeTip, hostText, runnerText, runnerTip, startingTip } from './tips';
   import { elapsedMs } from './time';
 
   interface Props {
     cell: Cell;
     /** The host the lane is for, so a free cell says where it leads. */
     hostName: string;
+    /** The lane, for the free cell's card. Without it the card counts only the cell. */
+    lane?: Pick<Lane, 'host' | 'slots' | 'free'>;
   }
-  let { cell, hostName }: Props = $props();
-
-  const STEP: Partial<Record<NonNullable<Runner['state']>, string>> = {
-    provisioning: 'Provisioning',
-    registering: 'Registering',
-  };
+  let { cell, hostName, lane }: Props = $props();
 
   const runner = $derived(cell.runner);
   const job = $derived(runner?.current_job);
-  const title = $derived.by(() => {
-    if (!runner) return 'Free slot';
-    if (cell.kind === 'starting') return STEP[runner.state ?? 'provisioning'] ?? 'Starting';
-    if (job) return readableJobText(job.job_name) || 'A job';
-    if (runner.state === 'draining') return 'Draining';
-    if (runner.state === 'failed') return 'Failed';
-    return 'Idle';
-  });
+  // The card is headed by the same function, so the two never disagree.
+  const title = $derived(cellTitle(cell));
   const age = $derived.by(() => {
     if (!runner) return null;
     const since = job ? (job.started_at ?? undefined) : runner.created_at;
@@ -52,45 +45,64 @@
   const where = $derived(job ? [job.repo, job.head_branch].filter(Boolean).join(' · ') : '');
   const share = $derived(runner ? cpuShare(runner) : null);
   const busy = $derived(runner?.state === 'busy');
+  const freeLane = $derived(
+    lane ?? { host: { name: hostName }, slots: cell.count ?? 0, free: cell.count ?? 0 },
+  );
+  /*
+    The card reads the one-second clock, so it is handed over as a function
+    and worked out only while its bubble is open. What a screen reader is
+    given is the steady part, which a tick does not rewrite.
+  */
+  const tip = () => {
+    if (!runner) return freeTip(freeLane);
+    const context = { hostName, now: clock.now, quirky: prefs.quirkyStatus };
+    return cell.kind === 'starting' ? startingTip(runner, context) : runnerTip(runner, context);
+  };
+  const text = $derived(
+    runner ? runnerText(runner, { hostName, quirky: prefs.quirkyStatus }) : hostText(freeLane.host),
+  );
 </script>
 
-{#if runner}
-  <a
-    class="tile"
-    class:failed={runner.state === 'failed'}
-    class:starting={cell.kind === 'starting'}
-    href={cell.href}
-    data-testid="command-tile"
-    data-state={runner.state}
-    style:--phase={dogPhase(runner.id ?? cell.key)}
-  >
-    <span class="line">
-      <RunnerStatus mark {runner} />
-      <span class="title">{title}</span>
-      <span class="age">{age}</span>
-    </span>
-    {#if where}<span class="where">{where}</span>{/if}
-    <span
-      class="bar"
-      class:sweep={busy}
-      class:unknown={share === null}
-      style:--share={share ?? 0}
-      aria-hidden="true"
-    ></span>
-  </a>
-{:else}
-  <a
-    class="tile free"
-    href={cell.href}
-    data-testid="command-free"
-    aria-label="Free slot on {hostName}"
-  >
-    <span class="line">
-      <RunnerStatus mark runner={{ id: cell.key, state: 'idle' }} />
-      <span class="title">Free slot</span>
-    </span>
-  </a>
-{/if}
+<!-- Bare, so the grid lays out the tile as though the wrapper were not there. -->
+<Tooltip bare detail={tip} {text}>
+  {#if runner}
+    <a
+      class="tile"
+      class:failed={runner.state === 'failed'}
+      class:starting={cell.kind === 'starting'}
+      href={cell.href}
+      data-testid="command-tile"
+      data-state={runner.state}
+      style:--phase={dogPhase(runner.id ?? cell.key)}
+    >
+      <span class="line">
+        <RunnerStatus mark {runner} />
+        <span class="title">{title}</span>
+        <span class="age">{age}</span>
+      </span>
+      {#if where}<span class="where">{where}</span>{/if}
+      <span
+        class="bar"
+        class:sweep={busy}
+        class:unknown={share === null}
+        style:--share={share ?? 0}
+        aria-hidden="true"
+      ></span>
+    </a>
+  {:else}
+    <a
+      class="tile free"
+      href={cell.href}
+      data-testid="command-free"
+      aria-label="{title} on {hostName}"
+    >
+      <span class="line">
+        <RunnerStatus mark runner={{ id: cell.key, state: 'idle' }} />
+        <span class="title">{title}</span>
+      </span>
+    </a>
+  {/if}
+</Tooltip>
 
 <style>
   .tile {

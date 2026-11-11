@@ -17,6 +17,8 @@
   import HourChart from './HourChart.svelte';
   import Ring from './Ring.svelte';
   import { heroFigures } from './figures';
+  import type { Lane } from './lanes';
+  import { figureTip, ringTip } from './tips';
   import type { Verdict } from './verdict';
 
   interface Props {
@@ -25,6 +27,8 @@
     running: number;
     busy: number;
     slots: number;
+    /** The deck's lanes, which the ring's card counts from as the deck does. */
+    lanes: readonly Lane[];
     now: number;
     /**
      * The fleet's first read has not answered. The verdict is not drawn until
@@ -32,7 +36,7 @@
      */
     loading?: boolean;
   }
-  let { verdict, stats, running, busy, slots, now, loading = false }: Props = $props();
+  let { verdict, stats, running, busy, slots, lanes, now, loading = false }: Props = $props();
 
   const figures = $derived(heroFigures(stats, now));
 
@@ -73,7 +77,7 @@
   </section>
 {:else}
   <section class="hero" aria-labelledby="command-verdict">
-    <Ring {running} {busy} {slots} />
+    <Ring {running} {busy} {slots} detail={() => ringTip(lanes, 'The running jobs')} />
 
     <div class="verdict" data-verdict={verdict.kind}>
       <h2 id="command-verdict">{verdict.headline}</h2>
@@ -105,7 +109,7 @@
     <ul class="figures">
       {#each figures as figure (figure.label)}
         <li>
-          <Tooltip bare text={figure.help}>
+          <Tooltip bare detail={() => figureTip(figure, stats)} text={figure.help}>
             <a class="figure" href={figure.href}>
               <span class="label">{figure.label}</span>
               <b class="value">{figure.value}</b>

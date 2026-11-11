@@ -1,18 +1,21 @@
 <!--
-  One host on the command centre: its name, one word about it and a cell for
-  each slot it has.
+  One host on the command centre: its name, one word about it, a tile for each
+  runner on it and one cell for the slots left.
 
   The lane says its own state where the verdict would otherwise have to name
   it, and takes that state's colour as its border, so the sentence at the top
-  and the lane it means are the same colour. The cells are keyed by slot, not
-  by runner: a slot is a fixed place on the host, so a runner leaving fades
-  out of its cell and nothing beside it moves.
+  and the lane it means are the same colour. The cells are keyed by runner, so
+  a tile keeps its identity when one before it leaves; the ones after it close
+  up without their position being animated, since motion is for colour and
+  the mark, never layout.
 -->
 <script lang="ts">
   import { CirclePause, Clock, TriangleAlert } from '@lucide/svelte';
+  import Tooltip from '$lib/components/Tooltip.svelte';
   import { formatNumber } from '$lib/format';
   import type { Lane } from './lanes';
   import RunnerTile from './RunnerTile.svelte';
+  import { hostText, hostTip } from './tips';
 
   let { lane }: { lane: Lane } = $props();
 
@@ -35,19 +38,21 @@
   aria-labelledby="{id}-name"
   data-testid="command-lane"
 >
-  <a class="head" href={lane.href}>
-    <h3 class="name" id="{id}-name">{name}</h3>
-    <span class="note">
-      {#if lane.tone === 'pending'}<Clock size={14} aria-hidden="true" />{/if}
-      {#if lane.tone === 'danger'}<TriangleAlert size={14} aria-hidden="true" />{/if}
-      {#if lane.tone === 'draining'}<CirclePause size={14} aria-hidden="true" />{/if}
-      {lane.note}
-    </span>
-    {#if cpu}<span class="cpu">{cpu}</span>{/if}
-  </a>
+  <Tooltip bare detail={() => hostTip(lane)} text={hostText(lane.host)}>
+    <a class="head" href={lane.href}>
+      <h3 class="name" id="{id}-name">{name}</h3>
+      <span class="note">
+        {#if lane.tone === 'pending'}<Clock size={14} aria-hidden="true" />{/if}
+        {#if lane.tone === 'danger'}<TriangleAlert size={14} aria-hidden="true" />{/if}
+        {#if lane.tone === 'draining'}<CirclePause size={14} aria-hidden="true" />{/if}
+        {lane.note}
+      </span>
+      {#if cpu}<span class="cpu">{cpu}</span>{/if}
+    </a>
+  </Tooltip>
   <div class="cells">
     {#each lane.cells as cell (cell.key)}
-      <RunnerTile {cell} hostName={name} />
+      <RunnerTile {cell} hostName={name} {lane} />
     {/each}
   </div>
 </section>
