@@ -539,8 +539,20 @@
     gap: var(--z-space-4) var(--z-space-6);
     height: 100%;
     padding: var(--command-gutter);
+    overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
+  }
+  /* A wall display is looked at, and a scrollbar on it is chrome that reads as
+     a fault. The deck and the rail still scroll by wheel, touch and keyboard
+     when a fleet is larger than the screen; only the bar is not drawn. */
+  .board,
+  .deck {
+    scrollbar-width: none;
+  }
+  .board::-webkit-scrollbar,
+  .deck::-webkit-scrollbar {
+    display: none;
   }
   /* The assistant's button sits over the foot of the rail, and a wall display
      is looked at rather than scrolled, so a row merely scrollable out from
@@ -558,21 +570,24 @@
     grid-column: 2;
     min-width: 0;
   }
-  /* Two small hosts share a row; a lane with more cells than one row draws
-     spans both, so the deck grows downwards as the fleet does, inside its
-     own scroll. The inset leaves room for a focus ring the scroll would
-     otherwise cut. */
+  /* One host to a row, each the deck's full width, so the lanes share edges
+     and their tiles share columns: the eye runs down the page instead of
+     hunting for where a lane ended. A fleet with many hosts grows the deck
+     downwards, inside its own scroll. Two lanes abreast left a blank block
+     beside any lane that wrapped. The inset leaves room for a focus ring the
+     scroll would otherwise cut. */
   .deck {
     position: absolute;
     inset: calc(var(--command-gutter) - var(--z-space-1))
       calc(var(--command-gutter) * 2 + var(--z-command-rail) - var(--z-space-1))
       calc(var(--command-gutter) - var(--z-space-1)) calc(var(--command-gutter) - var(--z-space-1));
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
     align-items: start;
     align-content: start;
     gap: var(--z-space-4);
     padding: var(--z-space-1);
+    overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
   }
@@ -593,14 +608,6 @@
   }
   .deck-error {
     grid-column: 1 / -1;
-  }
-  /* Beside a rail of fixed width, a deck under about a thousand pixels wide
-     has no room for two lanes abreast: each would be a column of cramped
-     tiles. One lane to a row, until the phone stacks the page. */
-  @media (max-width: 1000px) {
-    .deck {
-      grid-template-columns: minmax(0, 1fr);
-    }
   }
   @media (max-width: 768px) {
     .bar {

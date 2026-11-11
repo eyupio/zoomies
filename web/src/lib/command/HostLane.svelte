@@ -32,7 +32,6 @@
 
 <section
   class="lane"
-  class:wide={lane.wide}
   data-tone={lane.tone ?? undefined}
   data-state={lane.state}
   aria-labelledby="{id}-name"
@@ -69,9 +68,6 @@
     background: var(--z-surface);
     transition: border-color var(--z-motion-fast) var(--z-ease);
   }
-  .lane.wide {
-    grid-column: 1 / -1;
-  }
   .lane[data-tone='pending'] {
     border-color: var(--z-pending);
   }
@@ -83,9 +79,10 @@
   }
   .head {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: var(--z-space-3);
     min-width: 0;
+    padding-bottom: var(--z-space-1);
     border-radius: var(--z-radius-sm);
     color: var(--z-text);
     text-decoration: none;
@@ -136,8 +133,10 @@
   .cells {
     display: grid;
     /* A one-off measure: the narrowest a tile can be and still carry a job's
-       name and its age on one line. */
-    grid-template-columns: repeat(auto-fill, minmax(min(100%, 11rem), 1fr));
+       name, its age and a readable repository on one line. Every lane is the
+       deck's full width, so every lane cuts the same columns and the tiles
+       line up from one host to the next. */
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 13rem), 1fr));
     gap: var(--z-space-2);
   }
 </style>
