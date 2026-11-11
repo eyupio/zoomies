@@ -2165,7 +2165,7 @@ func (i *Installer) runInstall(ctx context.Context, p Plan) error {
 		return err
 	}
 
-	st, err := store.Open(ctx, store.Options{Path: p.DBPath})
+	st, err := store.Open(ctx, store.Options{Path: p.DBPath, PreMigrationKeep: cfg.Backup.PreMigrationKeep})
 	if err != nil {
 		return fmt.Errorf("installer: opening the database at %s: %w", p.DBPath, err)
 	}

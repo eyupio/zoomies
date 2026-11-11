@@ -41,7 +41,7 @@ func openForSettings(ctx context.Context, cfgPath string) (*config.Config, *stor
 		}
 		return nil, nil, nil, nil, err
 	}
-	st, err := store.Open(ctx, store.Options{Path: cfg.Database.Path})
+	st, err := store.Open(ctx, store.Options{Path: cfg.Database.Path, PreMigrationKeep: cfg.Backup.PreMigrationKeep})
 	if err != nil {
 		_ = unlock()
 		return nil, nil, nil, nil, err
