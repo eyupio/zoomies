@@ -723,6 +723,14 @@ func (c *Controller) noteOOMKilled(ctx context.Context, r *store.Runner, message
 	// A kill is the one piece of evidence the class does not wait for.
 	c.refreshJobClass(ctx, j)
 	c.publishJob(ctx, j)
+	// A build killed in the sidecar leaves a runner that finishes its job and
+	// exits cleanly, so GitHub's "completed" arrives first and finds nothing
+	// the fleet has confessed to. The confession is this call, and it is the
+	// only one made for the job (marked), so the re-run that completion would
+	// have asked for is asked for here, under the same setting and limit.
+	if j.State == store.JobCompleted {
+		c.autoRerunFleetFailure(ctx, j)
+	}
 }
 
 // noteRunnerLost records that a runner stopped while it was still executing a
