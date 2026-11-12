@@ -3,7 +3,13 @@ import { goto, readThrough, useClassic, layoutChoice } from './support/fixtures'
 
 /** Whether the named layout is the one pressed, read where the choice lives: the grid's toolbar. */
 async function expectLayout(page: Page, name: 'Cards' | 'Rows'): Promise<void> {
-  await expect(layoutChoice(page, name)).toHaveAttribute('aria-pressed', 'true');
+  const choice = layoutChoice(page, name);
+  // Brought up the screen, as pressing Columns did when the choice was in
+  // its panel (the press scrolled the button clear of the bottom bar): the
+  // tests after this measure the first record from the grid's toolbar down,
+  // not from the top of the page.
+  await choice.evaluate((node) => node.scrollIntoView({ block: 'center' }));
+  await expect(choice).toHaveAttribute('aria-pressed', 'true');
 }
 
 async function mission(page: Page, prefs?: Record<string, unknown>) {
