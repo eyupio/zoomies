@@ -179,18 +179,21 @@ func TestRepairSourceLeavesOutAFileItMayNotHaveAndNamesIt(t *testing.T) {
 func itoa(n int) string { return strconv.Itoa(n) }
 
 // GitHub omits PR links on some runs. Commit lookup must recover the PR
-// without admitting a closed PR, a fork or a different head.
+// without admitting a closed PR, a fork or a different head. A commit no open
+// PR points at is settled as closed: the PR was closed, merged or superseded,
+// and a failure of it must leave the attention list rather than be offered for
+// a repair that can never start.
 func TestRepairRunResolvesMissingPullLinksAndKeepsAdmissionChecks(t *testing.T) {
 	for _, tc := range []struct {
-		name, candidates, pull, message string
+		name, candidates, pull, message, changed string
 	}{
-		{"open PR", `[{"number":1}]`, testPull, ""},
-		{"missing PR state", `[{"number":1}]`, strings.Replace(testPull, `"open"`, `""`, 1), "open PR"},
-		{"closed PR", `[{"number":1}]`, strings.Replace(testPull, `"open"`, `"closed"`, 1), "PR #1 is closed or merged"},
-		{"stale head", `[{"number":1}]`, strings.Replace(testPull, `"old"`, `"new"`, 1), "newer commits"},
-		{"no PR", `[]`, "", "single PR"},
-		{"ambiguous commit", `[{"number":1},{"number":2}]`, "", "single PR"},
-		{"fork PR", `[{"number":1}]`, strings.Replace(testPull, "acme/repo", "other/repo", 1), "forks"},
+		{"open PR", `[{"number":1}]`, testPull, "", ""},
+		{"missing PR state", `[{"number":1}]`, strings.Replace(testPull, `"open"`, `""`, 1), "open PR", ""},
+		{"closed PR", `[{"number":1}]`, strings.Replace(testPull, `"open"`, `"closed"`, 1), "PR #1 is closed or merged", ""},
+		{"stale head", `[{"number":1}]`, strings.Replace(testPull, `"old"`, `"new"`, 1), "newer commits", ""},
+		{"no PR", `[]`, "", "No open pull request is at this failed run", "closed"},
+		{"ambiguous commit", `[{"number":1},{"number":2}]`, "", "single PR", ""},
+		{"fork PR", `[{"number":1}]`, strings.Replace(testPull, "acme/repo", "other/repo", 1), "forks", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c := repairTestClient(t, func(w http.ResponseWriter, r *http.Request) {
@@ -214,7 +217,12 @@ func TestRepairRunResolvesMissingPullLinksAndKeepsAdmissionChecks(t *testing.T) 
 				}
 			})
 			p, err := c.RepairPullForRun(context.Background(), "acme/repo", 9)
-			if tc.message != "" {
+			if tc.changed != "" {
+				var changed *RepairTargetChanged
+				if !errors.As(err, &changed) || changed.Code != tc.changed || !strings.Contains(err.Error(), tc.message) {
+					t.Fatalf("pull %+v, error %v; want settled as %q with %q", p, err, tc.changed, tc.message)
+				}
+			} else if tc.message != "" {
 				if !errors.Is(err, ErrRepairUnsupported) || !strings.Contains(err.Error(), tc.message) {
 					t.Fatalf("pull %+v, error %v; want %q", p, err, tc.message)
 				}

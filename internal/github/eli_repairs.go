@@ -231,6 +231,7 @@ func (c *appClient) RepairPullForRun(ctx context.Context, repo string, run int64
 	// only for a run a PR started: the commit of a push, schedule or manual run
 	// on the default branch resolves to the PR whose merge made it, and that
 	// PR being closed would settle a failure that never belonged to it.
+	resolvedByCommit := false
 	if len(r.Pulls) == 0 && r.HeadSHA != "" {
 		if r.Event != "pull_request" && r.Event != "pull_request_target" {
 			return RepairPull{}, fmt.Errorf("%w: the failed run was not started by a PR (its event is %q), so there is no PR to repair", ErrRepairUnsupported, r.Event)
@@ -238,6 +239,16 @@ func (c *appClient) RepairPullForRun(ctx context.Context, repo string, run int64
 		if err := c.repairRequest(ctx, http.MethodGet, base+"/commits/"+url.PathEscape(r.HeadSHA)+"/pulls?per_page=2", nil, &r.Pulls); err != nil {
 			return RepairPull{}, err
 		}
+		resolvedByCommit = true
+	}
+	// The commit lookup lists the open PRs at that commit. None means the PR
+	// the run belonged to is gone: it was closed, merged, or moved to newer
+	// commits. That is settled, not a repair nobody can target, so a failed
+	// Dependabot or other deleted-branch PR leaves the attention list instead
+	// of asking forever. More than one PR is genuinely ambiguous and stays
+	// unsupported, and a failed read above never reaches here.
+	if len(r.Pulls) == 0 && resolvedByCommit {
+		return RepairPull{}, &RepairTargetChanged{Code: "closed", Message: "No open pull request is at this failed run's commit. It was closed, merged or replaced by newer commits, so this failure no longer needs a repair. You can still inspect the original run on GitHub."}
 	}
 	if len(r.Pulls) != 1 {
 		return RepairPull{}, fmt.Errorf("%w: the failed run does not identify a single PR. Choose an open PR or paste its GitHub URL", ErrRepairUnsupported)
