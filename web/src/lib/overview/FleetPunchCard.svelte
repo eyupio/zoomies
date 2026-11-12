@@ -430,6 +430,21 @@
     color: var(--z-panel-text-subtle);
     font-variant-numeric: tabular-nums;
   }
+  /*
+    Stacked under the words (the stage's own breakpoint, in BrandStage): the
+    week has the band's whole width, and squares capped at the beside size left
+    it a small card pushed to the right with the left half of the row empty.
+    It fills the row from the start instead, up to squares twice the size.
+  */
+  @media (max-width: 1000px) {
+    .card:not(.single) {
+      --cell-max: var(--z-space-8);
+      width: 100%;
+    }
+    .card:not(.single) .grid {
+      justify-content: start;
+    }
+  }
   /* Loading: the empty week breathes, which says "coming" without a spinner
      in the hero. Slow on purpose: the motion tokens are for controls. */
   .loading .sq {

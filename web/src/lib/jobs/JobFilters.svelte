@@ -132,6 +132,12 @@
      * is pressed, and `true` for a status no button says.
      */
     statusChips?: boolean;
+    /**
+     * What the card's own chips say is in force (the status view, the queue's
+     * provisioning status). They are hidden in a table's focus view, so there,
+     * and only there, each is drawn as a chip in this bar.
+     */
+    said?: readonly Omit<FilterChip, 'focusOnly'>[];
     value: JobFilterState;
     /** Distinct values from GET /jobs/facets. */
     facets: { repos?: string[]; workflows?: string[]; conclusions?: string[] };
@@ -148,6 +154,7 @@
     queue = false,
     compact = false,
     statusChips = true,
+    said = [],
     value,
     facets,
     pools,
@@ -352,7 +359,10 @@
   </div>
 {/snippet}
 
-<FilterBar {chips} onclear={chips.length > 0 ? onclear : undefined}>
+<FilterBar
+  chips={[...chips, ...said.map((chip) => ({ ...chip, focusOnly: true }))]}
+  onclear={chips.length > 0 ? onclear : undefined}
+>
   {#if compact}
     {@render search()}
   {/if}

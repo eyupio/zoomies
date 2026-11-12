@@ -39,12 +39,6 @@
      * would be a lie. The row is drawn with no chip pressed.
      */
     none?: boolean;
-    /**
-     * On a phone, one line that scrolls sideways rather than wrapping. For a
-     * row of seven on a page whose rule is records first: three lines of
-     * chips before the first row is what the rule exists to prevent.
-     */
-    scroll?: boolean;
     class?: string;
   }
   let {
@@ -55,13 +49,12 @@
     total,
     onchange,
     none = false,
-    scroll = false,
     class: className = '',
   }: Props = $props();
   const allPressed = $derived(!none && selected.length === 0);
 </script>
 
-<div class="chips {className}" class:scroll role="group" aria-label={label}>
+<div class="chips {className}" role="group" aria-label={label}>
   <button type="button" class="chip" aria-pressed={allPressed} onclick={() => onchange([])}>
     {#if allPressed}<Check size={12} aria-hidden="true" />{/if}
     <span>{allLabel}</span>
@@ -128,12 +121,15 @@
     .chip {
       min-height: var(--z-control-touch);
     }
-    /* The line runs edge to edge of whatever holds it and gives the holder's
+    /* One line that scrolls sideways rather than wrapping, on every list: a
+       row of seven wraps to two or three lines before the first record, and
+       when only some pages scrolled the same control behaved two ways.
+       The line runs edge to edge of whatever holds it and gives the holder's
        gutter back as inset, so the first chip lines up with the text beside
        it and a chip cut at the edge says there is more. The holder names its
        gutter in --chips-inset (a Panel's toolbar does); with none, the row
        is as wide as its box. */
-    .chips.scroll {
+    .chips {
       flex-wrap: nowrap;
       overflow-x: auto;
       margin-inline: calc(-1 * var(--chips-inset, 0px));
@@ -141,10 +137,10 @@
       scroll-padding-inline: var(--chips-inset, 0px);
       scrollbar-width: none;
     }
-    .chips.scroll::-webkit-scrollbar {
+    .chips::-webkit-scrollbar {
       display: none;
     }
-    .chips.scroll .chip {
+    .chips .chip {
       flex: none;
     }
   }

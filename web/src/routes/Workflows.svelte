@@ -61,7 +61,7 @@
   import JobFilters from '$lib/jobs/JobFilters.svelte';
   import FilterChips from '$lib/components/FilterChips.svelte';
   import Panel from '$lib/components/Panel.svelte';
-  import { jobViewChips, pickView, viewSelection } from '$lib/jobs/view-chips';
+  import { jobViewChips, pickView, viewSaid, viewSelection } from '$lib/jobs/view-chips';
   import LevelSwitch from '$lib/workflows/LevelSwitch.svelte';
   import RunJobs from '$lib/workflows/RunJobs.svelte';
   import {
@@ -659,6 +659,7 @@
   <JobFilters
     {compact}
     statusChips={view === ''}
+    said={viewSaid(view, setView)}
     value={filters}
     {facets}
     pools={fleet.pools}
@@ -692,7 +693,6 @@
         options={jobViewChips(undefined, false)}
         selected={pressed.selected}
         none={pressed.none}
-        scroll
         onchange={(next) => setView(pickView(view, next))}
       />
     {/snippet}

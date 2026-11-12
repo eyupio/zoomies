@@ -4,7 +4,8 @@
  * Every grid offers it, from its own toolbar and from `f`, and it is a query
  * parameter on the page's own address rather than a page of its own, so the
  * same table instance carries everything across: the filters, the column
- * layout, an open menu or drawer. What this file holds true is the shape of
+ * layout, an open menu or drawer. The controls that choose a filter do not come
+ * with it, only the line saying which are in effect. What this file holds true is the shape of
  * that promise on Runners in detail, and the way in, out and back on two pages
  * whose surroundings differ most from it: Jobs, with its filter bar, analysis
  * cards and folded fleet context, and Pools, with its automatic pools panel,
@@ -54,10 +55,7 @@ function focusParam(page: Page): string | null {
 test.describe('on Runners', () => {
   const runners = (page: Page) => grid(page, 'Runners');
 
-  test('Focus shows the table, its chips and the bar, and nothing else', async ({
-    page,
-    isMobile,
-  }) => {
+  test('Focus shows the table and the bar, and nothing else', async ({ page, isMobile }) => {
     // A grid's bookkeeping runs in effects, and one that fed itself would show
     // only here: as an error the page swallowed while it went on drawing.
     const errors: string[] = [];
@@ -71,7 +69,13 @@ test.describe('on Runners', () => {
     await expect(page.getByText('Fleet context', { exact: true })).toBeHidden();
 
     await expect(runners(page)).toBeVisible();
-    await expect(page.getByRole('group', { name: 'Filter by runner state' })).toBeVisible();
+    // The card's head chooses what the list shows, and that is done on the
+    // whole page: in focus it took half a tablet's screen from the rows.
+    await expect(page.getByRole('heading', { name: 'All runners' })).toBeHidden();
+    await expect(page.getByRole('searchbox', { name: 'Search runners' })).toBeHidden();
+    await expect(page.getByRole('combobox', { name: 'Filter by pool' })).toBeHidden();
+    await expect(page.getByRole('group', { name: 'Filter by runner state' })).toBeHidden();
+    await expect(page.getByRole('button', { name: 'Columns' })).toBeVisible();
     await expect(focusBar(page).getByRole('heading', { level: 1, name: 'Runners' })).toBeVisible();
     await expect(focusBar(page).getByRole('button', { name: 'Refresh' })).toBeVisible();
     await expect(focusBar(page).getByRole('link', { name: 'Exit focus' })).toBeVisible();
@@ -113,10 +117,10 @@ test.describe('on Runners', () => {
 
     await enterFocus(page);
     await expect(page).toHaveURL(/state=busy/);
-    await expect(chips.getByRole('button', { name: /^Busy/ })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
+    // The chips that chose it are gone; the line that says so is not.
+    await expect(chips).toBeHidden();
+    await expect(page.getByRole('group', { name: 'Filters in effect' })).toContainText('Busy');
+    await expect(dataRows(runners(page)).first()).toContainText('Busy');
 
     await focusBar(page).getByRole('link', { name: 'Exit focus' }).click();
     await expect(page).toHaveURL(/\/runners\?state=busy$/);
@@ -312,18 +316,35 @@ test.describe('what focus keeps, says and does with the keyboard', () => {
     await expect(focusBar(page)).toBeVisible();
   });
 
-  test('on Jobs the search is there and works in focus, and Esc in it stays', async ({ page }) => {
+  // The job filters are a bar above the card rather than its head, and the
+  // same holds for them: the search and the menus go, what they chose stays.
+  test('on Jobs the filter controls go in focus and what they chose stays', async ({ page }) => {
+    await goto(page, '/jobs?state=completed&q=lint&focus=jobs', 'Jobs');
+    await expect(focusBar(page)).toBeVisible();
+    await expect(page.getByRole('searchbox', { name: 'Search jobs' })).toBeHidden();
+    await expect(page.getByRole('group', { name: 'Filter jobs by status' })).toBeHidden();
+    const inEffect = page.getByRole('group', { name: 'Filters in effect' });
+    await expect(inEffect).toContainText('lint');
+    // The pressed view chip went with the card's head, so the view is said
+    // here instead: on the whole page that would be the same thing twice.
+    await expect(inEffect).toContainText('Finished');
+    await inEffect.getByRole('button', { name: /^Remove the .* filter lint$/ }).click();
+    await expect(page).not.toHaveURL(/q=lint/);
+    expect(focusParam(page)).toBe('jobs');
+
+    // The view comes off from here too, and with nothing left in effect the
+    // bar is not an empty box above the table.
+    await inEffect.getByRole('button', { name: 'Remove the Showing filter Finished' }).click();
+    await expect(inEffect).toHaveCount(0);
+    await expect(page.getByRole('searchbox', { name: 'Search jobs' })).toBeHidden();
+    expect(focusParam(page)).toBe('jobs');
+
+    // On the whole page the pressed chip says the view, so no chip repeats it.
     await goto(page, '/jobs?state=completed&focus=jobs', 'Jobs');
-    await expect(focusBar(page)).toBeVisible();
-    const search = page.getByRole('searchbox', { name: 'Search jobs' });
-    await expect(search).toBeVisible();
-    await search.fill('lint');
-    await expect(page).toHaveURL(/q=lint/);
-    expect(focusParam(page)).toBe('jobs');
-    // Esc in the field is the field's, not a way out of focus.
-    await search.press('Escape');
-    await expect(focusBar(page)).toBeVisible();
-    expect(focusParam(page)).toBe('jobs');
+    await expect(inEffect).toContainText('Finished');
+    await focusBar(page).getByRole('link', { name: 'Exit focus' }).click();
+    await expect(page.getByRole('group', { name: 'Filter jobs by status' })).toBeVisible();
+    await expect(inEffect).toHaveCount(0);
   });
 
   test('going in and out is announced as a view, and the keyboard comes back to Focus', async ({

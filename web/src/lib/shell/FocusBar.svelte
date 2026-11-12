@@ -54,8 +54,8 @@
   function onKeydown(event: KeyboardEvent): void {
     if (event.key !== 'Escape' || event.defaultPrevented) return;
     if (layers.size > 0 || document.fullscreenElement) return;
-    // Esc in the card's search box is the field's: it clears or leaves the
-    // text, and an operator halfway through a search must not lose the view.
+    // Esc in a field is the field's: a drawer or a column panel opened from
+    // focus can hold one, and clearing it must not lose the view.
     if (isTypingTarget(event.target)) return;
     event.preventDefault();
     exit();

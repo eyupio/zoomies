@@ -179,6 +179,20 @@
   function clear(): void {
     router.navigate('/queue');
   }
+  // The status chips are in the card's head, which a focus view hides: there
+  // the statuses in force are said in the filters-in-effect row instead.
+  const statusSaid = $derived.by(() => {
+    const pressed = queueChipSelection(provisioning);
+    if (pressed.length === 0) return [];
+    return [
+      {
+        id: 'provisioning',
+        label: 'Status',
+        value: pressed.map((status) => QUEUE_STATUS_LABELS[status]).join(', '),
+        onremove: () => setStatus([]),
+      },
+    ];
+  });
   function setStatus(values: string[]): void {
     router.setQuery({
       provisioning: values.length ? values : statuses.map((s) => s.value),
@@ -447,6 +461,7 @@
     <JobFilters
       queue
       {compact}
+      said={statusSaid}
       value={filters}
       {facets}
       pools={fleet.pools}
@@ -769,6 +784,11 @@
     display: flex;
     flex-direction: column;
     gap: var(--z-space-3);
+  }
+  /* In a focus view the filter controls go and only the filters in effect
+     stay; with none in effect this is an empty box that still takes a gap. */
+  :global(:root[data-table-focus]) .filters-panel:not(:has(:global(.chip))) {
+    display: none;
   }
   .branch {
     width: 14rem;

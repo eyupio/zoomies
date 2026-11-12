@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { jobViewChips, pickView, viewSelection } from '../src/lib/jobs/view-chips.ts';
+import { jobViewChips, pickView, viewSaid, viewSelection } from '../src/lib/jobs/view-chips.ts';
 
 const stats = { running_jobs: 3, queued_jobs: 6 };
 
@@ -46,4 +46,25 @@ test('a press is one view: the chip that changed, and an emptied selection is Al
   assert.equal(pickView('running', []), 'all');
   assert.equal(pickView('all', ['failed']), 'failed');
   assert.equal(pickView('', ['attention']), 'attention');
+});
+
+test('a narrowing view is said as one removable chip, and All or no view says nothing', () => {
+  // A table's focus view hides the row of view chips, so this is the only
+  // sign a focused list is narrowed, and the only way to widen it from there.
+  const set: string[] = [];
+  const said = viewSaid('running', (view) => set.push(view));
+  assert.deepEqual(
+    said.map(({ id, label, value }) => ({ id, label, value })),
+    [{ id: 'view', label: 'Showing', value: 'Running' }],
+  );
+  said[0]!.onremove();
+  assert.deepEqual(set, ['all']);
+  assert.deepEqual(
+    viewSaid('all', () => {}),
+    [],
+  );
+  assert.deepEqual(
+    viewSaid('', () => {}),
+    [],
+  );
 });
