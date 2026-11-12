@@ -309,7 +309,17 @@ func ExchangeManifestCode(ctx context.Context, apiBaseURL, code string) (*Manife
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 
-	client := &http.Client{Timeout: defaultHTTPTimeout}
+	// Redirects are refused: the single-use code sits in the URL path and the
+	// answer carries the App's private key and secrets, so following one would
+	// hand both to whatever address the hop chose. GitHub's manifest conversion
+	// endpoint has no business redirecting; a redirect here is a proxy, a
+	// misconfiguration or something worse, and worth stopping on.
+	client := &http.Client{
+		Timeout: defaultHTTPTimeout,
+		CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+			return fmt.Errorf("the manifest exchange was redirected to %s, which is not followed: give the controller GitHub's own api base url", req.URL.Host)
+		},
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("github: exchange manifest code: cannot reach %s: %w", base, err)

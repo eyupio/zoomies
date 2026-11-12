@@ -359,6 +359,30 @@ func TestExchangeManifestCodeErrors(t *testing.T) {
 			t.Fatal("credential-less response accepted")
 		}
 	})
+
+	// A redirect here would steer the single-use code to the hop's address and
+	// invite whatever lives there to exchange it for the App's private key and
+	// client secret before the operator does. The exchange refuses to follow.
+	t.Run("a redirect is refused rather than followed", func(t *testing.T) {
+		var reached bool
+		elsewhere := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			reached = true
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":99,"slug":"forged","pem":"pem","webhook_secret":"ws","client_id":"id","client_secret":"cs","html_url":"https://example.com/apps/forged"}`))
+		}))
+		defer elsewhere.Close()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, elsewhere.URL+"/api/v3/app-manifests/abc/conversions", http.StatusTemporaryRedirect)
+		}))
+		defer srv.Close()
+		_, err := ExchangeManifestCode(context.Background(), srv.URL, "abc")
+		if err == nil || !strings.Contains(err.Error(), "redirect") {
+			t.Fatalf("got %v, want a redirect refusal", err)
+		}
+		if reached {
+			t.Fatal("the redirect's destination was reached; the code may have leaked")
+		}
+	})
 }
 
 // An App that can write code and change CI workflows is the line a security
