@@ -1803,8 +1803,9 @@ Each one writes a line on the job's timeline, marked *via recovery* rather
 than as an operator's doing, and counts
 `zoomies_job_reruns_total{trigger="fleet_fault"}`.
 
-Turning it on raises `scheduler.auto_rerun_on`, which is a warning rather than
-an error: it is not a weaker security posture, it is a standing permission to
+Turning it on with `scheduler.auto_rerun_limit` above 2 raises
+`scheduler.auto_rerun_on`; the default of 1, or 2, draws nothing, because the
+bound is the reason to trust it. It is a warning rather than an error: it is not a weaker security posture, it is a standing permission to
 spend the installation's GitHub minutes. A job that got as far as running may
 also have had side effects outside GitHub that its author expected to happen
 once (a deployment, a published package) and Zoomies cannot know which.
