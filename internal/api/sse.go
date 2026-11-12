@@ -550,6 +550,11 @@ func (s *Server) handleRunnerLogs(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// logDownloadFirstChunkWait is how long a log download waits for the agent's
+// first chunk before it answers 503. It is a variable so a test of that refusal
+// need not sit out the full ten seconds; nothing outside a test changes it.
+var logDownloadFirstChunkWait = 10 * time.Second
+
 // handleDownloadRunnerLogs returns a snapshot of a runner's output as a file.
 //
 // It is the same relay as the live tail, read until it goes quiet rather than
@@ -579,7 +584,7 @@ func (s *Server) handleDownloadRunnerLogs(w http.ResponseWriter, r *http.Request
 	// never starts used to answer 200 with a file-shaped empty attachment,
 	// which looks like a build that printed nothing; a 503 below says the
 	// host did not answer, which is something an operator can act on.
-	const firstChunkWait = 10 * time.Second
+	firstChunkWait := logDownloadFirstChunkWait
 	const quietFor = 2 * time.Second
 
 	rc := http.NewResponseController(w)

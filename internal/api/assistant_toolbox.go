@@ -20,10 +20,15 @@ type assistantToolbox struct {
 	server *mcp.Server
 }
 
+// assistantMaxWait is the cap on one of Eli's waits for a change. It starts at
+// the controller's value and is a variable only so a test of the cap need not
+// hold a request for the full ten seconds.
+var assistantMaxWait = controller.AssistantMaxWait
+
 func (s *Server) assistantToolbox(r *http.Request, as *auth.Identity) *assistantToolbox {
 	return &assistantToolbox{server: mcp.New(inProcessAPI{s: s, from: r, as: as, direct: true}, mcp.Options{
 		WindowBlock:   controller.AssistantWindowBlock,
-		MaxWait:       controller.AssistantMaxWait,
+		MaxWait:       assistantMaxWait,
 		WithheldKinds: controller.AssistantWithheldKinds,
 	})}
 }

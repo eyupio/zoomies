@@ -1184,10 +1184,25 @@ func TestElisEventToolsNeverAskForAuditOrDeliveryFrames(t *testing.T) {
 	}
 }
 
+// The test above shortens the cap; this one holds the value that ships, so
+// shortening it for speed cannot quietly become the product's behaviour.
+func TestElisWaitCapIsTenSeconds(t *testing.T) {
+	if assistantMaxWait != 10*time.Second || controller.AssistantMaxWait != 10*time.Second {
+		t.Fatalf("the wait cap is %v (controller %v), want ten seconds", assistantMaxWait, controller.AssistantMaxWait)
+	}
+}
+
 // Calls in a round run one after another and the limit is on calls, so Eli's
 // waits are held shorter than an agent's: twelve waits at the tools' own 25
 // seconds would outlast the answer's deadline.
-func TestElisWaitIsHeldToTenSecondsWhateverTheModelAsks(t *testing.T) {
+func TestElisWaitIsHeldToTheCapWhateverTheModelAsks(t *testing.T) {
+	// The cap is shortened so the test does not hold a request for ten real
+	// seconds; TestElisWaitCapIsTenSeconds pins the value that ships. It is set
+	// before the harness so it is restored after the harness has stopped.
+	const capForTest = 2 * time.Second
+	original := assistantMaxWait
+	assistantMaxWait = capForTest
+	t.Cleanup(func() { assistantMaxWait = original })
 	h, cookie, srv := chatHarness(t)
 	allowFleetAccess(t, h, cookie, true)
 	bus := h.ctrl.Events()
@@ -1199,8 +1214,8 @@ func TestElisWaitIsHeldToTenSecondsWhateverTheModelAsks(t *testing.T) {
 	resp := h.do(request{method: http.MethodPost, path: assistantChat, cookie: cookie, readStream: true, body: chatBody("user", "Tell me when a job moves.")})
 	resp.mustStatus(t, http.StatusOK, "asking")
 	elapsed := time.Since(started)
-	if elapsed < 9*time.Second || elapsed > 15*time.Second {
-		t.Errorf("the answer took %v, want a wait of about ten seconds", elapsed)
+	if elapsed < capForTest-time.Second || elapsed > 3*capForTest+time.Second {
+		t.Errorf("the answer took %v, want a wait of about %v", elapsed, capForTest)
 	}
 	if told := toolMessage(t, chatRequests(srv)[1], "call_0_0"); !strings.Contains(told, "nothing changed within the wait") {
 		t.Errorf("the wait was answered %q", told)

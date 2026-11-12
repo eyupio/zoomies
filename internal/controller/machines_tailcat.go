@@ -26,7 +26,10 @@ const dialBudget = 30 * time.Second
 // nothing about a dropped WireGuard peer reports as an error -- is a dial
 // that hangs to the deadline. A short first attempt is what lets the dialer
 // notice that, and still finish inside the call's own budget.
-const dialIntroTimeout = 5 * time.Second
+//
+// It is a variable so the tests that make a dial hang on purpose need not sit
+// out the whole five seconds; nothing outside a test changes it.
+var dialIntroTimeout = 5 * time.Second
 
 // privateDialer opens connections to a provider through a `zoomies gateway`
 // rather than the network: a hypervisor on a home network has no address this
