@@ -18,7 +18,7 @@
  * hit-testing, the styles that say a column is in the air.
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { closeColumnPanel, goto, grid, openColumnPanel, waitForRows } from './support/fixtures';
+import { goto, grid, waitForRows, layoutChoice } from './support/fixtures';
 
 /** The grid every test here uses: enough columns to have a middle. */
 const GRID = { path: '/runners', heading: 'Runners', label: 'Runners' } as const;
@@ -35,10 +35,9 @@ const GRID = { path: '/runners', heading: 'Runners', label: 'Runners' } as const
 async function openGrid(page: Page, isMobile: boolean): Promise<Locator> {
   await goto(page, GRID.path, GRID.heading);
   if (isMobile) {
-    const rows = (await openColumnPanel(page)).getByRole('button', { name: /^Rows\b/ });
+    const rows = layoutChoice(page, 'Rows');
     await rows.click();
     await expect(rows).toHaveAttribute('aria-pressed', 'true');
-    await closeColumnPanel(page);
   }
   const table = grid(page, GRID.label);
   await waitForRows(table);

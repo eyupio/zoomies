@@ -64,7 +64,9 @@
 </script>
 
 <!-- `data-grid-card` is how a grid drawn bare inside finds the card it belongs to,
-     which is what its focus view fills the page with. -->
+     which is what its focus view fills the page with. The head and the chips row
+     are `data-focus-head`: focus is for reading the rows, and on a tablet the
+     title, the search, the menus and the chips took half the screen from them. -->
 <section
   data-grid-card
   class="panel {className}"
@@ -72,7 +74,7 @@
   class:list={Boolean(toolbar)}
   aria-labelledby={headingId}
 >
-  <header>
+  <header data-focus-head>
     {#if Icon}<span class="tile" aria-hidden="true"><Icon size={18} /></span>{/if}
     <div class="titles">
       {#if eyebrow}<p class="eyebrow">{eyebrow}</p>{/if}
@@ -81,7 +83,7 @@
     </div>
     {#if actions}<div class="actions">{@render actions()}</div>{/if}
   </header>
-  {#if toolbar}<div class="toolbar">{@render toolbar()}</div>{/if}
+  {#if toolbar}<div class="toolbar" data-focus-head>{@render toolbar()}</div>{/if}
   <div class="body" class:flush class:scroll>{@render children()}</div>
 </section>
 

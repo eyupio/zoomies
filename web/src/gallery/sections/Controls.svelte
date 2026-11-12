@@ -135,7 +135,6 @@
       options={jobViewChips({ running_jobs: 3, queued_jobs: 6 }, true)}
       selected={[]}
       none
-      scroll
       onchange={() => {}}
     />
   </div>

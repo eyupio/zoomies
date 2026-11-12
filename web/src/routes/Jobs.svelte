@@ -119,7 +119,7 @@
   import JobLabels from '$lib/jobs/JobLabels.svelte';
   import FilterChips from '$lib/components/FilterChips.svelte';
   import Panel from '$lib/components/Panel.svelte';
-  import { jobViewChips, pickView, viewSelection } from '$lib/jobs/view-chips';
+  import { jobViewChips, pickView, viewSaid, viewSelection } from '$lib/jobs/view-chips';
   import SizeAdvice from '$lib/jobs/SizeAdvice.svelte';
   import { classCell } from '$lib/jobs/size';
   import { failureSummary } from '$lib/jobs/why';
@@ -838,6 +838,7 @@
       <JobFilters
         {compact}
         statusChips={view === ''}
+        said={viewSaid(view, setView)}
         value={filters}
         {facets}
         pools={fleet.pools}
@@ -881,7 +882,6 @@
               options={jobViewChips(bandStats ?? undefined, counted)}
               selected={pressed.selected}
               none={pressed.none}
-              scroll
               onchange={(next) => setView(pickView(view, next))}
             />
           {/snippet}

@@ -396,10 +396,27 @@ pre,
   path, as every one of those is. Hidden with `display: none` so it leaves the tab
   order and the accessibility tree as well as the screen, and restored by
   nothing more than the attributes coming off.
+
+  What chooses a filter goes too (`data-focus-head`: the card's title, search,
+  menus and chips, and a `FilterBar`'s controls). Focus is the rows on a wall
+  or a tablet, and a head that took half the screen to offer choices already
+  made was the daft part. The filters in effect stay, one line, removable. A
+  head is hidden only as a direct child of the card or of a kept element, so
+  a panel inside a drawer opened from focus keeps its own.
 */
 :root[data-table-focus]
   [data-focus-path]
   > :not([data-focus-path], [data-focus-unit], [data-focus-keep]) {
+  display: none !important;
+}
+:root[data-table-focus] [data-focus-unit] > [data-focus-head],
+:root[data-table-focus] [data-focus-keep] > [data-focus-head] {
+  display: none !important;
+}
+/* A filter bar with nothing in effect is then an empty box, and an empty box
+   in a column still takes the column's gap. */
+:root[data-table-focus]
+  [data-focus-keep]:has(> [data-focus-head]):not(:has(> :not([data-focus-head]))) {
   display: none !important;
 }
 :root[data-table-focus] [data-focus-path]:not(main) {
@@ -417,9 +434,9 @@ pre,
   min-height: 0;
 }
 /*
-  A phone: the card's search, menus and chips take most of a screen, so the
-  table's frame would be a slot a few cards tall. Everything keeps its own
-  height instead, and <main> scrolls it under the bar.
+  A phone: the bar's controls take a line of their own and the rows are cards,
+  so the table's frame would be a slot a few cards tall. Everything keeps its
+  own height instead, and <main> scrolls it under the bar.
 */
 @media (max-width: 768px) {
   :root[data-table-focus] [data-focus-fill]:not(main) {

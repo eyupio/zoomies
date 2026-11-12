@@ -1096,6 +1096,26 @@
          focus puts the keyboard back on the Focus link by `.tools a[href]`, so
          it is the only link in here. -->
     <div class="tools">
+      {#if viewport.phone}
+        <!--
+          The layout choice, where the two layouts differ, in the toolbar
+          where it can be seen. It lived inside the Columns panel for a while,
+          to save the room, and an operator on a tablet looking for cards
+          reported it missing: a choice that changes the whole list has to be
+          on the screen, not behind a button named for something else. It is
+          this grid's alone and outlives the visit; Settings holds the default
+          for a grid nobody has decided.
+        -->
+        <Segmented
+          label="How a {noun.replace(/s$/, '')} is laid out"
+          value={view}
+          options={[
+            { value: 'cards', label: 'Cards', name: 'Every value on its own line' },
+            { value: 'rows', label: 'Rows', name: 'The table, scrolling sideways' },
+          ]}
+          onchange={(next) => prefs.setGridView(gridId, next as GridView)}
+        />
+      {/if}
       {#if tableFocus.shell && !inFocus}
         <!-- A link, because it goes somewhere: the same page, with this table alone. -->
         <Button
@@ -1123,26 +1143,6 @@
         </Button>
         {#if chooserOpen}
           <div class="chooser" id="{gridId}-columns" role="group" aria-label="Column layout">
-            {#if viewport.phone}
-              <!--
-              The layout choice, where the two layouts differ, and in the panel
-              that already answers "how is this grid drawn": as a second button
-              beside Columns it was the same decision twice on the one screen
-              with the least room. It is this grid's alone and outlives the
-              visit; Settings holds the default for a grid nobody has decided.
-            -->
-              <div class="chooser-layout">
-                <Segmented
-                  label="How a {noun.replace(/s$/, '')} is laid out"
-                  value={view}
-                  options={[
-                    { value: 'cards', label: 'Cards', name: 'Every value on its own line' },
-                    { value: 'rows', label: 'Rows', name: 'The table, scrolling sideways' },
-                  ]}
-                  onchange={(next) => prefs.setGridView(gridId, next as GridView)}
-                />
-              </div>
-            {/if}
             {#each hideable as column (column.id)}
               <!--
               A column the window is too narrow for is still listed, and still
@@ -1536,13 +1536,6 @@
     border-radius: var(--z-radius-md);
     background: var(--z-surface-raised);
     box-shadow: var(--z-shadow-md);
-  }
-  /* The layout choice sits above the columns it decides the drawing of, with a
-     rule under it so the panel reads as "how this grid is drawn" and then
-     "which of its columns". */
-  .chooser-layout {
-    padding-bottom: var(--z-space-2);
-    border-bottom: var(--z-border-width) solid var(--z-border);
   }
   .chooser-row {
     display: flex;

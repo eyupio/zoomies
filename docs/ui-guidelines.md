@@ -1051,9 +1051,14 @@ to the same address without that one parameter. The shell swaps the sidebar,
 the top bar, the phone's bottom bar and the footer for a slim bar (the page's
 name, the live indicator, `RefreshButton`, **Full screen** where
 `fullscreen.supported` says the browser allows it, with the command centre's
-wake lock, and Exit focus), and the grid's card fills the rest: its search and
-menus, its chips, its toolbar, its rows with the heading row held at the top
-while they scroll, and its pagination. It is the same page instance in the same
+wake lock, and Exit focus), and the grid's card fills the rest: its toolbar, its
+rows with the heading row held at the top while they scroll, and its
+pagination. The card's head does not come with it: the title, the search, the
+menus and the chips choose what the list shows, which is done on the whole
+page, and on a tablet they took half the screen from the rows. They are marked
+`data-focus-head` (a `Panel`'s header and chips row, a `FilterBar`'s controls)
+and hidden as a direct child of the card or of a kept element. It is the same
+page instance in the same
 route, so filters, sort, the column layout, the selection and any drawer or
 dialog carry across both ways. Nothing per page makes this work: the grid marks
 the elements between its card and `<main>` (`data-focus-path`), the card
@@ -1063,8 +1068,11 @@ hides every other child of the path while the root carries
 and `data-focus-keep` keeps an element beside the card: `Dialog` and `Drawer`, so
 an overlay a page opens is not hidden with the page, and everything that narrows
 or explains the rows from outside the card, because a narrowed list with no sign
-of why is worse than a busier screen. That is `FilterBar` (the shared job
-filters on Jobs, Workflows and Queue, and every "filters in effect" row), the
+of why is worse than a busier screen. That is `FilterBar`'s "filters in
+effect" row on every list page (one line, each filter removable, and nothing at
+all when none is on; a filter the card's own chips say, the Jobs and Workflows
+view and the Queue's status, is a chip there in focus only, `focusOnly`, since
+on the whole page the pressed chip already says it), the
 unmatched-jobs note, the Queue's selection across pages and the Kennel
 repositories' scope line; a kept element is a direct child of the path. The
 marks are counted (`FocusMarks` in `lib/table-focus.ts`), so on a page with two
@@ -1073,11 +1081,9 @@ still holds. Entering or leaving focus is announced as "Runners table, focus
 view" and "Runners, whole page", not as a page load; the keyboard lands on the
 bar's heading going in and on the Focus link coming out. A pasted or reloaded
 focus address keeps the chrome away from the first paint. `Esc` leaves the
-browser's full screen first, then closes the topmost overlay, then leaves focus,
-and is the field's own while the card's search has the keyboard. On a phone
-the bar's controls are `--z-control-touch` tall and, since the card's head takes
-most of a screen, the rows flow and the page under the bar scrolls them instead
-of a frame a few cards tall. The assistant steps aside in full screen, as on the
+browser's full screen first, then closes the topmost overlay, then leaves focus.
+On a phone the bar's controls are `--z-control-touch` tall and the rows flow,
+so the page under the bar scrolls them instead of a frame a few cards tall. The assistant steps aside in full screen, as on the
 command centre, and the component gallery, which has no shell, offers no Focus.
 
 ---
@@ -1129,7 +1135,7 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 | `DataGrid` | TanStack Table core + our own markup. Server-side pagination, sorting and filtering; column show/hide, width and order persisted per grid; a column's `help` makes its heading a dotted-underline button that opens a sentence; sticky header; row selection with a bulk action bar; full keyboard navigation (`↑ ↓` rows, `Enter` opens, `Space` selects, `Shift+↑/↓` range). Defaults fit the frame, and columns that leave part of it empty share the rest out among those nobody sized; an explicitly widened layout scrolls inside its own frame, see *Tables use the space they need*. `bare` drops its own border, radius and background for a grid drawn inside a `Panel`, so a list card is one frame. `fill={false}` keeps its columns at their own widths. Every grid has a Focus view, see *The list pages* |
 | `RowActions` | a row's actions as buttons rather than a menu, as an ARIA toolbar: one tab stop per row, `← →` along it, and every button's name carries what it acts on |
 | `FilterBar` | chips for active filters, each individually removable, plus a clear-all |
-| `FilterChips` | a list's primary filter as a row of compact chips: All, then one per value with its count when the count is true of the rows under it; more than one in force at once, each saying so with `aria-pressed`, a tick and the weight of its words, never by colour alone; a chip may carry a `hint` in the shared tooltip, a row may be drawn with nothing pressed (`none`) when the filter in force is one no chip can say, and on a phone may be one line that scrolls (`scroll`) where a page's rule is records first. The Runners page's states are the first |
+| `FilterChips` | a list's primary filter as a row of compact chips: All, then one per value with its count when the count is true of the rows under it; more than one in force at once, each saying so with `aria-pressed`, a tick and the weight of its words, never by colour alone; a chip may carry a `hint` in the shared tooltip, a row may be drawn with nothing pressed (`none`) when the filter in force is one no chip can say, and at a phone's width the row is one line that scrolls sideways, on every list alike, so a row of seven never wraps to three lines before the first record. The Runners page's states are the first |
 | `Panel` | a titled card: a heading, an optional `icon` in a tinted tile, an optional `eyebrow` in small capitals above the heading (a count or a scope), a `description` under it, `actions` opposite, an optional `toolbar` row between the head and the body for a list's filter chips, and `flush` for a body that draws its own rows. The Overview's cards and the list card are all this |
 | `PageHeader` | title, subtitle, breadcrumb, primary action, and the refresh button where the page passes `onrefresh` |
 | `RefreshButton` | the one refresh: registers the page's handler so the button, `R` and the palette all run it; turning icon while it works |

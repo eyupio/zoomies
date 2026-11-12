@@ -6,6 +6,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { X } from '@lucide/svelte';
+  import { tableFocus } from '../state/table-focus.svelte';
 
   export interface FilterChip {
     id: string;
@@ -14,6 +15,12 @@
     /** The value: "busy". */
     value: string;
     onremove: () => void;
+    /**
+     * A filter some other control already says (a pressed chip in the card's
+     * head), so on the whole page a chip here would say it twice. A table's
+     * focus view hides that control, and there this is the only sign of it.
+     */
+    focusOnly?: boolean;
   }
 
   interface Props {
@@ -25,18 +32,25 @@
   }
 
   let { chips = [], onclear, children, class: className = '' }: Props = $props();
+
+  const shown = $derived(tableFocus.active ? chips : chips.filter((chip) => !chip.focusOnly));
+  // Clear all takes off what this bar holds; a focus-only chip alone is some
+  // other control's filter, and its own cross is how it comes off.
+  const clearable = $derived(shown.some((chip) => !chip.focusOnly));
 </script>
 
 <!-- Kept in a table's focus view (`data-focus-keep`): it says which filters
      narrow the rows and is how they come off, so hiding it with the rest of the
-     page would leave a narrowed list with no sign of why. -->
+     page would leave a narrowed list with no sign of why. Only that row is kept:
+     the controls that choose a filter are `data-focus-head` and go with the
+     card's head, since choosing is done on the whole page. -->
 <div class="filter-bar {className}" data-focus-keep>
   {#if children}
-    <div class="controls">{@render children()}</div>
+    <div class="controls" data-focus-head>{@render children()}</div>
   {/if}
-  {#if chips.length > 0}
+  {#if shown.length > 0}
     <div class="chips" role="group" aria-label="Filters in effect">
-      {#each chips as chip (chip.id)}
+      {#each shown as chip (chip.id)}
         <span class="chip">
           <span class="chip-label">{chip.label}</span>
           <span class="chip-value">{chip.value}</span>
@@ -49,7 +63,7 @@
           </button>
         </span>
       {/each}
-      {#if onclear}
+      {#if onclear && clearable}
         <button type="button" class="clear" onclick={onclear}>Clear all</button>
       {/if}
     </div>

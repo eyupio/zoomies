@@ -59,3 +59,19 @@ export function pickView(current: JobView | '', next: readonly Exclude<JobView, 
   const picked = pickOne(current === 'all' ? '' : current, next);
   return picked === '' ? 'all' : picked;
 }
+
+/**
+ * The view in force as a "filters in effect" chip, for a table's focus view,
+ * where the row of view chips is hidden and a narrowed list would otherwise
+ * have no sign of why. All narrows nothing, and a filter no view describes
+ * already has chips of its own, so neither says anything here.
+ */
+export function viewSaid(
+  view: JobView | '',
+  setView: (view: JobView) => void,
+): { id: string; label: string; value: string; onremove: () => void }[] {
+  if (view === '' || view === 'all') return [];
+  const def = JOB_VIEWS.find((candidate) => candidate.id === view);
+  if (!def) return [];
+  return [{ id: 'view', label: 'Showing', value: def.label, onremove: () => setView('all') }];
+}
