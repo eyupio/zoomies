@@ -290,6 +290,7 @@ func (h *harness) databaseBytes() int64 {
 // as long as it was, and a controller that never gives that back carries it to the
 // next disk. The scheduled pass does, and says how much.
 func TestTheScheduledPassGivesTheDatabasesFreeSpaceBackAndSaysSo(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.fileStore(false)
 	h.c.UpdateConfig(func(c *config.Config) { c.Maintenance.Interval = time.Hour })
@@ -311,6 +312,7 @@ func TestTheScheduledPassGivesTheDatabasesFreeSpaceBackAndSaysSo(t *testing.T) {
 // the Backups page returns when it is done, and a conversion can hold the writer
 // for minutes, so only the schedule compacts.
 func TestAnAskedForPassPrunesAndDoesNotCompact(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.fileStore(false)
 	h.churn()

@@ -55,6 +55,7 @@ func agentRoutesUnderTest() []agentRoute {
 // that carry a runner's work and a runner's output -- with no negative test
 // at all.
 func TestAgentRoutesRefuseAUserCredential(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	adminToken := h.token("admin", store.RoleAdmin)
 	admin, _ := h.user("root", store.RoleAdmin)
@@ -227,6 +228,7 @@ func TestAgentJoinRefusesASpentToken(t *testing.T) {
 
 // TestAgentTaskPollAndResult walks a task from the queue to its outcome.
 func TestAgentTaskPollAndResult(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	inst := h.installation()
 	pool := h.pool(inst, "linux-x64")

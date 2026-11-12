@@ -14,6 +14,7 @@ import (
 // Adding a destination from the page, which is the half a file could not do:
 // typed, tested, stored with its secret sealed, and used by the next pass.
 func TestADestinationAddedOnThePageIsTestedStoredAndUsed(t *testing.T) {
+	t.Parallel()
 	fake := backup.NewFakeS3("backups")
 	t.Cleanup(fake.Close)
 	h := newHarness(t, allowPrivateEgress)

@@ -130,6 +130,7 @@ func writeServerCA(t *testing.T, srv *httptest.Server) string {
 // Pinging a silent connection and closing it when the ping goes unanswered is
 // what sends the next call to a fresh connection.
 func TestTheAgentLeavesAControllerConnectionThatStopsAnswering(t *testing.T) {
+	t.Parallel()
 	var sawHTTP2 atomic.Bool
 	mux := http.NewServeMux()
 	mux.HandleFunc(PathHeartbeat, func(w http.ResponseWriter, r *http.Request) {

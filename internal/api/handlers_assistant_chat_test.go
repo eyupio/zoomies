@@ -639,6 +639,7 @@ func toolRuns(got []frame) map[string]int {
 // again, which is the opposite of what wait_for_change is for. Every other tool
 // asked the same thing twice is still answered from the first time.
 func TestALiveToolIsNotAnsweredFromTheCache(t *testing.T) {
+	t.Parallel()
 	h, cookie, srv := chatHarness(t)
 	allowFleetAccess(t, h, cookie, true)
 	job := h.job(h.pool(h.installation(), "linux"), store.JobQueued)

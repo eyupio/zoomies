@@ -377,6 +377,7 @@ func TestASlowCreateDoesNotStartASecondOne(t *testing.T) {
 // otherwise stop every pool placing runners for four minutes, which is the
 // argument that moved capacity-demand delivery out of the pass as well.
 func TestASlowProviderDoesNotHoldTheReconcilePass(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.machineFleet(t)
 	h.fake.SetDelay("allocate", 2*time.Second)

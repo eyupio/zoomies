@@ -143,6 +143,7 @@ func TestCancelledJobCleanupSurvivesLostTaskQueue(t *testing.T) {
 // capacity, and a JIT response arriving afterwards must not put a create task
 // behind the stop and resurrect it.
 func TestCancellationBeforeAssignmentStopsAProvisioningRunner(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	_, _, host := h.fleet()
 	h.gh.SetDelay("", "generate-jitconfig", 500*time.Millisecond)

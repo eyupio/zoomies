@@ -451,6 +451,7 @@ func TestShutdownLeavesRunnersRunning(t *testing.T) {
 }
 
 func TestHeartbeatCarriesCapacityAndRunners(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, 3)
 	h.tr.tasks <- []Task{createTask("task-1", "runner-1")}
 	if res := h.nextResult(); !res.OK {
@@ -617,6 +618,7 @@ func TestAgentReprobesUntilABackendAnswers(t *testing.T) {
 // Once something answers, the probe settles down: it is a ping per backend, and
 // a fleet of hosts doing it every heartbeat is noise for no news.
 func TestAgentDoesNotReprobeOnEveryHeartbeatWhenHealthy(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, 1)
 
 	// The join probe is the one that has happened so far.
@@ -982,6 +984,7 @@ func TestTheLaterOfTwoWaitingTasksIsTheOneKept(t *testing.T) {
 // controller cannot act on: it would hold the task in flight until its lease
 // expired, where this answer has it redelivered to the next host that polls.
 func TestATaskShutDownBeforeItStartedIsReportedAsRedeliverable(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, 1)
 	h.be.mu.Lock()
 	h.be.createDelay = 3 * time.Second
@@ -1167,6 +1170,7 @@ func TestAnAgentWhoseCredentialsTheControllerRefusesFallsBackToTheTokenItWasHand
 // be reached must not spend the host's join token, because the credentials it
 // already holds are the ones that will work when the controller comes back.
 func TestARefusedHeartbeatThatIsNotFinalKeepsTheSavedCredentials(t *testing.T) {
+	t.Parallel()
 	a, tr, _, _ := newAgent(t, 1, func(o *Options) { o.FallbackJoinToken = "fallback-token" })
 	if err := a.Join(context.Background(), "join-token"); err != nil {
 		t.Fatalf("Join: %v", err)

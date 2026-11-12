@@ -11,6 +11,7 @@ import (
 )
 
 func TestRunnerRequiresDockerReadinessBeforeStartingItsListener(t *testing.T) {
+	t.Parallel()
 	bash, err := exec.LookPath("bash")
 	if err != nil {
 		t.Skip("bash is not installed")

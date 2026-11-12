@@ -229,6 +229,7 @@ func TestDinDConflictRecoveryStillWaitsForHealth(t *testing.T) {
 // rather than milliseconds. The create that follows must wait that out: failing
 // the runner here costs a job over a name that was already on its way free.
 func TestConflictRecoveryWaitsForADaemonToReleaseAName(t *testing.T) {
+	t.Parallel()
 	spec := jitSpec()
 	cfg := buildDinDConfig(spec, dockerFlavor(), containerOptions{Now: time.Now()})
 	calls, deletes := 0, 0
@@ -548,6 +549,7 @@ func (d *slowCreateDaemon) counts() (creates, refused, inspects int, deletes []s
 // to start rather than to remove and ask for a second time -- whatever the
 // daemon calls the network an empty request was stored with.
 func TestATimedOutCreateIsAskedAgainAndTheContainerItLeftIsAdopted(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, mode  string
 		neverLanded bool
@@ -605,6 +607,7 @@ func TestATimedOutCreateIsAskedAgainAndTheContainerItLeftIsAdopted(t *testing.T)
 // on for nothing: the agent's retries share one window rather than each
 // opening a fresh one.
 func TestASettlingNameIsWaitedOnForTheWindowTheEvidenceAllows(t *testing.T) {
+	t.Parallel()
 	const never = 1 << 20
 	for _, tc := range []struct {
 		name         string
@@ -735,6 +738,7 @@ func TestOnlyAMatchingNeverStartedContainerIsAdopted(t *testing.T) {
 // answers fails the runner as busy -- the host is the problem, and nothing was
 // removed on the strength of a guess.
 func TestAnInspectTheDaemonDidNotAnswerIsWaitedOnNotCalledAConflict(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name       string
 		unanswered int

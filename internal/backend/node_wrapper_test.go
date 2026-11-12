@@ -314,6 +314,7 @@ func TestTheInstallerWrapsTheGlibcNodesAndLeavesTheAlpineOnesAlone(t *testing.T)
 }
 
 func TestTheInstallerIsSafeToRunTwiceAndFailsWhenThereIsNoNode(t *testing.T) {
+	t.Parallel()
 	runner := fakeRunner(t)
 	wrap(t, runner)
 	first, _ := os.ReadFile(filepath.Join(runner, "externals", "node20", "bin", "node.real"))

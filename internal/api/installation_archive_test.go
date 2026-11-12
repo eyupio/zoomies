@@ -68,6 +68,7 @@ func (h *harness) installationFigures(id string, from, to time.Time) string {
 // not move by a byte, and the archive imports onto a fresh instance with a
 // different key and verifies against GitHub there.
 func TestAnExportedInstallationPurgesCleanlyAndVerifiesOnAFreshInstance(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	admin, _ := h.user("root", store.RoleAdmin)
 	a := h.installation()
@@ -196,6 +197,7 @@ func TestDeletingAnInstallationWithoutPurgeKeepsItsHistory(t *testing.T) {
 // upload that takes longer than that fails midway, and json.Decoder's timeout
 // is reported as a 400 that blames the archive for being invalid JSON.
 func TestImportOutlivesTheServersReadTimeoutOnASlowUpload(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	admin, _ := h.user("root", store.RoleAdmin)
 

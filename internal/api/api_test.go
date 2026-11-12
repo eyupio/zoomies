@@ -1173,6 +1173,7 @@ func (h *harness) fixtures() fixtureIDs {
 // may reach -- the fence and the backups -- are the ones that would otherwise
 // silently fall back to an administrator.
 func TestRouteAuthorisation(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	ids := h.fixtures()
 
@@ -1248,6 +1249,7 @@ func TestRouteAuthorisation(t *testing.T) {
 // scope: if the role gate fired instead, the message would name a role and the
 // assertion below would catch it.
 func TestScopedTokenRouteAuthorisation(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	ids := h.fixtures()
 

@@ -613,6 +613,7 @@ func scriptScenario(h *harness, cookie string, sc eliScenario, ids map[string]st
 // is the harness proving itself and the loop, so that a real model's score
 // means what it says.
 func TestEliScenariosPlayedByTheScriptedModelScoreClean(t *testing.T) {
+	t.Parallel()
 	for _, sc := range eliScenarios() {
 		t.Run(sc.name, func(t *testing.T) {
 			var srv *assistanttest.Server

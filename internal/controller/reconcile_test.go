@@ -52,6 +52,7 @@ func TestReconcileIsIdempotent(t *testing.T) {
 // as GitHub took to answer -- the same argument that moved a slow provider
 // call, and capacity-demand delivery, out of their own locks.
 func TestASlowCredentialMintDoesNotHoldTheReconcilePass(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.fleet()
 	h.gh.SetDelay("", "generate-jitconfig", 2*time.Second)
@@ -88,6 +89,7 @@ func TestASlowCredentialMintDoesNotHoldTheReconcilePass(t *testing.T) {
 // per runner in the same pass, so this is the call whose sequential cost a
 // bulk drain actually pays.
 func TestASlowRegistrationDeleteDoesNotHoldTheCaller(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	_, pool, host := h.fleet()
 	r := h.runnerRow(pool, host, store.RunnerIdle)
@@ -119,6 +121,7 @@ func TestASlowRegistrationDeleteDoesNotHoldTheCaller(t *testing.T) {
 // finishes, so without a claim the next pass would redecide the identical
 // ActionRemove and delete the same registration twice.
 func TestASlowRemovalDoesNotStartASecondOne(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	_, pool, host := h.fleet()
 	r := h.runnerRow(pool, host, store.RunnerIdle)
@@ -155,6 +158,7 @@ func TestASlowRemovalDoesNotStartASecondOne(t *testing.T) {
 // Many nudges in quick succession must cost one reconcile, not one each. The
 // channel holds a single token, which is the whole mechanism.
 func TestNudgesCoalesce(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	for range 50 {
 		h.c.Nudge()

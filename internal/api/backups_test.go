@@ -91,6 +91,7 @@ func TestABackupTakenFromThePageIsListedWithWhatARestoreNeedsToKnow(t *testing.T
 // back, so the two have to agree exactly: plain, and encrypted with a
 // passphrase that is then required.
 func TestADownloadRoundTripsThroughAnUploadPlainAndEncrypted(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.installation()
 	cookie := h.platform()

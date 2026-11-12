@@ -14,6 +14,7 @@ import (
 // the agent's unit took every runner in the cgroup down with it -- the
 // opposite of "restarting an agent must never kill a job".
 func TestProcessRunnerLeadsItsOwnProcessGroup(t *testing.T) {
+	t.Parallel()
 	requireUnix(t)
 	b, _ := newStubProcessBackend(t)
 	ctx := context.Background()

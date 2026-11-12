@@ -63,6 +63,7 @@ func takeOne(t *testing.T, at time.Time) (*config.Config, *Entry) {
 // back out of it, and is an ordinary backup when it does -- because a copy
 // nobody has ever restored is a copy nobody knows about.
 func TestUploadingABackupAndFetchingItBackGivesTheSameBackup(t *testing.T) {
+	t.Parallel()
 	f := fakeStore(t)
 	remote := remoteFor(t, f, nil)
 	_, entry := takeOne(t, time.Date(2026, 3, 1, 2, 0, 0, 0, time.UTC))
@@ -118,6 +119,7 @@ func TestUploadingABackupAndFetchingItBackGivesTheSameBackup(t *testing.T) {
 // database with a different name: the file is on somebody else's disk, and
 // whoever holds the bucket is not the person who is allowed to read the fleet.
 func TestAnEncryptedRemoteUploadsSomethingThatDoesNotOpenWithoutThePassphrase(t *testing.T) {
+	t.Parallel()
 	f := fakeStore(t)
 	remote := remoteFor(t, f, func(r *config.BackupRemote) { r.Passphrase = "a long passphrase" })
 	_, entry := takeOne(t, time.Date(2026, 3, 1, 2, 0, 0, 0, time.UTC))
@@ -159,6 +161,7 @@ func TestAnEncryptedRemoteUploadsSomethingThatDoesNotOpenWithoutThePassphrase(t 
 // Retention on the remote keeps the newest and nothing else, and it only ever
 // removes keys this package writes -- a bucket is usually shared.
 func TestRemoteRetentionKeepsTheNewestAndLeavesStrangersAlone(t *testing.T) {
+	t.Parallel()
 	f := fakeStore(t)
 	remote := remoteFor(t, f, nil)
 	f.Put("fleet/somebody-elses-backup.tar.gz", []byte("not ours"))
@@ -276,6 +279,7 @@ func TestARefusedRequestSaysWhatToDoAboutIt(t *testing.T) {
 // A remote holds one fleet's copies under a prefix; a bucket shared with
 // another fleet must not make one appear in the other's list.
 func TestAListingIsScopedToTheRemotesOwnPrefix(t *testing.T) {
+	t.Parallel()
 	f := fakeStore(t)
 	ours := remoteFor(t, f, func(r *config.BackupRemote) { r.Prefix = "prod" })
 	theirs := remoteFor(t, f, func(r *config.BackupRemote) { r.Name = "other"; r.Prefix = "staging" })
@@ -303,6 +307,7 @@ func TestAListingIsScopedToTheRemotesOwnPrefix(t *testing.T) {
 // bucket. Retention that listed by string prefix would delete another fleet's
 // offsite backups without a word, which is the one failure it must not have.
 func TestAListingNeverReachesIntoASiblingOrNestedPrefix(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ ours, theirs string }{
 		{"prod", "prod-eu"},
 		{"zoomies", "zoomies/prod"},
@@ -486,6 +491,7 @@ func (f fakeRemotes) ListBackupRemotes(context.Context) ([]*store.BackupRemote, 
 // it was encrypted. A sidecar manifest would be a second thing that can go
 // missing from somebody else's bucket.
 func TestANewBackupIsOneObjectNamedForItsCompression(t *testing.T) {
+	t.Parallel()
 	f := fakeStore(t)
 	ctx := context.Background()
 	remote := remoteFor(t, f, nil)
@@ -574,6 +580,7 @@ func TestTheObjectHeaderRoundTripsAndRefusesCorruption(t *testing.T) {
 // hundred downloads, which is why the manifest sits inside the object and the
 // name carries enough to list it.
 func TestListingUsesTheKeyListingAndNeverOpensACopy(t *testing.T) {
+	t.Parallel()
 	f := fakeStore(t)
 	ctx := context.Background()
 	remote := remoteFor(t, f, nil)
@@ -607,6 +614,7 @@ func TestListingUsesTheKeyListingAndNeverOpensACopy(t *testing.T) {
 // A destination passphrase goes over the already-encrypted payload, and the
 // manifest records only what the outer layer is, never how to open it.
 func TestADestinationPassphraseSealsAgainAndAManifestCarriesNoSecret(t *testing.T) {
+	t.Parallel()
 	f := fakeStore(t)
 	ctx := context.Background()
 	const passphrase = "a destination passphrase that must never be written"
@@ -706,6 +714,7 @@ func TestAnOldSealedAndManifestPairStillListsFetchesAndDeletes(t *testing.T) {
 // whose answer was lost is reconciled against the object, and a completion
 // that failed leaves nothing advertised.
 func TestAMultipartCopyCompletesEvenWhenTheAnswerIsLostOrFails(t *testing.T) {
+	t.Parallel()
 	f := fakeStore(t)
 	ctx := context.Background()
 	remote := remoteFor(t, f, nil)

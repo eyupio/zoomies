@@ -148,6 +148,7 @@ func TestOnlyRealBackupsAreListedAndOnlyRealIDsAreLookedUp(t *testing.T) {
 // Retention only ever removes what the fleet took of itself: never a stranger's
 // directory, and never a backup an operator brought here.
 func TestPruneLeavesUploadsAndStrangersAlone(t *testing.T) {
+	t.Parallel()
 	cfg, st, _ := host(t)
 	root := Dir(cfg)
 	stamp := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -299,6 +300,7 @@ func TestUnpackRefusesWhatItDidNotWrite(t *testing.T) {
 // the last one silently, in the sense that a truncated backup must not open
 // as a shorter backup.
 func TestEncryptionRoundTripsAndRefusesTheWrongPassphraseAndATruncatedFile(t *testing.T) {
+	t.Parallel()
 	plain := bytes.Repeat([]byte("the quick brown fox "), 200_000) // a few chunks
 	var enc bytes.Buffer
 	w, err := NewEncryptor(&enc, "correct horse battery staple")
@@ -422,6 +424,7 @@ func TestAStagedRestoreIsCheckedNowAndAppliedAtTheNextStart(t *testing.T) {
 // stops a restored copy deleting machines that were rented after the backup,
 // so it goes first, and the error says which database is in place.
 func TestARestoreThatFailsAfterTheCopySaysSoAndKeepsTheFenceUp(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	for _, tc := range []struct {
 		name string

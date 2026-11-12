@@ -17,6 +17,7 @@ import (
 // TestUserLifecycle covers the account management an admin does, including the
 // refusal that stops an instance being locked out of itself.
 func TestUserLifecycle(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	admin, _ := h.user("root", store.RoleAdmin)
 	cookie := h.session(admin)

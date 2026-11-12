@@ -96,6 +96,7 @@ func TestWorkflowFactsExcludePrivateFieldsPreserveExactIDsAndStayDescriptive(t *
 }
 
 func TestWorkflowFactsShareBothBudgetsWithRunnerAndOriginalAttemptRows(t *testing.T) {
+	t.Parallel()
 	for _, limit := range []int{12 << 10, 64 << 10} {
 		doc := comparisonWorkflowBody(t, 100, comparisonWorkflowFixture(100, true), true)
 		ctx := context.WithValue(t.Context(), windowKey{}, windowLimits{block: limit})
@@ -209,6 +210,7 @@ func TestDependencyEvidenceReachesTheModelAsValidatedBoundedSummaries(t *testing
 }
 
 func TestDependencySummariesFitBothBudgetsAlongsideFullWorkflowEvidence(t *testing.T) {
+	t.Parallel()
 	for _, limit := range []int{12 << 10, 64 << 10} {
 		doc := comparisonWorkflowBody(t, 100, comparisonWorkflowFixture(100, false), true)
 		view := doc["workflow_evidence"].(map[string]any)

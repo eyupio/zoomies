@@ -117,6 +117,7 @@ func TestRegistrationDeferredDemandResumesOnLaterPass(t *testing.T) {
 }
 
 func TestRegistrationAdmissionPreservesPoolFairness(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	inst := h.installation()
 	a, b := h.pool(inst, "a"), h.pool(inst, "b")

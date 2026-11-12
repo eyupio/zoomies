@@ -158,6 +158,7 @@ func TestAnUnknownRemoteIsNotFoundAndNoRemotesIsAnEmptyList(t *testing.T) {
 // halves, and say what it removed from each: the local ceiling and the
 // bucket's are separate numbers and a single total would read as a fault.
 func TestRetentionIsAppliedOnDemandToBothHalves(t *testing.T) {
+	t.Parallel()
 	h, fake := withRemote(t)
 	h.installation()
 	cookie := h.platform()
