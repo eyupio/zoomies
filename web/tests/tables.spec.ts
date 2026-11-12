@@ -23,15 +23,14 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 import {
-  closeColumnPanel,
   dataRows,
   goto,
   grid,
-  openColumnPanel,
   rowCount,
   SECTIONS,
   sectionHeading,
   waitForRows,
+  layoutChoice,
 } from './support/fixtures';
 
 /** Every page whose main content is a grid, with the name its table carries. */
@@ -68,14 +67,9 @@ const PHONES = [412, 360] as const;
  * control that sets it broke.
  */
 async function chooseLayout(page: Page, name: 'Cards' | 'Rows'): Promise<void> {
-  // The choice is in the column panel, which is also where the columns are
-  // turned on and off. Opened, pressed, closed: an open panel over the table
-  // would be measured with it.
-  const panel = await openColumnPanel(page);
-  const layout = panel.getByRole('button', { name: new RegExp(`^${name}\\b`) });
+  const layout = layoutChoice(page, name);
   await layout.click();
   await expect(layout).toHaveAttribute('aria-pressed', 'true');
-  await closeColumnPanel(page);
 }
 
 const chooseCards = (page: Page) => chooseLayout(page, 'Cards');

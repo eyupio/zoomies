@@ -1,20 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
-import {
-  closeColumnPanel,
-  goto,
-  openColumnPanel,
-  readThrough,
-  useClassic,
-} from './support/fixtures';
+import { goto, readThrough, useClassic, layoutChoice } from './support/fixtures';
 
-/** Whether the named layout is the one pressed, read where the choice now lives: the column panel. */
+/** Whether the named layout is the one pressed, read where the choice lives: the grid's toolbar. */
 async function expectLayout(page: Page, name: 'Cards' | 'Rows'): Promise<void> {
-  const panel = await openColumnPanel(page);
-  await expect(panel.getByRole('button', { name: new RegExp(`^${name}\\b`) })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
-  await closeColumnPanel(page);
+  await expect(layoutChoice(page, name)).toHaveAttribute('aria-pressed', 'true');
 }
 
 async function mission(page: Page, prefs?: Record<string, unknown>) {

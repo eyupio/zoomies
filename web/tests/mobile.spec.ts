@@ -31,6 +31,7 @@ import {
   useClassic,
   withoutTheStream,
   openFleetContext,
+  layoutChoice,
 } from './support/fixtures';
 import { plantProblem } from './support/command';
 import {
@@ -994,19 +995,18 @@ async function gridOverflow(
  * that is free to change.
  */
 function layout(page: Page, choice: 'Cards' | 'Rows'): Locator {
-  return page.getByRole('group', { name: 'Column layout' }).getByRole('button', {
-    name: new RegExp(`^${choice}\\b`),
-  });
+  return layoutChoice(page, choice);
 }
 
 /*
  * A phone's Jobs page opened on three wrapped rows of status buttons, then the
  * search, then "Filters (0)", then two controls about how the grid is drawn. The
  * first record was 748px down an 812px screen. The chips are one row that
- * scrolls now, and the layout choice has moved into the column panel that
- * already answers how the grid is drawn.
+ * scrolls now, and the layout choice shares the grid's one toolbar line with
+ * Focus and Columns: in the column panel it cost no height at all, and was
+ * reported missing by an operator who never looked there.
  */
-test('a phone’s status row is one line, and the grid has one control for its shape', async ({
+test('a phone’s status row is one line, and the layout choice shares the toolbar’s', async ({
   page,
 }) => {
   await goto(page, '/jobs', 'Jobs');
@@ -1018,12 +1018,19 @@ test('a phone’s status row is one line, and the grid has one control for its s
     first!.height * 1.75,
   );
 
-  // One control, not two: the layout choice is inside the panel the Columns
-  // button already opens.
-  await expect(page.getByRole('button', { name: /^Cards\b/ })).toHaveCount(0);
+  // On the screen, and on the line Columns is on: a row of its own above
+  // the records is what this page was cut down from.
+  await expect(layout(page, 'Cards')).toBeVisible();
+  await expect(layout(page, 'Rows')).toBeVisible();
+  const choice = await layout(page, 'Cards').boundingBox();
+  const columns = await page.getByRole('button', { name: 'Columns', exact: true }).boundingBox();
+  expect(
+    Math.abs(choice!.y + choice!.height / 2 - (columns!.y + columns!.height / 2)),
+    'the layout choice is on a line of its own, not beside Columns',
+  ).toBeLessThan(choice!.height / 2);
+  // And in one place only.
   const panel = await openColumnPanel(page);
-  await expect(panel.getByRole('button', { name: /^Cards\b/ })).toBeVisible();
-  await expect(panel.getByRole('button', { name: /^Rows\b/ })).toBeVisible();
+  await expect(panel.getByRole('button', { name: /^Cards\b/ })).toHaveCount(0);
 });
 
 test('a grid can be read as cards instead of rows, and remembers which', async ({ page }) => {

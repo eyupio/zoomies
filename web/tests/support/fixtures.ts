@@ -692,13 +692,22 @@ export async function expectNoSidewaysScroll(page: Page, where: string): Promise
 }
 
 /**
- * Open a phone grid's column panel, and close it again.
+ * A phone grid's Cards or Rows button, in the grid's toolbar beside Columns.
  *
- * The Cards/Rows choice lives in this panel rather than beside the Columns
- * button: as a second control on the toolbar it was the same decision twice, on
- * the screen with the least room for either. A spec that presses a layout
- * therefore opens a panel first, and these two helpers are that step so the
- * specs do not each grow their own copy of it.
+ * It was inside the column panel for a while, to save the toolbar's room, and
+ * was reported missing by an operator who never thought to look there. A
+ * segmented button is named for the label it shows and then described, so the
+ * label is what to ask for.
+ */
+export function layoutChoice(page: Page, name: 'Cards' | 'Rows'): Locator {
+  return page
+    .getByRole('group', { name: /is laid out$/ })
+    .getByRole('button', { name: new RegExp(`^${name}\\b`) });
+}
+
+/**
+ * Open a phone grid's column panel, and close it again, so the specs that
+ * turn a column on or off do not each grow their own copy of the step.
  */
 export async function openColumnPanel(page: Page): Promise<Locator> {
   const panel = page.getByRole('group', { name: 'Column layout' });
