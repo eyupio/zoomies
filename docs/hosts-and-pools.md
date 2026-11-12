@@ -1713,7 +1713,12 @@ fleet's rather than the workflow's. In a Docker-in-Docker pool the builds run
 in the sidecar, under a limit of its own, so a kill there leaves a runner that
 finishes its job cleanly; the sidecar's own `OOMKilled` is read once the runner
 has stopped, and the job's explanation says it was the sidecar that was short of
-room. Both show on the job's page, in
+room. A build runs in a container of the sidecar's own daemon, and a kill there
+need not set that flag, so on a host with cgroup v2 the agent also reads the
+kernel's own count of kills (`memory.events`) in each container while it runs,
+and a count above nothing marks the job the same way. It cannot be read where
+the Docker daemon is in a virtual machine or on another host, and a kill that
+ends the job within a second or two can still be missed. Both show on the job's page, in
 `GET /api/v1/jobs/{id}`, in `job_stats` and in the MCP tools.
 
 A job's **requirement** is the ninetieth percentile of the peaks of its last

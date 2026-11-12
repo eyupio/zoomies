@@ -373,7 +373,12 @@ type DockerBackend struct {
 	// images is what this agent has prepared, which is the whole of what
 	// SweepImages may clear superseded images from, and imagesSince is when the
 	// backend started, so that a fresh agent sweeps nothing for imageHandoff.
-	images      imageLedger
+	images imageLedger
+	// oomKills is the memory kills the kernel counted in each container while
+	// it ran; procRoot and cgroupRoot are where it reads them, for a test.
+	oomKills    oomKillLedger
+	procRoot    string
+	cgroupRoot  string
 	imagesSince time.Time
 	log         *slog.Logger
 	// nameRelease is how long a create waits for the daemon to release a name
@@ -1189,6 +1194,9 @@ func (b *DockerBackend) MemoryUsage(ctx context.Context, container string) (Memo
 		}
 		return MemoryReading{}, fmt.Errorf("backend: reading the memory of container %s: %w", shortID(container), err)
 	}
+	// The guard looks at a busy container every second, which is as close to a
+	// kill as anything in the agent gets, so the kernel's count is read here.
+	b.noteOOMKills(ctx, container)
 	return MemoryReading{UsageBytes: s.MemoryBytes, LimitBytes: s.MemoryLimit, SampledAt: time.Now()}, nil
 }
 
@@ -1905,6 +1913,8 @@ func (b *DockerBackend) Stats(ctx context.Context, h Handle) (Stats, error) {
 		runner <- sample{Stats(s), err}
 	}()
 	insp, err := b.api.ContainerInspect(ctx, string(h))
+	// A pool with no memory guard is still sampled, so its kills are counted here.
+	b.noteOOMKills(ctx, string(h))
 	// The folders the pool keeps in memory are measured beside the sample, in
 	// the container and while it is still there to measure: see ScratchUse for
 	// why a sample is the only moment that can. Each container's measurement is
@@ -1938,6 +1948,7 @@ func (b *DockerBackend) Stats(ctx context.Context, h Handle) (Stats, error) {
 	}
 	var halves []half
 	for _, sidecar := range sidecars {
+		b.noteOOMKills(ctx, sidecar.ID)
 		// The image store is the sidecar's folder, measured in the sidecar. One
 		// inspect per sample, for a pair only, and it is asked before the stats
 		// call so the measurement runs in that call's shadow.
@@ -2209,6 +2220,11 @@ func (b *DockerBackend) List(ctx context.Context) ([]Workload, error) {
 		out = append(out, b.workloadFrom(ctx, s, false))
 	}
 	b.attributeSidecarKills(ctx, out, sidecars)
+	live := make(map[string]bool, len(summaries))
+	for _, s := range summaries {
+		live[s.ID] = true
+	}
+	b.forgetOOMKillsExcept(live)
 
 	for _, s := range sidecars {
 		// Two ways to find the runner, because leaving a live pool without its
@@ -2260,7 +2276,12 @@ func (b *DockerBackend) attributeSidecarKills(ctx context.Context, runners []Wor
 			continue
 		}
 		insp, err := b.api.ContainerInspect(ctx, sidecar.ID)
-		if err != nil || insp.State == nil || !insp.State.OOMKilled {
+		if err != nil || insp.State == nil {
+			continue
+		}
+		// The daemon's flag, or the kernel's own count: a build runs in a
+		// container below the sidecar, and a kill there need not set the flag.
+		if !insp.State.OOMKilled && b.oomKillsSeen(sidecar.ID) == 0 {
 			continue
 		}
 		w.Status.OOMKilled = true
@@ -2303,6 +2324,13 @@ func (b *DockerBackend) workloadFrom(ctx context.Context, s ContainerSummary, si
 	if w.Status.Phase == PhaseExited || w.Status.Phase == PhaseFailed {
 		if insp, err := b.api.ContainerInspect(ctx, s.ID); err == nil {
 			w.Status = statusFromInspect(Handle(s.ID), insp)
+			// The kernel counted a kill in the runner that the daemon's flag
+			// missed: a step's process, in a cgroup below the container's own.
+			if !sidecar && !w.Status.OOMKilled && w.Status.OOMReported && b.oomKillsSeen(s.ID) > 0 {
+				w.Status.OOMKilled = true
+				w.Status.Phase = PhaseFailed
+				w.Status.Message = oomMessage(insp)
+			}
 		}
 	}
 	return w
