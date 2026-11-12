@@ -272,6 +272,7 @@ func TestACheckNobodyPickedUpIsDroppedAfterTwentySeconds(t *testing.T) {
 // What the page does with the answer depends on how it compares with the last
 // report, and the first frame carrying a changed report must already say so.
 func TestAnAnsweredCheckIsIngestedAndSaysHowItComparedWithTheLastReport(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name  string
 		prior func(h *harness, host *store.Host, base time.Time)

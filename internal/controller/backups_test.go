@@ -24,6 +24,7 @@ func (h *harness) onDisk() string {
 // backup. The loop takes one when none is recent, leaves the schedule alone
 // while one is, and keeps to backup.keep.
 func TestTheScheduleTakesABackupWhenOneIsDueAndKeepsToTheCeiling(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	dir := h.onDisk()
 	h.c.UpdateConfig(func(c *config.Config) {

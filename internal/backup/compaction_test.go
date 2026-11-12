@@ -95,6 +95,7 @@ func modeOf(t *testing.T, st *store.Store) int64 {
 
 // The default: a database that can give its free pages back does, and says how much.
 func TestACompactionPassGivesAnIncrementalDatabasesFreePagesBack(t *testing.T) {
+	t.Parallel()
 	cfg, st := compactable(t, false)
 	churn(t, cfg.Database.Path)
 	before := fileBytes(t, cfg.Database.Path)
@@ -118,6 +119,7 @@ func TestACompactionPassGivesAnIncrementalDatabasesFreePagesBack(t *testing.T) {
 // "off" never touches the file, and a database with nothing worth giving back is
 // not news: the status is for what changed.
 func TestACompactionPassThatHasNothingToDoSaysNothing(t *testing.T) {
+	t.Parallel()
 	cfg, st := compactable(t, false)
 	if result := Compact(context.Background(), st, cfg, time.Now()); result != nil {
 		t.Errorf("a database with no free space reported %+v", result)
@@ -134,6 +136,7 @@ func TestACompactionPassThatHasNothingToDoSaysNothing(t *testing.T) {
 // An existing database is left alone by "incremental", with nothing to report: it
 // is the default for everyone, and rewriting a database is a choice.
 func TestIncrementalModeLeavesAnOlderDatabaseAlone(t *testing.T) {
+	t.Parallel()
 	cfg, st := compactable(t, true)
 	churn(t, cfg.Database.Path)
 	before := fileBytes(t, cfg.Database.Path)
@@ -245,6 +248,7 @@ func TestConvertRewritesAnOlderDatabaseOnlyWhenADiskAndABackupAllowIt(t *testing
 // incremental for the next, and a later pass under the same setting reclaims as a
 // default pass does.
 func TestAnAlreadyIncrementalDatabaseUnderConvertIsJustReclaimed(t *testing.T) {
+	t.Parallel()
 	cfg, st := compactable(t, false)
 	churn(t, cfg.Database.Path)
 	cfg.Maintenance.Compact = "convert"
@@ -260,6 +264,7 @@ func TestAnAlreadyIncrementalDatabaseUnderConvertIsJustReclaimed(t *testing.T) {
 // waits for maintenance.compact to be convert: the restore documentation says so,
 // and this is what holds it to that.
 func TestARestoredBackupKeepsTheModeItWasTakenIn(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	for _, tc := range []struct {
 		name  string

@@ -303,6 +303,7 @@ func TestACompleteInstanceMovesAcrossKeysAndKeepsItsDestinationInCharge(t *testi
 }
 
 func TestADamagedTransferNeverTouchesTheDestination(t *testing.T) {
+	t.Parallel()
 	src, st, _ := host(t)
 	archive := portableSnapshot(t, src, st)
 	dest, dst, _ := transferDestination(t)
@@ -328,6 +329,7 @@ func TestADamagedTransferNeverTouchesTheDestination(t *testing.T) {
 }
 
 func TestATransferCannotReplaceAnExistingFleet(t *testing.T) {
+	t.Parallel()
 	src, st, _ := host(t)
 	archive := portableSnapshot(t, src, st)
 	dest, dst, _ := host(t)

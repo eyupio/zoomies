@@ -71,6 +71,7 @@ func TestRunnerLogAsksTheControllerForItsEndRatherThanReadingFromTheStart(t *tes
 // end of the log, and saying they are sends the model diagnosing from
 // unrelated output.
 func TestRunnerLogSaysWhenWhatItReadIsNotTheEndOfTheLog(t *testing.T) {
+	t.Parallel()
 	// A little over the limit: 32 MiB is about 3.4 million of these lines.
 	l := &logAPI{body: numbered(t, 4_000_000)}
 	framing, block := runnerLog(t, l, 5)

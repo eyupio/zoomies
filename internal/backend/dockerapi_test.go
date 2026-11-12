@@ -708,6 +708,7 @@ func TestParseDockerTime(t *testing.T) {
 // which failed the runner as unexplained while the daemon carried on and
 // killed the container anyway. A stop is bounded by its own grace period.
 func TestAStopOutlastsTheResponseHeaderTimeout(t *testing.T) {
+	t.Parallel()
 	f := newFakeEngine(t, map[string]http.HandlerFunc{
 		"POST " + v + "/containers/slow/stop": func(w http.ResponseWriter, r *http.Request) {
 			time.Sleep(300 * time.Millisecond)

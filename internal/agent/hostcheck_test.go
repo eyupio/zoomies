@@ -117,6 +117,7 @@ func TestACheckTaskAnswersOnEveryFailurePath(t *testing.T) {
 // A check is not lifecycle work: on a host with every slot taken it must still
 // answer, and it must not take a slot from the runner that is waiting.
 func TestACheckTaskNeitherWaitsForNorTakesACapacitySlot(t *testing.T) {
+	t.Parallel()
 	d := &fakeDoctor{can: true, report: &hosttune.Report{OS: "linux"}}
 	h := harnessWithDoctor(t, 1, d)
 	h.be.mu.Lock()

@@ -677,6 +677,7 @@ func TestChangeOwnPassword(t *testing.T) {
 // password, so wrong "current password" guesses are charged to the login limits
 // and told when to come back.
 func TestChangeOwnPasswordIsRateLimited(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	u, _ := h.user("alice", store.RoleViewer)
 	cookie := h.session(u)

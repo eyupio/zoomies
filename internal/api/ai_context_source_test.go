@@ -115,6 +115,7 @@ func TestContextSourceRetrievalRequiresExplicitMembershipAndPinsPages(t *testing
 }
 
 func TestContextMCPDiscoveryAndReadsFollowTheConnectionsExplicitConsent(t *testing.T) {
+	t.Parallel()
 	h, draft, owner, cookie := sourceHarness(t)
 	h.cfg.Server.ExternalURL = oauthBase
 	client := h.registerClient(claudeReturn)

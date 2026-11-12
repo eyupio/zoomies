@@ -44,6 +44,7 @@ func echoTarget(t *testing.T) string {
 // lost its connection and needs a controller restart" into "reconnection is
 // automatic at both ends".
 func TestADialerReachesTheProviderAgainOnceItsGatewayHasRestarted(t *testing.T) {
+	shortenDialIntro(t)
 	t.Setenv("IN_TS_TEST", "true")
 	dm := integration.RunDERPAndSTUN(t, func(string, ...any) {}, "127.0.0.1")
 	target := echoTarget(t)
@@ -109,6 +110,7 @@ func TestADialerReachesTheProviderAgainOnceItsGatewayHasRestarted(t *testing.T) 
 // says what to check, and never quotes the address it failed against: the
 // address is the capability, and the check happens on another machine.
 func TestAFailedDialNamesTheGatewayAndKeepsTheAddressOut(t *testing.T) {
+	shortenDialIntro(t)
 	t.Setenv("IN_TS_TEST", "true")
 	dm := integration.RunDERPAndSTUN(t, func(string, ...any) {}, "127.0.0.1")
 	// A gateway that starts, tells us its address, and dies before the dial:
@@ -157,4 +159,14 @@ func TestAFailedDialNamesTheGatewayAndKeepsTheAddressOut(t *testing.T) {
 	case <-time.After(25 * time.Second):
 		t.Fatal("the dial against a stopped gateway did not fail within its deadline")
 	}
+}
+
+// shortenDialIntro lets a test that makes a dial hang on purpose notice it in a
+// second and a half rather than five. A healthy dial through a local tunnel is
+// far quicker, so the first attempt still succeeds where it should.
+func shortenDialIntro(t *testing.T) {
+	t.Helper()
+	original := dialIntroTimeout
+	dialIntroTimeout = 1500 * time.Millisecond
+	t.Cleanup(func() { dialIntroTimeout = original })
 }

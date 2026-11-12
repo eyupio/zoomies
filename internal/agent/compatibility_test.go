@@ -48,6 +48,7 @@ func TestAnUncordonedHostTakesACreateBeforeItsNextBeat(t *testing.T) {
 // has runners to drain, stop and stream logs from, and an agent that stopped
 // polling would strand every one of them.
 func TestARefusedHostStillDoesEverythingButCreate(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		resp *HeartbeatResponse

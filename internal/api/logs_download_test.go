@@ -140,6 +140,12 @@ func TestLogFilenameSurvivesEveryFilesystemAndQuotingRule(t *testing.T) {
 // that printed nothing. The headers now wait for the first bytes, and a silent
 // window is a 503 with a sentence saying to try again.
 func TestADownloadWithNoFirstChunkIsRefusedNotEmpty(t *testing.T) {
+	// The refusal is what the wait ends in, so the wait is what this test
+	// costs. It is set before the harness so that it is restored after the
+	// harness's goroutines have stopped reading it.
+	original := logDownloadFirstChunkWait
+	logDownloadFirstChunkWait = 500 * time.Millisecond
+	t.Cleanup(func() { logDownloadFirstChunkWait = original })
 	h := newHarness(t)
 	inst := h.installation()
 	pool := h.pool(inst, "linux-x64")

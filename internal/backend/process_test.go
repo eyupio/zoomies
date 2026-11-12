@@ -642,6 +642,7 @@ func TestExtractZip(t *testing.T) {
 // usual case converges and the unusual one is still recorded rather than
 // retried forever.
 func TestRemoveAllRetryKeepsTryingWithinItsGrace(t *testing.T) {
+	t.Parallel()
 	calls := 0
 	flaky := func(string) error {
 		calls++
@@ -1221,6 +1222,7 @@ func TestRemovingARunnerWaitsForItsExitToBeRecorded(t *testing.T) {
 // between the process exiting and its exit record landing is hit rather than
 // hoped past.
 func TestReplacingARunnerRepeatedlyNeverTripsOverItsOwnExitRecord(t *testing.T) {
+	t.Parallel()
 	requireUnix(t)
 	b, _ := newStubProcessBackend(t)
 	ctx := context.Background()

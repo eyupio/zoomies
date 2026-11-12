@@ -1264,6 +1264,7 @@ func TestAConflictOverTheRunnersNameStillRemovesTheSidecarThisCreateStarted(t *t
 // to become inspectable, adopts it, and binds the runner to it. No container is
 // removed at any point, and nobody is sent after a duplicate agent.
 func TestASlowSidecarCreateIsAdoptedByTheAgentsRetryRatherThanFailedAsAConflict(t *testing.T) {
+	t.Parallel()
 	const sidecarID = "446231582fb9a5d3c2e1f0b9a8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9"
 	const runnerID = "7c2b4d6e8f0a2c4e6f8a0b2d4f6a8c0e2f4a6b8d0c2e4f6a8b0d2c4e6f8a0b2d"
 	spec := jitSpec()

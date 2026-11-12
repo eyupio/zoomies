@@ -81,6 +81,7 @@ func TestRetainedRunnerFactsKeepRequestsAndClaimsSeparateAndExcludeFutureFields(
 }
 
 func TestRetainedRunnerFactsFitBothModelBudgetsWithoutChangingCoverageCounts(t *testing.T) {
+	t.Parallel()
 	for _, limit := range []int{12 << 10, 64 << 10} {
 		api := &kennelAPI{body: comparisonRunnerBody(t, 100, comparisonRunnerFixture(100, true))}
 		ctx := context.WithValue(t.Context(), windowKey{}, windowLimits{block: limit})

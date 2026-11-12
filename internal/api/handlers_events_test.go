@@ -117,6 +117,7 @@ func TestRecentEventsFromAnotherEpochIsIncomplete(t *testing.T) {
 }
 
 func TestRecentEventsTakesADurationAsSince(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	viewer, _ := h.user("watcher", store.RoleViewer)
 	cookie := h.session(viewer)
@@ -256,6 +257,7 @@ func TestWaitForChangeAnswersAtOnceWhenEventsAlreadyExist(t *testing.T) {
 }
 
 func TestWaitForChangeReturnsTheNextFrameOrTimesOut(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	viewer, _ := h.user("watcher", store.RoleViewer)
 	cookie := h.session(viewer)
@@ -688,6 +690,7 @@ func TestRecentEventsSendAFrameOnlyToSomebodyWhoCouldReadIt(t *testing.T) {
 // ceiling as their stream is, and a crowd of them cannot take the slots the
 // people who run the fleet need.
 func TestAVisitorsWaitIsHeldToTheVisitorsCeiling(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, publicView, func(c *config.Config) {
 		c.Limits.VisitorEventSubscribers = 1
 		c.Limits.EventSubscribers = 1
@@ -748,6 +751,7 @@ func TestRecentEventsSinceNowIsACursorAtThePresentAndNothingElse(t *testing.T) {
 }
 
 func TestAWaitSinceNowHoldsForTheNextMatchingFrameOnly(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	viewer, _ := h.user("watcher", store.RoleViewer)
 	cookie := h.session(viewer)

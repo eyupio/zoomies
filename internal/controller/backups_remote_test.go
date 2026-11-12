@@ -80,6 +80,7 @@ func TestAScheduledBackupIsCopiedToTheRemote(t *testing.T) {
 // offsite copy silently skips the nights the bucket was down has a gap nobody
 // knows about.
 func TestARemoteThatWasDownIsCaughtUpWithEveryBackupItMissed(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	fake := offsite(h, nil)
 	fake.BreakWith(403, "AccessDenied", "the policy says no")
@@ -127,6 +128,7 @@ func TestARemoteThatWasDownIsCaughtUpWithEveryBackupItMissed(t *testing.T) {
 // A remote's own retention is its own: a fleet may keep a week on the disk and
 // a year in the bucket, which is most of why the bucket is there.
 func TestTheRemoteKeepsItsOwnNumberOfCopies(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	fake := offsite(h, func(r *config.BackupRemote) { r.Keep = 1 })
 
@@ -174,6 +176,7 @@ func TestAFleetWithNoRemoteShipsNothingAndSaysSo(t *testing.T) {
 // pass because the directory is one over its ceiling would be the cruellest
 // possible moment to enforce one.
 func TestACopyFetchedBackIsNeverRemovedByRetention(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	offsite(h, nil)
 	h.c.UpdateConfig(func(c *config.Config) { c.Backup.Keep = 1 })
@@ -510,6 +513,7 @@ func TestANudgeRefusedByAPassAlreadyRunningIsKept(t *testing.T) {
 // nothing happens ever. This is that button, and it has to reach the buckets
 // too -- both numbers are set on the same page.
 func TestRetentionCanBeAppliedWithoutTakingABackup(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	fake := offsite(h, func(r *config.BackupRemote) { r.Keep = 1 })
 	h.c.UpdateConfig(func(c *config.Config) { c.Backup.Keep = 0 })
@@ -567,6 +571,7 @@ func TestRetentionCanBeAppliedWithoutTakingABackup(t *testing.T) {
 // The other half of the same button: a destination holding more than it is
 // meant to is pruned without a backup being taken either.
 func TestRetentionOnDemandReachesTheBuckets(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	fake := offsite(h, nil)
 	h.c.UpdateConfig(func(c *config.Config) { c.Backup.Keep = 0 })
@@ -643,6 +648,7 @@ func TestRetentionOnDemandWaitsForABackupAndForAnOffsitePass(t *testing.T) {
 // this host are pruned anyway. A fleet whose retention stopped at the first
 // wrong credential would keep every copy it has and never say why.
 func TestRetentionOnDemandRecordsABucketThatRefuses(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	fake := offsite(h, func(r *config.BackupRemote) { r.Keep = 1 })
 	h.c.UpdateConfig(func(c *config.Config) { c.Backup.Keep = 0 })
@@ -680,6 +686,7 @@ func TestRetentionOnDemandRecordsABucketThatRefuses(t *testing.T) {
 // The default fleet has no destinations at all, and pruning it is the local
 // half alone rather than an error somebody has to read.
 func TestRetentionOnDemandOnAFleetWithNoDestinations(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.c.UpdateConfig(func(c *config.Config) { c.Backup.Interval = time.Hour })
 
@@ -737,6 +744,7 @@ func TestRetentionOnDemandSaysWhyTheDirectoryRefused(t *testing.T) {
 // stored row edited by hand would not -- is recorded against its own name.
 // The others are still pruned: one malformed row must not stop retention.
 func TestRetentionOnDemandRecordsADestinationItCannotBuild(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	fake := offsite(h, nil)
 	h.c.UpdateConfig(func(c *config.Config) {

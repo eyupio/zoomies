@@ -12,6 +12,7 @@ import (
 )
 
 func TestDinDWaitsForHealthyDaemonBeforeReleasingStartup(t *testing.T) {
+	t.Parallel()
 	func() {
 		probes := 0
 		f := newFakeEngine(t, map[string]http.HandlerFunc{
@@ -48,6 +49,7 @@ func TestDinDWaitsForHealthyDaemonBeforeReleasingStartup(t *testing.T) {
 }
 
 func TestDinDReadinessIsBoundedAndReportsEarlyExit(t *testing.T) {
+	t.Parallel()
 	for _, scenario := range []string{"timeout", "cancel", "oom", "unavailable"} {
 		t.Run(scenario, func(t *testing.T) {
 			func() {

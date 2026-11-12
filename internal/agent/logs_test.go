@@ -108,6 +108,7 @@ func TestLogRelayCancelStopsTheStream(t *testing.T) {
 }
 
 func TestLogRelayDropsRatherThanBlockingOnASlowController(t *testing.T) {
+	t.Parallel()
 	tr := newFakeTransport()
 	// Every write to the controller takes 10ms: writing all 300 chunks would
 	// take three seconds, far longer than the runner should ever wait.
