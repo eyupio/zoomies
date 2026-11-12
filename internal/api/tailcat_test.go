@@ -265,9 +265,14 @@ func TestPrivateHostRecoversHeartbeatsAfterAControllerRestartWithoutRestartingIt
 	// very same tailcat.Client the join above used. A stranded agent hangs
 	// here forever; a self-healing one loses at most the beat that lands
 	// during the restart.
+	//
+	// Each beat gets five seconds, not thirty: the beat that lands during the
+	// restart hangs for its whole timeout before the next one succeeds, so the
+	// timeout is what this test costs. Five seconds is still far longer than a
+	// healthy local beat takes, and there are more tries to match.
 	var lastErr error
-	for range 3 {
-		hctx, hcancel := context.WithTimeout(h.ctx, 30*time.Second)
+	for range 6 {
+		hctx, hcancel := context.WithTimeout(h.ctx, 5*time.Second)
 		_, lastErr = tr.Heartbeat(hctx, agent.HeartbeatRequest{ProtocolVersion: agent.ProtocolVersion, Capacity: 2})
 		hcancel()
 		if lastErr == nil {
