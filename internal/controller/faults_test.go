@@ -498,6 +498,40 @@ func TestAJobTheFleetBrokeIsReRunOnlyWhenTheSettingSaysSo(t *testing.T) {
 	}
 }
 
+// A build killed for memory in a pool's Docker sidecar leaves a runner that
+// finishes its job and exits cleanly: GitHub says the job failed first, and the
+// agent says why only once the runner has stopped. The re-run was decided at
+// completion and nowhere else, so the one failure this setting exists for, a
+// job the fleet starved, was never sent back.
+func TestAMemoryKillReportedAfterTheJobCompletedIsStillReRunOnce(t *testing.T) {
+	h := newHarness(t)
+	_, _, host := h.fleet()
+	labels := []string{"self-hosted", "linux", "x64", "demo"}
+	h.c.live.Update(func(c *config.Config) {
+		c.Scheduler.AutoRerun, c.Scheduler.AutoRerunLimit = true, 1
+	})
+
+	_, r := startJobOnRunner(t, h, host.ID, 9701, labels)
+	h.deliverJob(jobEvent{Action: "completed", JobID: 9701, RunID: 4701, Name: "publish", Workflow: "image",
+		Labels: labels, RunnerName: r.Name, Conclusion: "failure", RunAttempt: 1, Steps: failingSteps()})
+	if n := h.gh.JobReruns(); n != 0 {
+		t.Fatalf("GitHub was asked to re-run %d times before the fleet had anything to confess", n)
+	}
+
+	runner, err := h.st.GetRunner(h.ctx, r.ID)
+	if err != nil {
+		t.Fatalf("GetRunner: %v", err)
+	}
+	h.c.noteOOMKilled(h.ctx, runner, "the Docker sidecar was killed for exceeding its memory limit")
+	// The same exit reaches the controller from a report and again from a
+	// task result.
+	h.c.noteOOMKilled(h.ctx, runner, "the Docker sidecar was killed for exceeding its memory limit")
+
+	if n := h.gh.JobReruns(); n != 1 {
+		t.Fatalf("GitHub was asked to re-run %d times for a kill reported after completion, want once", n)
+	}
+}
+
 // A duplicate delivery must not buy a second re-run. GitHub delivers at least
 // once, and a completion that arrives twice for a job already completed is not
 // a state change -- so it never reaches the re-run. This pins that, because
