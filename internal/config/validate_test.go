@@ -249,8 +249,9 @@ func TestQuietDangerousValuesAreNamed(t *testing.T) {
 		// fleet broke spends the installation's GitHub minutes with nobody
 		// asking, so a deployment should read it at startup rather than find
 		// it on a bill.
-		{"jobs re-run without asking", "scheduler.auto_rerun_on", func(c *Config) {
+		{"jobs re-run many times without asking", "scheduler.auto_rerun_on", func(c *Config) {
 			c.Scheduler.AutoRerun = true
+			c.Scheduler.AutoRerunLimit = 3
 		}},
 	}
 	for _, tc := range cases {
@@ -270,6 +271,19 @@ func TestQuietDangerousValuesAreNamed(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The warning cannot be dismissed, so it is raised only for a limit high
+// enough to matter; the default of one re-run, and two, are a reasonable bound.
+func TestAutoRerunWithAReasonableLimitDrawsNoWarning(t *testing.T) {
+	for _, limit := range []int{1, 2} {
+		c := Default()
+		c.Scheduler.AutoRerun = true
+		c.Scheduler.AutoRerunLimit = limit
+		if hasCode(c.Validate(), "scheduler.auto_rerun_on") {
+			t.Fatalf("a limit of %d drew scheduler.auto_rerun_on", limit)
+		}
 	}
 }
 

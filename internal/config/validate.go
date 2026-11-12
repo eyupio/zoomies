@@ -1041,7 +1041,13 @@ func (c *Config) validateScheduler(add func(Finding)) {
 			Fix:    "leave scheduler.host_throttling on unless something outside Zoomies manages the hosts' load.",
 		})
 	}
-	if c.Scheduler.AutoRerun {
+	// A finding nobody can dismiss has to be worth reading every time, so a
+	// re-run limit of one or two does not raise it: the default of 1 is the
+	// bounded, deliberate case the setting exists for, and a couple of
+	// attempts per run is not a surprise on a bill. The warning is for a limit
+	// high enough that a fault the fleet causes every time becomes one.
+	const quietAutoRerunLimit = 2
+	if c.Scheduler.AutoRerun && c.Scheduler.AutoRerunLimit > quietAutoRerunLimit {
 		// Not a weakening of the security posture, but a standing permission
 		// to spend somebody's money without asking, which is the other thing
 		// this list exists to say out loud before a deployment discovers it.
@@ -1049,7 +1055,7 @@ func (c *Config) validateScheduler(add func(Finding)) {
 			Code: "scheduler.auto_rerun_on", Severity: SeverityWarning, Setting: "scheduler.auto_rerun",
 			Title:  "jobs this fleet breaks are re-run without asking",
 			Detail: fmt.Sprintf("a job whose runner died under it is sent back to GitHub automatically, up to %d time(s) per workflow run. That spends GitHub minutes on this installation's account, and a job that got as far as running may have had side effects outside GitHub that its author expected to happen once.", c.Scheduler.AutoRerunLimit),
-			Fix:    "turn scheduler.auto_rerun off to leave the re-run to the button on the job, or lower scheduler.auto_rerun_limit.",
+			Fix:    "lower scheduler.auto_rerun_limit to 2 or less, or turn scheduler.auto_rerun off to leave the re-run to the button on the job.",
 		})
 	}
 	if c.Scheduler.AutoRerunLimit < 1 || c.Scheduler.AutoRerunLimit > 5 {
