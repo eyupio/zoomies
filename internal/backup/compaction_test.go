@@ -153,7 +153,6 @@ func TestIncrementalModeLeavesAnOlderDatabaseAlone(t *testing.T) {
 // worth of disk and a backup from the last day, and without either it does nothing
 // and says what to do. With both it converts and gives the space back.
 func TestConvertRewritesAnOlderDatabaseOnlyWhenADiskAndABackupAllowIt(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	now := time.Now()
 
@@ -299,7 +298,6 @@ func TestARestoredBackupKeepsTheModeItWasTakenIn(t *testing.T) {
 // small tmpfs, so a rewrite is refused when that directory cannot hold one even
 // though the database's own disk can.
 func TestAConversionIsRefusedWhenTheTemporaryDirectoryIsTooSmall(t *testing.T) {
-	t.Parallel()
 	cfg, st := compactable(t, true)
 	churn(t, cfg.Database.Path)
 	cfg.Maintenance.Compact = "convert"
