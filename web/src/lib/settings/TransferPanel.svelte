@@ -362,7 +362,7 @@
   }
   h2 {
     font-size: var(--z-text-lg);
-    font-weight: 600;
+    font-weight: var(--z-weight-semibold);
   }
   p {
     color: var(--z-text-muted);
@@ -373,7 +373,7 @@
   }
   summary {
     cursor: pointer;
-    font-weight: 600;
+    font-weight: var(--z-weight-semibold);
   }
   .steps {
     display: flex;
@@ -391,7 +391,7 @@
     gap: var(--z-space-2);
   }
   .file-label {
-    font-weight: 500;
+    font-weight: var(--z-weight-medium);
   }
   .error {
     color: var(--z-danger);
@@ -423,7 +423,7 @@
   }
   .step-label {
     flex: 1;
-    font-weight: 500;
+    font-weight: var(--z-weight-medium);
   }
   .tick {
     width: 1em;
@@ -458,11 +458,11 @@
     column-gap: var(--z-space-1);
   }
   .wait-name {
-    font-weight: 500;
+    font-weight: var(--z-weight-medium);
     color: var(--z-text);
   }
   .wait-host {
-    font-weight: 400;
+    font-weight: var(--z-weight-normal);
     color: var(--z-text-muted);
   }
   .wait-detail {

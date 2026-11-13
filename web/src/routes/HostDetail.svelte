@@ -1207,7 +1207,7 @@
     display: flex;
     align-items: center;
     gap: var(--z-space-2);
-    margin-top: 0.25rem;
+    margin-top: var(--z-space-1);
   }
   .fix-command code {
     overflow-wrap: anywhere;
