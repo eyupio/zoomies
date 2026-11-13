@@ -32,7 +32,20 @@
   padding-inline: 30px;
   gap: 36px;
 }
+/* With the navigation beside the article, its links start on the line the
+   logo and the footer start on. The header's .wrap is 112px narrower than the
+   page; the navigation sets its text 14px inside its own box, so this box is
+   that much wider on each side. Below this width the navigation is a drawer
+   and the article keeps the padding above. */
+@media (min-width: 76.25em) {
+  .md-main__inner {
+    width: calc(100% - 84px);
+    max-width: 1284px;
+    padding-inline: 0;
+  }
+}
 .md-main__inner:has(> :is(.site-home, .site-hub, .site-guides, .site-compare, .site-article)) {
+  width: auto;
   display: block;
   max-width: none;
   padding: 0;
@@ -542,7 +555,7 @@
 }
 .hub-handbook h2,
 .comparison-detail h2 {
-  font-size: 32px;
+  font-size: var(--h-topic);
   border: 0;
 }
 .hub-handbook h3,
@@ -816,6 +829,12 @@
 .z-doc .md-typeset li {
   font-size: 1em;
   line-height: 1.7;
+}
+/* showcase.css takes the margin off every paragraph, and only the field
+   guide's articles (.prose) put one back, so a documentation page set its
+   paragraphs solid, one running into the next with nothing between them. */
+.z-doc .md-typeset p + p {
+  margin-top: 1em;
 }
 .md-sidebar--secondary .md-nav__link,
 .z-nav-list a,

@@ -805,7 +805,7 @@
     margin: 0;
   }
   .os-options legend {
-    font-weight: 600;
+    font-weight: var(--z-weight-semibold);
     margin-bottom: var(--z-space-2);
   }
   .os-choices {

@@ -137,6 +137,13 @@
     The page as Markdown, for an assistant that would rather read the source
     than the theme. hooks/seo.py writes the copy beside the page, and a 404
     has no page and so no copy.
+
+    The theme's script reads every rel="alternate" link as a translation of
+    the site and asks for a sitemap.xml beside it, so each page but the home
+    page logs one 404 in the console for <page>/sitemap.xml. The script
+    swallows the failure and nothing a reader sees depends on it. It is left
+    alone on purpose: every way of silencing it changes the link assistants
+    find the copy by.
   #}
   {% if page and page.file %}<link rel="alternate" type="text/markdown" href="{{ canonical }}index.md" />{% endif %}
   {#

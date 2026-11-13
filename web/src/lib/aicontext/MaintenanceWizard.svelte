@@ -9,7 +9,10 @@
   import type { Body, Result } from '$lib/api/types';
   import Button from '$lib/components/Button.svelte';
   import ErrorState from '$lib/components/ErrorState.svelte';
+  import Field from '$lib/components/Field.svelte';
   import Input from '$lib/components/Input.svelte';
+  import Select from '$lib/components/Select.svelte';
+  import Skeleton from '$lib/components/Skeleton.svelte';
   import Textarea from '$lib/components/Textarea.svelte';
   let { id, mode }: { id: string; mode: string } = $props();
   let repository = $state<Result<'getAIContextRepository'> | null>(null);
@@ -86,7 +89,9 @@
         ? 'Amend AI Context'
         : 'Reinstall / repair AI Context'}
   </h2>
-  {#if repository}<p>{repository.full_name} · {repository.config.source_branch}</p>{/if}
+  {#if repository}<p class="muted">
+      {repository.full_name} · {repository.config.source_branch}
+    </p>{:else if !error}<Skeleton lines={3} />{/if}
   <p>
     Merge or close the previous setup PR before preparing a new proposal. Every repository change is
     reviewed before publication.
@@ -108,15 +113,34 @@
     </p>
   {/if}
   {#if validMode === 'amend' && !plan}
-    <label
-      >Destination<select bind:value={destination}
-        ><option value="both">Repository and Zoomies</option><option value="repository"
-          >Repository only</option
-        ><option value="zoomies">Zoomies only</option></select
-      ></label
+    <Field label="Destination"
+      >{#snippet children({ id, describedBy })}<Select
+          {id}
+          {describedBy}
+          bind:value={destination}
+          options={[
+            { value: 'both', label: 'Repository and Zoomies' },
+            { value: 'repository', label: 'Repository only' },
+            { value: 'zoomies', label: 'Zoomies only' },
+          ]}
+        />{/snippet}</Field
     >
-    <label>Exclusions, one pattern per line<Textarea bind:value={exclusions} /></label>
-    <label>Snapshots to retain<Input bind:value={retention} inputmode="numeric" /></label>
+    <Field label="Exclusions, one pattern per line"
+      >{#snippet children({ id, describedBy })}<Textarea
+          {id}
+          {describedBy}
+          bind:value={exclusions}
+          mono
+        />{/snippet}</Field
+    >
+    <Field label="Snapshots to retain"
+      >{#snippet children({ id, describedBy })}<Input
+          {id}
+          {describedBy}
+          bind:value={retention}
+          inputmode="numeric"
+        />{/snippet}</Field
+    >
   {/if}
   {#if error}<ErrorState {error} title="Maintenance could not finish" />{/if}
   {#if plan}
@@ -129,39 +153,70 @@
         <pre>{file.delete ? 'Remove this managed file.' : file.content}</pre>
       </details>
     {/each}
-    {#if plan.setup?.pr_url}<Button href={plan.setup.pr_url} newTab>Open maintenance PR</Button>
-    {:else}<Button variant="primary" loading={busy} disabled={busy} onclick={publish}
-        >{validMode === 'remove'
-          ? 'Revoke access and create removal PR'
-          : 'Create reviewed maintenance PR'}</Button
+  {/if}
+  <div class="actions">
+    {#if plan}
+      {#if plan.setup?.pr_url}<Button href={plan.setup.pr_url} newTab>Open maintenance PR</Button>
+      {:else}<Button variant="primary" loading={busy} disabled={busy} onclick={publish}
+          >{validMode === 'remove'
+            ? 'Revoke access and create removal PR'
+            : 'Create reviewed maintenance PR'}</Button
+        >{/if}
+      {#if !plan.setup}<Button
+          disabled={busy}
+          onclick={() => {
+            plan = null;
+            approvedRequest = null;
+          }}>Change review</Button
+        >{/if}
+    {:else}<Button variant="primary" loading={busy} disabled={busy || !repository} onclick={review}
+        >Review changes</Button
       >{/if}
-    {#if !plan.setup}<Button
-        disabled={busy}
-        onclick={() => {
-          plan = null;
-          approvedRequest = null;
-        }}>Change review</Button
-      >{/if}
-  {:else}<Button variant="primary" loading={busy} disabled={busy || !repository} onclick={review}
-      >Review changes</Button
-    >{/if}
-  <Button href="/kennel/ai-context">Back to AI Context</Button>
+    <Button href="/kennel/ai-context">Back to AI Context</Button>
+  </div>
 </section>
 
 <style>
   .maintenance {
     display: grid;
-    gap: 1rem;
-    max-width: 60rem;
+    justify-items: start;
+    gap: var(--z-space-4);
+    max-width: var(--z-width-dialog-lg);
   }
-  label {
-    display: grid;
-    gap: 0.5rem;
+  /* The fields and the file previews take the measure; the buttons stay the
+     width of their labels, as they are in the setup wizard beside this one. */
+  .maintenance > :global(.field),
+  .maintenance > :global(.stack),
+  details {
+    justify-self: stretch;
   }
-  select {
-    color: var(--z-text);
-    background: var(--z-surface);
-    padding: 0.5rem;
+  h2,
+  h3,
+  p {
+    margin: 0;
+  }
+  h2 {
+    font-size: var(--z-text-lg);
+    line-height: var(--z-leading-lg);
+    font-weight: var(--z-weight-semibold);
+  }
+  h3 {
+    font-size: var(--z-text-base);
+    font-weight: var(--z-weight-semibold);
+  }
+  p {
+    max-width: var(--z-measure-prose);
+  }
+  .muted {
+    color: var(--z-text-muted);
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--z-space-3);
+  }
+  summary {
+    cursor: pointer;
   }
   pre {
     max-height: 24rem;

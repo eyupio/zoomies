@@ -41,6 +41,17 @@
   --sans: Plex, Arial, sans-serif;
   --display: Fraunces, Georgia, serif;
   --mono: PlexMono, monospace;
+  /* The serif headings come in three sizes and no more. Each section used to
+     set its own, a pixel or two from its neighbours (50, 52, 53 and 54 on one
+     page), which reads as carelessness rather than as emphasis. The display
+     size steps down with the page; the breakpoints below move the one value. */
+  --h-display: 52px;
+  --h-topic: 32px;
+  --h-card: 29px;
+  /* One corner for every button, in the page and in the chrome. */
+  --button-radius: 5px;
+  --button-fill: var(--blue);
+  --button-fill-hover: var(--blue-hover);
   --header: rgba(246, 247, 244, 0.96);
   color-scheme: light;
 }
@@ -54,6 +65,9 @@
   --blue: #91bcff;
   --blue-hover: #bdd6ff;
   --tint: #21364d;
+  /* --blue is the link colour here, too pale to carry white text. */
+  --button-fill: #4078d7;
+  --button-fill-hover: #3169c8;
   --header: rgba(20, 25, 26, 0.97);
   color-scheme: dark;
 }
@@ -287,10 +301,10 @@ kbd {
   justify-content: space-between;
   gap: 24px;
   padding: 15px 23px;
-  background: var(--blue);
+  background: var(--button-fill);
   color: #fff;
-  border: 1px solid var(--blue);
-  border-radius: 5px;
+  border: 1px solid var(--button-fill);
+  border-radius: var(--button-radius);
   font-size: 14px;
   font-weight: 500;
   line-height: 1.4;
@@ -299,17 +313,9 @@ kbd {
     transform 0.18s;
 }
 .button:hover {
-  background: var(--blue-hover);
-  border-color: var(--blue-hover);
+  background: var(--button-fill-hover);
+  border-color: var(--button-fill-hover);
   transform: translateY(-1px);
-}
-[data-md-color-scheme='slate'] .button {
-  background: #4078d7;
-  color: #fff;
-  border-color: #4078d7;
-}
-[data-md-color-scheme='slate'] .button:hover {
-  background: #3169c8;
 }
 .button .icon {
   width: 21px;
@@ -560,7 +566,7 @@ kbd {
 .section-heading h2,
 .homelab h2,
 .closing h2 {
-  font-size: 50px;
+  font-size: var(--h-display);
   line-height: 1.1;
   letter-spacing: -0.015em;
 }
@@ -625,7 +631,7 @@ kbd {
   font-size: 12px;
 }
 .tour-copy h3 {
-  font-size: 31px;
+  font-size: var(--h-card);
   line-height: 1.15;
   margin-block: 22px 20px;
 }
@@ -726,9 +732,6 @@ kbd {
   gap: 80px;
   padding-block: 100px;
   border-bottom: 1px solid var(--line);
-}
-.homelab h2 {
-  font-size: 53px;
 }
 .homelab-copy > p {
   max-width: 380px;
@@ -886,7 +889,7 @@ kbd {
   color: var(--muted);
 }
 .guide-card h3 {
-  font-size: 29px;
+  font-size: var(--h-card);
   line-height: 1.17;
   margin-block: 37px 17px;
   letter-spacing: -0.8px;
@@ -917,9 +920,6 @@ kbd {
   grid-template-columns: 1.2fr 1fr;
   align-items: center;
   gap: 70px;
-}
-.closing h2 {
-  font-size: 54px;
 }
 .closing p {
   font-size: 14px;
@@ -1134,7 +1134,7 @@ kbd {
   height: 24px;
 }
 .topic-card h2 {
-  font-size: 33px;
+  font-size: var(--h-topic);
   margin-top: 25px;
   letter-spacing: -1px;
 }
@@ -2171,9 +2171,6 @@ dialog:not([open]) {
   .tour-copy {
     padding: 30px 27px;
   }
-  .tour-copy h3 {
-    font-size: 29px;
-  }
   .tour-copy p {
     font-size: 13px;
   }
@@ -2200,9 +2197,6 @@ dialog:not([open]) {
   }
   .closing {
     gap: 40px;
-  }
-  .closing h2 {
-    font-size: 48px;
   }
   .docs-layout {
     grid-template-columns: 190px minmax(0, 1fr);
@@ -2231,6 +2225,9 @@ dialog:not([open]) {
   }
 }
 @media (max-width: 960px) {
+  :root {
+    --h-display: 42px;
+  }
   .main-nav {
     display: none;
   }
@@ -2292,10 +2289,6 @@ dialog:not([open]) {
   .section {
     padding-block: 70px;
   }
-  .section-heading h2,
-  .homelab h2 {
-    font-size: 42px;
-  }
   .section-heading > p,
   .section-heading > div > p {
     font-size: 12px;
@@ -2313,9 +2306,6 @@ dialog:not([open]) {
   }
   .tour-copy {
     padding: 28px 23px;
-  }
-  .tour-copy h3 {
-    font-size: 28px;
   }
   .tour-image .product-picture {
     width: 830px;
@@ -2400,9 +2390,6 @@ dialog:not([open]) {
   .closing-terminal .command code {
     font-size: 12px;
   }
-  .closing h2 {
-    font-size: 50px;
-  }
   .closing-terminal > p {
     display: none;
   }
@@ -2439,7 +2426,7 @@ dialog:not([open]) {
     padding: 28px;
   }
   .topic-card h2 {
-    font-size: 29px;
+    font-size: var(--h-card);
   }
   .docs-reference {
     grid-template-columns: 1fr;
@@ -2539,6 +2526,9 @@ dialog:not([open]) {
   }
 }
 @media (max-width: 640px) {
+  :root {
+    --h-display: 36px;
+  }
   html {
     scroll-padding-top: 90px;
   }
@@ -2756,7 +2746,6 @@ dialog:not([open]) {
   .section-heading h2,
   .homelab h2,
   .closing h2 {
-    font-size: 36px;
     letter-spacing: -1px;
     line-height: 1.13;
   }
@@ -2797,7 +2786,6 @@ dialog:not([open]) {
     padding: 26px 24px 28px;
   }
   .tour-copy h3 {
-    font-size: 29px;
     margin-block: 18px 15px;
     line-height: 1.15;
   }
@@ -2966,9 +2954,6 @@ dialog:not([open]) {
     padding-block: 48px 45px;
     gap: 25px;
   }
-  .closing h2 {
-    font-size: 39px;
-  }
   .closing p {
     font-size: 13px;
     margin-top: 20px;
@@ -3103,7 +3088,7 @@ dialog:not([open]) {
     padding: 27px 25px;
   }
   .topic-card h2 {
-    font-size: 30px;
+    font-size: var(--h-card);
     margin-top: 23px;
   }
   .topic-card > p {
