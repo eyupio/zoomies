@@ -1145,13 +1145,17 @@ func (c *Controller) LastPollAt() time.Time {
 	return time.Unix(0, ns)
 }
 
+// fallbackSchedulerInterval is the reconcile period used when the configuration
+// carries no positive value. It matches the shipped default.
+const fallbackSchedulerInterval = 10 * time.Second
+
 // schedulerInterval is the reconcile period, with a floor so that a
 // misconfigured zero does not spin the loop.
 func (c *Controller) schedulerInterval() time.Duration {
 	if d := c.cfg().Scheduler.Interval; d > 0 {
 		return d
 	}
-	return 10 * time.Second
+	return fallbackSchedulerInterval
 }
 
 // policy converts the configured tunables into the scheduler's Policy.
