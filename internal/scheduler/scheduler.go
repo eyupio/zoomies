@@ -226,6 +226,11 @@ type Action struct {
 	// SizedFromHistory says Size is above the standard rather than below it:
 	// the runner was sized for what the jobs waiting are known to need.
 	SizedFromHistory bool `json:"sized_from_history,omitempty"`
+	// Repo is the repository an ActionCreate's runner is to be registered on,
+	// in owner/name form, for a pool on a personal account; see personal.go.
+	// Empty for every other pool, whose runners belong to its installation's
+	// target.
+	Repo string `json:"repo,omitempty"`
 }
 
 // sizePhrase says a runner size the way the reason for a create does.
@@ -267,6 +272,10 @@ type PoolPlan struct {
 	// supply is the runners already there for a queued job to take: idle, or
 	// still starting. A busy runner is not, and a draining one never will be.
 	supply int
+	// repositories is, for a pool on a personal account, the repository each
+	// runner still to be created is registered on, in the order the jobs
+	// waiting for them were queued.
+	repositories []string
 	// Unserved is how many of the queued jobs that drove Desired have no runner
 	// idle, starting or created for them this pass: the pool is at its maximum,
 	// or no host has room. A pool held back by a start failure or a rate limit
@@ -374,7 +383,7 @@ type UnmatchedJob struct {
 // what the queue is asking for. It is deterministic: the same snapshot always
 // yields the same plan, down to the order of the actions.
 func Decide(s Snapshot) Plan {
-	pools := sortedPools(s.Pools)
+	pools, byRepository := poolsByRepository(sortedPools(s.Pools), s.Installations)
 	demand, unmatched := assign(pools, s.Jobs, targetsOf(s.Installations))
 
 	t := &tick{
@@ -391,6 +400,7 @@ func Decide(s Snapshot) Plan {
 		history:            s.JobHistory,
 		historySizing:      s.HistorySizing,
 		historyPercentile:  s.HistoryPercentile,
+		byRepository:       byRepository,
 	}
 	t.hosts.maxMultiple = historyMaxMultiple(s.HistoryMaxMultiple)
 	t.hosts.readiness, t.hosts.preferReadiness = s.Readiness, s.PreferReadiness
@@ -461,6 +471,9 @@ type tick struct {
 	historySizing string
 	// historyPercentile is Snapshot.HistoryPercentile.
 	historyPercentile int
+	// byRepository is every pool, by ID, whose runners are registered a
+	// repository at a time because its installation is a personal account.
+	byRepository map[string]bool
 }
 
 // assign maps every queued job onto the pool that will run it, and collects the
@@ -577,6 +590,8 @@ func (t *tick) decidePool(p *store.Pool, runners []*store.Runner, queued []*stor
 	}
 
 	eligible := 0
+	byRepository := t.byRepository[p.ID]
+	var eligibleJobs []*store.Job
 	quotaRepositories := map[string]bool{}
 	admitted := map[string]int{}
 	for _, j := range queued {
@@ -597,6 +612,9 @@ func (t *tick) decidePool(p *store.Pool, runners []*store.Runner, queued []*stor
 		}
 		eligible++
 		admitted[j.Repo]++
+		if byRepository {
+			eligibleJobs = append(eligibleJobs, j)
+		}
 	}
 	for repo := range quotaRepositories {
 		plan.QuotaDeferredRepositories = append(plan.QuotaDeferredRepositories, repo)
@@ -610,6 +628,13 @@ func (t *tick) decidePool(p *store.Pool, runners []*store.Runner, queued []*stor
 	// it must not stand in for the runner a queued job is waiting on.
 	plan.Desired = clamp(max(p.MinRunners, busy+draining+eligible), p.MinRunners, p.MaxRunners)
 	plan.eligible = eligible
+	if byRepository {
+		// A personal account's runners are not interchangeable, so the pool's
+		// totals cannot say how many are wanted: see personal.go.
+		var stopped int
+		remaining, stopped = t.decideByRepository(p, &plan, remaining, queued, eligibleJobs, live)
+		live -= stopped
+	}
 	plan.Failing, plan.FailingFault = t.holdAfterStartFailures(p, runners)
 	plan.Held = t.holdWhileRateLimited(p)
 
@@ -983,6 +1008,11 @@ func (t *tick) grant(p *store.Pool, plan *PoolPlan, runners []*store.Runner, que
 	if enforce {
 		t.hosts.need = &need
 	}
+	if t.byRepository[p.ID] && len(plan.repositories) == 0 {
+		// Nothing waiting names a repository to register on, and a runner
+		// registered nowhere in particular can take no job.
+		return false
+	}
 	placed := t.hosts.placeAvoiding(p, 1, recentBusyHosts(runners, t.now))
 	t.hosts.need = nil
 	if len(placed) == 0 && enforce && len(heldOff) > 0 {
@@ -1065,6 +1095,11 @@ func (t *tick) grant(p *store.Pool, plan *PoolPlan, runners []*store.Runner, que
 		}
 	}
 	action := Action{Kind: ActionCreate, PoolID: p.ID, PoolName: p.Name, HostID: placed[0].hostID, Reason: reason, Size: placed[0].size, SizedFromHistory: placed[0].raised}
+	if len(plan.repositories) > 0 {
+		action.Repo, plan.repositories = plan.repositories[0], plan.repositories[1:]
+		action.Reason += " (registered on " + action.Repo + ")"
+		reason = action.Reason
+	}
 	plan.Actions = append(plan.Actions, action)
 	t.creates = append(t.creates, action)
 	t.budget--

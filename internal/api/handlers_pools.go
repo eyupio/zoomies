@@ -657,11 +657,25 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 
 	if p.InstallationID == "" {
 		add("installation_id", "a pool has to belong to a GitHub App installation; connect one on the Installations page first")
-	} else if _, err := s.ctrl.Store().GetInstallation(ctx, p.InstallationID); err != nil {
+	} else if inst, err := s.ctrl.Store().GetInstallation(ctx, p.InstallationID); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			add("installation_id", fmt.Sprintf("there is no installation %s; it may have been removed since this form was opened", p.InstallationID))
 		} else {
 			add("installation_id", "the installation could not be read: "+err.Error())
+		}
+	} else if inst.Personal() {
+		// GitHub registers a personal account's runner on one repository, and
+		// it takes that repository's jobs only. Both settings below promise a
+		// runner that waits for whichever job comes next, which no runner
+		// there can be, so they are refused here instead of accepted and
+		// quietly not honoured.
+		if p.MinRunners > 0 {
+			add("min_runners", inst.Target+" is a personal account, where GitHub registers each runner on the repository of the job it is for, "+
+				"so no runner can be kept warm before a job names its repository; set min_runners to 0")
+		}
+		if !p.Ephemeral {
+			add("ephemeral", inst.Target+" is a personal account, where GitHub registers each runner on one repository, "+
+				"so a runner kept between jobs would serve that repository alone; set ephemeral to true, or connect the repository on its own as owner/name")
 		}
 	}
 
@@ -1006,7 +1020,7 @@ func (s *Server) handleCreatePool(w http.ResponseWriter, r *http.Request) {
 	// connection probe. An omitted group means "use the Zoomies isolation
 	// boundary", while an explicit empty string still means GitHub Default.
 	if in.RunnerGroup == nil && p.InstallationID != "" {
-		if inst, err := s.ctrl.Store().GetInstallation(r.Context(), p.InstallationID); err == nil && inst.TargetType == store.TargetOrg {
+		if inst, err := s.ctrl.Store().GetInstallation(r.Context(), p.InstallationID); err == nil && inst.Organisation() {
 			p.RunnerGroup = controller.ManagedRunnerGroupName
 		}
 	}

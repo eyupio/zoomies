@@ -48,7 +48,7 @@ func (p Page) orderBy(allowed map[string]string, fallback string) string {
 
 const installationCols = `id, app_id, installation_id, target, target_type, api_base_url,
 	upload_base_url, private_key_enc, webhook_secret_enc, app_slug, last_checked_at,
-	last_error, created_at, updated_at`
+	last_error, created_at, updated_at, account_type`
 
 func scanInstallation(sc interface{ Scan(...any) error }) (*Installation, error) {
 	var i Installation
@@ -56,7 +56,7 @@ func scanInstallation(sc interface{ Scan(...any) error }) (*Installation, error)
 	var checked sql.NullInt64
 	err := sc.Scan(&i.ID, &i.AppID, &i.InstallationID, &i.Target, &i.TargetType,
 		&i.APIBaseURL, &i.UploadBaseURL, &i.PrivateKeyEnc, &i.WebhookSecretEnc,
-		&i.AppSlug, &checked, &i.LastError, &created, &updated)
+		&i.AppSlug, &checked, &i.LastError, &created, &updated, &i.AccountType)
 	if err != nil {
 		return nil, err
 	}
@@ -73,10 +73,10 @@ func (s *Store) CreateInstallation(ctx context.Context, i *Installation) error {
 	i.CreatedAt, i.UpdatedAt = now, now
 	i.Target = NormalizeTarget(i.Target)
 	_, err := s.exec(ctx, `INSERT INTO installations (`+installationCols+`)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		i.ID, i.AppID, i.InstallationID, i.Target, string(i.TargetType), i.APIBaseURL,
 		i.UploadBaseURL, i.PrivateKeyEnc, i.WebhookSecretEnc, i.AppSlug,
-		msp(i.LastCheckedAt), i.LastError, ms(i.CreatedAt), ms(i.UpdatedAt))
+		msp(i.LastCheckedAt), i.LastError, ms(i.CreatedAt), ms(i.UpdatedAt), string(i.AccountType))
 	return wrapWrite(err)
 }
 
@@ -146,10 +146,10 @@ func (s *Store) UpdateInstallation(ctx context.Context, i *Installation) error {
 	i.Target = NormalizeTarget(i.Target)
 	res, err := s.exec(ctx, `UPDATE installations SET app_id=?, installation_id=?, target=?,
 		target_type=?, api_base_url=?, upload_base_url=?, private_key_enc=?, webhook_secret_enc=?,
-		app_slug=?, last_checked_at=?, last_error=?, updated_at=? WHERE id=?`,
+		app_slug=?, last_checked_at=?, last_error=?, updated_at=?, account_type=? WHERE id=?`,
 		i.AppID, i.InstallationID, i.Target, string(i.TargetType), i.APIBaseURL,
 		i.UploadBaseURL, i.PrivateKeyEnc, i.WebhookSecretEnc, i.AppSlug,
-		msp(i.LastCheckedAt), i.LastError, ms(i.UpdatedAt), i.ID)
+		msp(i.LastCheckedAt), i.LastError, ms(i.UpdatedAt), string(i.AccountType), i.ID)
 	if err != nil {
 		return wrapWrite(err)
 	}
@@ -175,6 +175,23 @@ func (s *Store) SetInstallationHealth(ctx context.Context, id string, errMsg str
 func (s *Store) SetInstallationAppSlug(ctx context.Context, id, slug string) error {
 	_, err := s.exec(ctx, `UPDATE installations SET app_slug=?, updated_at=? WHERE id=? AND app_slug<>?`,
 		slug, ms(s.Now()), id, slug)
+	return err
+}
+
+// SetInstallationAccountType records what GitHub says the installation's
+// account is, which is learned from the credential probe rather than supplied.
+//
+// It decides how every runner of the installation is registered, so unlike the
+// slug it has to move updated_at when it changes: the cached client is keyed on
+// it, and one built for an organisation must not go on being used for a
+// person. The write is skipped when nothing changed, for the same reason the
+// slug's is.
+func (s *Store) SetInstallationAccountType(ctx context.Context, id string, kind AccountType) error {
+	if !kind.Valid() {
+		return fmt.Errorf("installation %s: %q is not an account type", id, kind)
+	}
+	_, err := s.exec(ctx, `UPDATE installations SET account_type=?, updated_at=? WHERE id=? AND account_type<>?`,
+		string(kind), ms(s.Now()), id, string(kind))
 	return err
 }
 
@@ -1104,7 +1121,7 @@ const runnerCols = `id, pool_id, host_id, name, state, github_runner_id, contain
 	cleanup_error, cleanup_failed_at, cleanup_attempts, registration_deleted_at, cleaned_up_at,
 	draining_since, create_task_issued_at, host_removed_at, cleanup_estimated_at,
 	allocated_cpus, allocated_memory_mb, allocation_source, fault_kind, resource_sample,
-	host_cleanup_error, registration_cleanup_error, sized_for_cpus, lent_memory_mb, scratch`
+	host_cleanup_error, registration_cleanup_error, sized_for_cpus, lent_memory_mb, scratch, repo`
 
 func scanRunner(sc interface{ Scan(...any) error }) (*Runner, error) {
 	var r Runner
@@ -1121,7 +1138,7 @@ func scanRunner(sc interface{ Scan(...any) error }) (*Runner, error) {
 		&r.CleanupError, &cleanupFailed, &r.CleanupAttempts, &registrationDeleted, &cleanedUp,
 		&drainingSince, &createIssued, &hostRemoved, &cleanupEstimated,
 		&r.AllocatedCPUs, &r.AllocatedMemoryMB, &r.AllocationSource, &r.FaultKind, &resourceSample,
-		&r.HostCleanupError, &r.RegistrationCleanupError, &r.SizedForCPUs, &r.LentMemoryMB, &scratch)
+		&r.HostCleanupError, &r.RegistrationCleanupError, &r.SizedForCPUs, &r.LentMemoryMB, &scratch, &r.Repo)
 	if err != nil {
 		return nil, err
 	}
@@ -1155,7 +1172,7 @@ func (s *Store) CreateRunner(ctx context.Context, r *Runner) error {
 	}
 	r.CreatedAt = s.Now()
 	_, err := s.exec(ctx, `INSERT INTO runners (`+runnerCols+`)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		r.ID, r.PoolID, r.HostID, r.Name, string(r.State), r.GitHubRunnerID, r.ContainerID,
 		boolInt(r.Ephemeral), r.Labels, r.Image, r.ImageDigest, r.RunnerVersion, r.CurrentJobID,
 		ms(r.CreatedAt), msp(r.StartedAt), msp(r.LastIdleAt), msp(r.FinishedAt),
@@ -1165,7 +1182,7 @@ func (s *Store) CreateRunner(ctx context.Context, r *Runner) error {
 		msp(r.RegistrationDeletedAt), msp(r.CleanedUpAt), msp(r.DrainingSince),
 		msp(r.CreateTaskIssuedAt), msp(r.HostRemovedAt), msp(r.CleanupEstimatedAt),
 		r.AllocatedCPUs, r.AllocatedMemoryMB, r.AllocationSource, r.FaultKind, runnerSampleJSON(r.ResourceSample),
-		r.HostCleanupError, r.RegistrationCleanupError, r.SizedForCPUs, r.LentMemoryMB, scratchJSON(r.Scratch))
+		r.HostCleanupError, r.RegistrationCleanupError, r.SizedForCPUs, r.LentMemoryMB, scratchJSON(r.Scratch), r.Repo)
 	return wrapWrite(err)
 }
 

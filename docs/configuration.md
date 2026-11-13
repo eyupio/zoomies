@@ -2369,7 +2369,7 @@ the CLI or the API. These are their fields:
 | `pull_policy` | `if-not-present` (the default), `always`, or `pinned-only`, which refuses to run anything but the digest the pool names. |
 | `platform` | The machine these runners need: `os` (a distribution, not a kernel), `os_version` and `arch`. It picks the runner image, and it keeps the pool off hosts running something else. Every field is optional; an empty one constrains nothing. See [Naming and platforms](naming.md). |
 | `runner_version` | Pin an `actions/runner` release instead of tracking the latest. |
-| `min_runners` | Kept warm even with nothing queued. `0` is usually right. |
+| `min_runners` | Kept warm even with nothing queued. `0` is usually right, and the only value a pool on a [personal account](many-repositories.md#a-personal-account) accepts. |
 | `max_runners` | Hard ceiling. **Always set this**; it is your backstop against a runaway workflow. |
 | `repository_scale_up_limit` | Best-effort limit on new capacity attributed to one repository; `0` disables it. This is a creation throttle, **not** a strict concurrency or isolation boundary: GitHub can assign any matching queued job to an existing compatible idle runner. Strict isolation requires repository-specific pools and corresponding repository-specific `runs-on` labels in workflows. |
 | `priority` | Higher-priority pools are given creation capacity first when the fleet cannot satisfy every pool at once. Pools at the same priority share it fairly. Under `scheduler.max_creates_per_tick`, a lower-priority pool whose oldest queued job has waited a full `scheduler.interval` is first given one create, so a busy top tier cannot starve it; the higher pool's scaling reason then says it was deferred for fairness across priorities. |

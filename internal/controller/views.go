@@ -854,16 +854,19 @@ type RunnerView struct {
 	HostID         string            `json:"host_id"`
 	HostName       string            `json:"host_name,omitempty"`
 	State          store.RunnerState `json:"state"`
-	GitHubRunnerID int64             `json:"github_runner_id,omitempty"`
-	ContainerID    string            `json:"container_id,omitempty"`
-	Ephemeral      bool              `json:"ephemeral"`
-	Labels         []string          `json:"labels"`
-	Image          string            `json:"image,omitempty"`
-	ImageDigest    string            `json:"image_digest,omitempty"`
-	RunnerVersion  string            `json:"runner_version,omitempty"`
-	CurrentJobID   string            `json:"current_job_id,omitempty"`
-	CurrentJob     *JobView          `json:"current_job,omitempty"`
-	Message        string            `json:"message,omitempty"`
+	// Repo is the repository the runner is registered on, for a runner of a
+	// personal account; such a runner takes that repository's jobs only.
+	Repo           string   `json:"repo,omitempty"`
+	GitHubRunnerID int64    `json:"github_runner_id,omitempty"`
+	ContainerID    string   `json:"container_id,omitempty"`
+	Ephemeral      bool     `json:"ephemeral"`
+	Labels         []string `json:"labels"`
+	Image          string   `json:"image,omitempty"`
+	ImageDigest    string   `json:"image_digest,omitempty"`
+	RunnerVersion  string   `json:"runner_version,omitempty"`
+	CurrentJobID   string   `json:"current_job_id,omitempty"`
+	CurrentJob     *JobView `json:"current_job,omitempty"`
+	Message        string   `json:"message,omitempty"`
 	// FaultKind categorises why a failed runner failed, and FaultFix is what
 	// to do about it. Empty on a runner that did not fail. A runner that never
 	// took a job is the case these exist for: nothing else in the system says
@@ -1014,6 +1017,7 @@ func runnerView(r *store.Runner, pool *store.Pool, host *store.Host, job *store.
 		HostID:                r.HostID,
 		HostName:              hostName,
 		State:                 r.State,
+		Repo:                  r.Repo,
 		GitHubRunnerID:        r.GitHubRunnerID,
 		ContainerID:           r.ContainerID,
 		Ephemeral:             r.Ephemeral,
@@ -1709,7 +1713,9 @@ func poolStartLadderWarning(p *store.Pool, cfg *config.Config) (Problem, bool) {
 // installation registers runners only that repository's jobs can reach, so
 // there the cache is as private as it looks.
 func cacheSharingWarning(p *store.Pool, inst *store.Installation) (Problem, bool) {
-	if inst == nil || inst.TargetType == store.TargetRepo {
+	// A personal account's runners are registered on the repository of their
+	// job, so they are as private as a repository installation's.
+	if inst == nil || inst.TargetType == store.TargetRepo || inst.Personal() {
 		return Problem{}, false
 	}
 	if !p.Cache.Enabled || p.Cache.Scope != store.CacheScopeRepository {
@@ -1747,9 +1753,14 @@ type InstallationView struct {
 	InstallationID int64            `json:"installation_id"`
 	Target         string           `json:"target"`
 	TargetType     store.TargetType `json:"target_type"`
-	APIBaseURL     string           `json:"api_base_url"`
-	AppSlug        string           `json:"app_slug,omitempty"`
-	WebURL         string           `json:"web_url,omitempty"`
+	// AccountType is what GitHub says the target's account is, "organization"
+	// or "user", and absent until the first credential check has asked. A
+	// personal account's runners are registered on its repositories one at a
+	// time, which is worth saying on the page that lists it.
+	AccountType store.AccountType `json:"account_type,omitempty"`
+	APIBaseURL  string            `json:"api_base_url"`
+	AppSlug     string            `json:"app_slug,omitempty"`
+	WebURL      string            `json:"web_url,omitempty"`
 	// SettingsURL is the App's own settings page on GitHub. It is carried on
 	// every installation, not only on the one the connect flow just created,
 	// because the one thing a manifest cannot do is set the App's avatar --
@@ -1775,6 +1786,7 @@ func NewInstallationView(i *store.Installation, pools int) InstallationView {
 		InstallationID: i.InstallationID,
 		Target:         i.Target,
 		TargetType:     i.TargetType,
+		AccountType:    i.AccountType,
 		APIBaseURL:     i.APIBaseURL,
 		AppSlug:        i.AppSlug,
 		WebURL:         github.WebURLForAPI(i.APIBaseURL),
@@ -1790,10 +1802,11 @@ func NewInstallationView(i *store.Installation, pools int) InstallationView {
 }
 
 // settingsOrgOf names the organisation an App's settings live under, which is
-// the target for an org App and nothing at all for a repo App: GitHub answers
-// the wrong one with a 404 rather than a redirect.
+// the target for an org App and nothing at all for a repo App or one on a
+// personal account: GitHub answers the wrong one with a 404 rather than a
+// redirect.
 func settingsOrgOf(i *store.Installation) string {
-	if i.TargetType == store.TargetOrg {
+	if i.Organisation() {
 		return i.Target
 	}
 	return ""

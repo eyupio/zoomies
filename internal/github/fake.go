@@ -43,7 +43,10 @@ type FakeGitHub struct {
 	appSlug        string
 	appName        string
 	appOwner       string
-	permissions    map[string]string
+	// accountType is GitHub's "Organization" or "User" for the account the App
+	// is installed on.
+	accountType string
+	permissions map[string]string
 	// repositorySelection is GitHub's "all" or "selected".
 	repositorySelection string
 	events              []string
@@ -132,6 +135,7 @@ func NewFake() *FakeGitHub {
 		appSlug:             "zoomies-fake",
 		appName:             "Zoomies Fake",
 		appOwner:            "acme",
+		accountType:         "Organization",
 		repositorySelection: "all",
 		// What an App created with the migration option is granted, which is what
 		// the manifest in manifest.go asks for when it is asked to, along with
@@ -186,6 +190,15 @@ func (f *FakeGitHub) AppID() int64 { return f.appID }
 // InstallationID is the installation ID the fake serves.
 func (f *FakeGitHub) InstallationID() int64 { return f.installationID }
 
+// PersonalClient returns a Client for a personal account covered as a whole,
+// and makes the fake answer as GitHub does for one.
+func (f *FakeGitHub) PersonalClient(login string) Client {
+	f.SetAccountType("User")
+	c := f.Client(login, store.TargetOrg).(*appClient)
+	c.personal = true
+	return c
+}
+
 // Client returns a Client wired to this fake for the given target. It is the
 // quickest way for a test to get a working github.Client.
 func (f *FakeGitHub) Client(target string, kind store.TargetType) Client {
@@ -206,6 +219,15 @@ func (f *FakeGitHub) Client(target string, kind store.TargetType) Client {
 	// test of them must too, or it would pass while the real path was broken.
 	ac.enableConditionalReads(newConditionalCache(conditionalCacheBytes), "fake|"+strconv.FormatInt(f.installationID, 10))
 	return ac
+}
+
+// SetAccountType sets GitHub's "Organization" or "User" for the account the
+// App is installed on. A "User" account answers runner requests the way a
+// personal account does: nothing at the account, everything at a repository.
+func (f *FakeGitHub) SetAccountType(kind string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.accountType = kind
 }
 
 // SetRepositorySelection sets GitHub's "all" or "selected", so a test can
@@ -273,6 +295,17 @@ func (f *FakeGitHub) SetRunnerGroupPublicAccess(name string, allowed bool) {
 			return
 		}
 	}
+}
+
+// AddRepoRunner registers a runner on one repository of a personal account,
+// the way AddRunner does on the target.
+func (f *FakeGitHub) AddRepoRunner(repo, name string, labels []string) Runner {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.addRepoLocked(repo)
+	r := f.addRunnerLocked(name, labels, false)
+	r.Repo = repo
+	return *r
 }
 
 // AddRunner registers a runner that Zoomies did not create, which is how a
@@ -717,7 +750,7 @@ func (f *FakeGitHub) getInstallation(w http.ResponseWriter, r *http.Request) {
 		"app_id":      f.appID,
 		"app_slug":    f.appSlug,
 		"account":     map[string]any{"login": f.appOwner},
-		"target_type": "Organization",
+		"target_type": f.accountType,
 		"permissions": f.permissions,
 		"events":      f.events,
 		// How much of the target the installation covers. GitHub sends it on
@@ -780,7 +813,30 @@ func (f *FakeGitHub) getRateLimit(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"resources": map[string]any{"core": core}})
 }
 
+// personalScope answers a runner request the way GitHub does for a personal
+// account, which has no runners of its own: the organisation half of each
+// endpoint pair is a 404, and the repository half sees only the runners
+// registered on that repository. It returns the repository to scope to, which
+// is empty for an organisation, and false once it has refused the request.
+func (f *FakeGitHub) personalScope(w http.ResponseWriter, r *http.Request) (string, bool) {
+	f.mu.Lock()
+	personal := f.accountType == "User"
+	f.mu.Unlock()
+	if !personal {
+		return "", true
+	}
+	if r.PathValue("org") != "" {
+		writeError(w, http.StatusNotFound, "Not Found")
+		return "", false
+	}
+	return r.PathValue("owner") + "/" + r.PathValue("repo"), true
+}
+
 func (f *FakeGitHub) generateJITConfig(w http.ResponseWriter, r *http.Request) {
+	scope, ok := f.personalScope(w, r)
+	if !ok {
+		return
+	}
 	var req struct {
 		Name          string   `json:"name"`
 		RunnerGroupID int64    `json:"runner_group_id"`
@@ -813,6 +869,7 @@ func (f *FakeGitHub) generateJITConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	runner := f.addRunnerLocked(req.Name, req.Labels, true)
+	runner.Repo = scope
 	blob, _ := json.Marshal(map[string]any{
 		"name":        req.Name,
 		"labels":      req.Labels,
@@ -832,11 +889,18 @@ func (f *FakeGitHub) createToken(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-func (f *FakeGitHub) listRunners(w http.ResponseWriter, _ *http.Request) {
+func (f *FakeGitHub) listRunners(w http.ResponseWriter, req *http.Request) {
+	scope, ok := f.personalScope(w, req)
+	if !ok {
+		return
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	out := make([]map[string]any, 0, len(f.runners))
 	for _, r := range f.runners {
+		if scope != "" && !strings.EqualFold(r.Repo, scope) {
+			continue
+		}
 		out = append(out, runnerJSON(r))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(out), "runners": out})
@@ -859,10 +923,16 @@ func runnerJSON(r *Runner) map[string]any {
 }
 
 func (f *FakeGitHub) deleteRunner(w http.ResponseWriter, r *http.Request) {
+	scope, ok := f.personalScope(w, r)
+	if !ok {
+		return
+	}
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	i := slices.IndexFunc(f.runners, func(x *Runner) bool { return x.ID == id })
+	i := slices.IndexFunc(f.runners, func(x *Runner) bool {
+		return x.ID == id && (scope == "" || strings.EqualFold(x.Repo, scope))
+	})
 	if i < 0 {
 		writeError(w, http.StatusNotFound, "Not Found")
 		return

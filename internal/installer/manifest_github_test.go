@@ -232,14 +232,19 @@ func TestVerifyInstallationWarnsWithoutFailingTheRun(t *testing.T) {
 // organisation's runners or one repository's, and naming the wrong one is a
 // setup that fails at the first scale-up.
 func TestRunnerPermissionDependsOnTheTarget(t *testing.T) {
-	if got := runnerPermission(store.TargetRepo); got != "administration" {
+	if got := runnerPermission(store.TargetRepo, false); got != "administration" {
 		t.Fatalf("repo permission = %q, want administration", got)
 	}
-	if got := runnerPermission(store.TargetOrg); got != "organization_self_hosted_runners" {
+	if got := runnerPermission(store.TargetOrg, false); got != "organization_self_hosted_runners" {
 		t.Fatalf("org permission = %q, want organization_self_hosted_runners", got)
 	}
 	// Anything else is treated as an organisation, which is the default target.
-	if got := runnerPermission(""); got != "organization_self_hosted_runners" {
+	// A person has no organisation permissions to grant, so their runners are
+	// registered through the same permission a repository's are.
+	if got := runnerPermission(store.TargetOrg, true); got != "administration" {
+		t.Errorf("personal account = %q", got)
+	}
+	if got := runnerPermission("", false); got != "organization_self_hosted_runners" {
 		t.Fatalf("default permission = %q", got)
 	}
 }

@@ -153,11 +153,11 @@ func (cc *clientCache) runnerGroupID(ctx context.Context, inst *store.Installati
 		lookup = "default"
 	}
 
-	if inst.TargetType == store.TargetRepo {
+	if !inst.Organisation() {
 		if wantsDefault {
 			return 0, "", false
 		}
-		cc.c.log.Warn("a repository target has no runner groups; using the default group",
+		cc.c.log.Warn("only an organisation has runner groups; using the default group",
 			"installation", inst.ID, "target", inst.Target, "group", name)
 		return 0, "runner groups belong to an organisation, and " + inst.Target + " is a repository", false
 	}
@@ -206,7 +206,7 @@ func (cc *clientCache) runnerGroupID(ctx context.Context, inst *store.Installati
 	}
 	cc.mu.Unlock()
 
-	if found.ID == 0 && !wantsDefault && inst.TargetType == store.TargetOrg && strings.EqualFold(name, ManagedRunnerGroupName) {
+	if found.ID == 0 && !wantsDefault && inst.Organisation() && strings.EqualFold(name, ManagedRunnerGroupName) {
 		// The probe skips the managed group while every pool names its own, so
 		// a pool made afterwards into it would otherwise register in Default
 		// until the next probe. The group is Zoomies' to create; a same-named
@@ -330,7 +330,7 @@ func (c *Controller) needsManagedRunnerGroup(ctx context.Context, inst *store.In
 // belong to an administrator, and widening it to public repositories is a
 // security decision setup must never make silently.
 func (c *Controller) ensureManagedRunnerGroup(ctx context.Context, inst *store.Installation, client github.Client) (*github.RunnerGroup, error) {
-	if inst.TargetType != store.TargetOrg || IsDemoID(inst.ID) {
+	if !inst.Organisation() || IsDemoID(inst.ID) {
 		return nil, nil
 	}
 	groups, err := client.ListRunnerGroups(ctx)
@@ -423,9 +423,17 @@ func (c *Controller) ProbeInstallation(ctx context.Context, installationID strin
 	}
 
 	var info *github.AppInfo
+	changedAccount := false
 	client, err := c.clients.get(ctx, inst)
 	if err == nil {
 		info, err = client.Probe(ctx)
+		if err == nil {
+			changedAccount = c.learnAccountType(ctx, inst, info)
+			if changedAccount {
+				// The cached client was built for the other kind of account.
+				client, err = c.clients.get(ctx, inst)
+			}
+		}
 		if err == nil {
 			var needed bool
 			needed, err = c.needsManagedRunnerGroup(ctx, inst)
@@ -483,6 +491,14 @@ func (c *Controller) ProbeInstallation(ctx context.Context, installationID strin
 	now := c.Now()
 	inst.LastCheckedAt = &now
 	c.publishInstallation(ctx, inst)
+	if changedAccount {
+		// Its pools are planned differently now, and jobs may be waiting.
+		c.Nudge()
+	}
+	if changedAccount {
+		// Its pools are now planned differently, and jobs may be waiting.
+		c.Nudge()
+	}
 
 	if err != nil {
 		return nil, err
@@ -491,6 +507,37 @@ func (c *Controller) ProbeInstallation(ctx context.Context, installationID strin
 		return info, errors.New(msg)
 	}
 	return info, nil
+}
+
+// learnAccountType records what kind of account the probe found the
+// installation on, and reports whether that changed what was recorded.
+//
+// The probe is the only place Zoomies learns whether the account is an
+// organisation or a person, which the name does not say and an operator is not
+// asked: a person's runners are registered a repository at a time, and an
+// installation recorded before this was known, or under the wrong guess, has to
+// start working without anybody editing it. It runs before anything else the
+// probe does for the installation, because a runner group is an organisation's
+// and asking a person for theirs is the 404 this exists to stop.
+func (c *Controller) learnAccountType(ctx context.Context, inst *store.Installation, info *github.AppInfo) bool {
+	if info == nil || info.AccountType == store.AccountUnknown || info.AccountType == inst.AccountType {
+		return false
+	}
+	if err := c.st.SetInstallationAccountType(ctx, inst.ID, info.AccountType); err != nil {
+		c.log.Error("could not record what kind of account the installation is on", "installation", inst.ID, "error", err)
+		return false
+	}
+	c.log.Info("learned what kind of account an installation is on",
+		"installation", inst.ID, "target", inst.Target, "account_type", info.AccountType)
+	// The row is read again rather than patched: the write moved updated_at,
+	// which is what the client cache is keyed on.
+	if fresh, err := c.st.GetInstallation(ctx, inst.ID); err == nil {
+		*inst = *fresh
+	} else {
+		inst.AccountType = info.AccountType
+	}
+	c.clients.forget(inst.ID)
+	return true
 }
 
 // githubResult is what a GitHub API outcome is called on the metrics endpoint.

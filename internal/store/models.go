@@ -34,6 +34,21 @@ const (
 
 func (t TargetType) Valid() bool { return t == TargetOrg || t == TargetRepo }
 
+// AccountType is what GitHub says the account behind an installation is. It is
+// learned from GitHub by the credential probe, never typed by an operator, so
+// it is empty on an installation that has not been probed yet.
+type AccountType string
+
+const (
+	AccountUnknown      AccountType = ""
+	AccountOrganization AccountType = "organization"
+	AccountUser         AccountType = "user"
+)
+
+func (t AccountType) Valid() bool {
+	return t == AccountUnknown || t == AccountOrganization || t == AccountUser
+}
+
 // BackendKind selects how an agent materialises a runner on its host.
 type BackendKind string
 
@@ -444,8 +459,11 @@ type Installation struct {
 	InstallationID int64      `json:"installation_id"`
 	Target         string     `json:"target"`      // "acme" or "acme/widgets"
 	TargetType     TargetType `json:"target_type"` // org | repo
-	APIBaseURL     string     `json:"api_base_url"`
-	UploadBaseURL  string     `json:"upload_base_url"`
+	// AccountType is what GitHub says the target's account is: an organisation
+	// or a person. Empty until the first credential probe has asked.
+	AccountType   AccountType `json:"account_type,omitempty"`
+	APIBaseURL    string      `json:"api_base_url"`
+	UploadBaseURL string      `json:"upload_base_url"`
 	// PrivateKeyEnc holds the PEM private key sealed with the instance key.
 	// It is never rendered by the API.
 	PrivateKeyEnc []byte `json:"-"`
@@ -461,6 +479,25 @@ type Installation struct {
 
 // Healthy reports whether the last credential check succeeded.
 func (i *Installation) Healthy() bool { return i.LastError == "" }
+
+// Personal reports whether this installation covers a personal account as a
+// whole, rather than an organisation or one repository.
+//
+// It matters because GitHub has no account-wide runners for a person: every
+// runner of such an installation is registered on one repository and takes
+// only that repository's jobs, so registration, listing and scheduling all
+// have to work a repository at a time.
+func (i *Installation) Personal() bool {
+	return i != nil && i.TargetType == TargetOrg && i.AccountType == AccountUser
+}
+
+// Organisation reports whether this installation covers an organisation, which
+// is what has runners of its own, runner groups, and an App whose settings
+// live under the account's name. A personal account covered as a whole has
+// none of the three, though it shares the target type.
+func (i *Installation) Organisation() bool {
+	return i != nil && i.TargetType == TargetOrg && i.AccountType != AccountUser
+}
 
 // Platform is the machine a pool's runners need, or the machine a host is.
 //
@@ -1505,6 +1542,12 @@ type Runner struct {
 	HostID string      `json:"host_id"`
 	Name   string      `json:"name"`
 	State  RunnerState `json:"state"`
+	// Repo is the repository this runner was registered on, in owner/name
+	// form, when its installation is a personal account: GitHub registers such
+	// a runner on one repository and it takes only that repository's jobs. It
+	// is empty for a runner registered on an organisation or on its
+	// installation's own repository.
+	Repo string `json:"repo,omitempty"`
 	// GitHubRunnerID is assigned once GitHub acknowledges the registration.
 	GitHubRunnerID int64 `json:"github_runner_id,omitempty"`
 	// ContainerID (or PID, for the process backend) identifies the workload

@@ -46,7 +46,7 @@ func TestRegistrationRateLimitCreatesSharedHold(t *testing.T) {
 			pattern = "generate-jitconfig"
 		}
 		h.gh.SetError(pattern, http.StatusForbidden, "rate limit exceeded")
-		_, _, err := h.c.mintCredentials(h.ctx, inst, pool, "limited")
+		_, _, err := h.c.mintCredentials(h.ctx, inst, pool, "limited", "")
 		if !errors.Is(err, github.ErrRateLimited) {
 			t.Fatalf("mint error: %v", err)
 		}
@@ -58,7 +58,7 @@ func TestRegistrationRateLimitCreatesSharedHold(t *testing.T) {
 			t.Fatal("hold ignored GitHub reset")
 		}
 		h.gh.ClearErrors()
-		_, _, err = h.c.mintCredentials(h.ctx, inst, pool, "still-held")
+		_, _, err = h.c.mintCredentials(h.ctx, inst, pool, "still-held", "")
 		if !errors.Is(err, github.ErrRateLimited) {
 			t.Fatalf("held mint error: %v", err)
 		}
@@ -73,7 +73,7 @@ func TestRegistrationGroupLookupRateLimitPreventsMint(t *testing.T) {
 	inst, pool, _ := h.fleet()
 	h.gh.SetRateLimit(5000, 0, h.c.Now().Add(time.Minute))
 	h.gh.SetError("runner-groups", http.StatusForbidden, "rate limit exceeded")
-	_, _, err := h.c.mintCredentials(h.ctx, inst, pool, "group-limited")
+	_, _, err := h.c.mintCredentials(h.ctx, inst, pool, "group-limited", "")
 	if !errors.Is(err, github.ErrRateLimited) || !h.c.githubHeld(inst.ID, h.c.Now()) {
 		t.Fatalf("group quota not held: %v", err)
 	}

@@ -205,7 +205,7 @@ you add them later. The details below explain each grant.
     | Permission | Why |
     | --- | --- |
     | `organization_self_hosted_runners: write` | register and remove runners (org targets) |
-    | `administration: write` | the same, for a repository target (a single repository, which is also how a personal account is used) |
+    | `administration: write` | the same, for a personal account or a single repository: GitHub registers those runners on a repository |
     | `actions: write` | read workflow jobs and let operators cancel workflow runs from Zoomies; set `github.allow_workflow_cancellation: false` to request read-only access instead |
     | `checks: read` | read a pull request's check runs, so Eli can tell a failing one from a fixed one |
     | `statuses: read` | read commit statuses for the same reason |
@@ -241,9 +241,9 @@ you add them later. The details below explain each grant.
     that read files still run on public repositories and show a private repository
     as **not granted**.
 
-Create the App, install it on your organisation -- or, for a repository target,
-on your own account scoped to that repository, which is how a personal account
-is used -- and the credentials come back to the installer automatically. The
+Create the App and install it on your organisation, or on your own account for
+a personal account or a single repository of yours, and the credentials come
+back to the installer automatically. The
 private key is sealed with your instance encryption key before it touches the
 database, and is never returned by the API.
 
