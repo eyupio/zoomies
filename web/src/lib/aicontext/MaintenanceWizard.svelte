@@ -153,23 +153,27 @@
         <pre>{file.delete ? 'Remove this managed file.' : file.content}</pre>
       </details>
     {/each}
-    {#if plan.setup?.pr_url}<Button href={plan.setup.pr_url} newTab>Open maintenance PR</Button>
-    {:else}<Button variant="primary" loading={busy} disabled={busy} onclick={publish}
-        >{validMode === 'remove'
-          ? 'Revoke access and create removal PR'
-          : 'Create reviewed maintenance PR'}</Button
+  {/if}
+  <div class="actions">
+    {#if plan}
+      {#if plan.setup?.pr_url}<Button href={plan.setup.pr_url} newTab>Open maintenance PR</Button>
+      {:else}<Button variant="primary" loading={busy} disabled={busy} onclick={publish}
+          >{validMode === 'remove'
+            ? 'Revoke access and create removal PR'
+            : 'Create reviewed maintenance PR'}</Button
+        >{/if}
+      {#if !plan.setup}<Button
+          disabled={busy}
+          onclick={() => {
+            plan = null;
+            approvedRequest = null;
+          }}>Change review</Button
+        >{/if}
+    {:else}<Button variant="primary" loading={busy} disabled={busy || !repository} onclick={review}
+        >Review changes</Button
       >{/if}
-    {#if !plan.setup}<Button
-        disabled={busy}
-        onclick={() => {
-          plan = null;
-          approvedRequest = null;
-        }}>Change review</Button
-      >{/if}
-  {:else}<Button variant="primary" loading={busy} disabled={busy || !repository} onclick={review}
-      >Review changes</Button
-    >{/if}
-  <Button href="/kennel/ai-context">Back to AI Context</Button>
+    <Button href="/kennel/ai-context">Back to AI Context</Button>
+  </div>
 </section>
 
 <style>
@@ -205,6 +209,11 @@
   }
   .muted {
     color: var(--z-text-muted);
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--z-space-3);
   }
   summary {
     cursor: pointer;
