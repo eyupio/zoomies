@@ -95,7 +95,14 @@
         <Badge {status} size="sm" help={status.hint} />
         <Badge
           tone="neutral"
-          label={installation.target_type === 'repo' ? 'Repository' : 'Organisation'}
+          label={installation.target_type === 'repo'
+            ? 'Repository'
+            : installation.account_type === 'user'
+              ? 'Personal account'
+              : 'Organisation'}
+          help={installation.target_type !== 'repo' && installation.account_type === 'user'
+            ? 'GitHub keeps no runners on a personal account, so each runner is registered on the repository of the job it is for.'
+            : undefined}
           size="sm"
           dot={false}
         />

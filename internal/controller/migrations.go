@@ -355,7 +355,7 @@ func (c *Controller) PlanMigration(ctx context.Context, req MigrationPlanRequest
 			out.MissingPermissions = missing
 			out.PermissionHint = github.MigrationPermissionHint
 			settingsOrg := ""
-			if inst.TargetType == store.TargetOrg {
+			if inst.Organisation() {
 				settingsOrg = inst.Target
 			}
 			out.SettingsURL = github.SettingsURL(inst.APIBaseURL, appInfo.Slug, settingsOrg)

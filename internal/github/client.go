@@ -143,6 +143,11 @@ type JITRequest struct {
 	RunnerGroupID int64
 	// WorkFolder defaults to "_work".
 	WorkFolder string
+	// Repo is the repository to register the runner on, in owner/name form. It
+	// is required on a personal account, which has nowhere else to put a
+	// runner, and ignored everywhere else: an organisation's runner belongs to
+	// the organisation and a repository installation has only the one.
+	Repo string
 }
 
 // JITConfig is the base64 blob handed to `actions-runner --jitconfig`. It
@@ -176,6 +181,9 @@ type Runner struct {
 	Labels []string
 	// Ephemeral is reported by GitHub for JIT-configured runners.
 	Ephemeral bool
+	// Repo is the repository the runner is registered on, in owner/name form,
+	// when it was found on a personal account. Empty otherwise.
+	Repo string
 }
 
 // QueuedJob is a job the fallback poller found unfinished: waiting for a
@@ -259,6 +267,11 @@ type AppInfo struct {
 	// missing permission, and the one nothing in Zoomies could previously say
 	// anything about.
 	RepositorySelection string
+	// AccountType is what GitHub says the installation's account is. A person
+	// and an organisation keep their runners in different places and need
+	// different permissions for them, and the name alone does not say which an
+	// account is, so this is asked rather than assumed.
+	AccountType store.AccountType
 }
 
 // RateLimit reports the installation's remaining API quota, which the UI shows

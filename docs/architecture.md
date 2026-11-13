@@ -128,7 +128,11 @@ In detail:
    for pending and newly planned runners share one budget across pools.
 5. For each `create` action the controller picks the installation, resolves the
    runner image from the pool's own image or its platform, asks GitHub for a JIT
-   configuration, writes a `runners` row in `provisioning`, and queues a task for
+   configuration (on the organisation or the repository the installation targets,
+   or, for a personal account, on the repository the action names: GitHub keeps
+   no runners on a person's account, so the scheduler plans such a pool a
+   repository at a time and each create carries the repository of the job it is
+   for), writes a `runners` row in `provisioning`, and queues a task for
    the chosen host's agent. A JIT configuration registers exactly one
    runner and cannot be replayed, which is what makes it safe to hand to a
    container in its environment; a non-ephemeral pool has to run `config.sh`, so

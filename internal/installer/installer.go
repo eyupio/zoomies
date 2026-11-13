@@ -1147,7 +1147,11 @@ func (p Plan) Review() []ReviewLine {
 	case p.GitHub.Skip:
 		out = append(out, ReviewLine{"github", "not now -- connect it later in the browser"})
 	case p.GitHub.Target != "":
-		out = append(out, ReviewLine{"github", p.GitHub.Target + " (" + string(p.GitHub.TargetType) + ")"})
+		kind := string(p.GitHub.TargetType)
+		if p.GitHub.accountType() == store.AccountUser {
+			kind = "personal account"
+		}
+		out = append(out, ReviewLine{"github", p.GitHub.Target + " (" + kind + ")"})
 	default:
 		out = append(out, ReviewLine{"github", "a new App, created in your browser"})
 	}

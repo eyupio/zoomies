@@ -48,6 +48,9 @@ func (f *fakeFactory) For(_ context.Context, inst *store.Installation, privateKe
 	if len(privateKeyPEM) == 0 {
 		return nil, errors.New("fake factory: no private key")
 	}
+	if inst.Personal() {
+		return f.gh.PersonalClient(inst.Target), nil
+	}
 	return f.gh.Client(inst.Target, inst.TargetType), nil
 }
 

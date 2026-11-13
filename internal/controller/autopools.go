@@ -335,7 +335,7 @@ func autoPoolSummaries(plan scheduler.AutoPoolPlan, ours map[string]*store.Pool,
 // autoPoolRunnerGroup is the runner group a pool made for an installation goes in,
 // which is the group a pool created by hand there gets when it names none.
 func autoPoolRunnerGroup(inst *store.Installation) string {
-	if inst.TargetType == store.TargetOrg {
+	if inst.Organisation() {
 		return ManagedRunnerGroupName
 	}
 	return ""

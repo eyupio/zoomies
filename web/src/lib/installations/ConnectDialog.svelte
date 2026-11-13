@@ -156,8 +156,49 @@
   /* -- what the operator types ---------------------------------------------- */
 
   let target = $state('');
-  /** Plain strings, because RadioGroup binds a string; narrowed when the API is called. */
+  /**
+   * Plain strings, because RadioGroup binds a string; narrowed when the API is
+   * called. There are three choices and the API has two target types: a
+   * personal account is an account-wide target, `org`, whose account type is
+   * `user`. It is its own choice here because GitHub treats it differently
+   * from the first click (where the App is created, and which permission
+   * registers its runners), and "An organisation" is not what somebody with
+   * a personal account is looking for.
+   */
   let targetType = $state('org');
+
+  /** The API's target type for one of the three choices. */
+  function apiTargetType(choice: string): TargetType {
+    return choice === 'repo' ? 'repo' : 'org';
+  }
+  /** The API's account type: said for a personal account, and otherwise left for the probe to learn. */
+  function apiAccountType(choice: string): 'user' | undefined {
+    return choice === 'user' ? 'user' : undefined;
+  }
+  function targetLabel(choice: string): string {
+    return choice === 'repo'
+      ? 'Repository'
+      : choice === 'user'
+        ? 'Account login'
+        : 'Organisation login';
+  }
+  function targetPlaceholder(choice: string): string {
+    return choice === 'repo' ? 'acme/widgets' : choice === 'user' ? 'octocat' : 'acme';
+  }
+  function targetShapeError(choice: string, value: string): string {
+    if (value.trim() === '') return '';
+    if (choice === 'repo')
+      return value.includes('/') ? '' : 'A repository target is written owner/repo.';
+    if (!value.includes('/')) return '';
+    return choice === 'user'
+      ? 'A personal account is just its login, with no slash.'
+      : 'An organisation target is just its name, with no slash.';
+  }
+  const TARGET_CHOICES = [
+    { value: 'org', label: 'An organisation' },
+    { value: 'user', label: 'A personal account' },
+    { value: 'repo', label: 'A single repository' },
+  ];
   let apiBase = $state('');
   let appName = $state('');
   /**
@@ -480,12 +521,14 @@
   const permissions = $derived([
     targetType === 'repo'
       ? "administration: write, register and remove this repository's runners"
-      : "organization_self_hosted_runners: write, register and remove the org's runners",
+      : targetType === 'user'
+        ? "administration: write, register and remove runners on the account's repositories"
+        : "organization_self_hosted_runners: write, register and remove the org's runners",
     session.meta?.workflow_cancellation_enabled
       ? 'actions: write, read workflow jobs and cancel workflow runs from Zoomies'
       : 'actions: read, read workflow runs and jobs for the fallback poller',
     'metadata: read, required by GitHub for every App',
-    ...(kennelSettings && targetType !== 'repo'
+    ...(kennelSettings && targetType === 'org'
       ? ["administration: read, for Kennel Club's checks of repository settings"]
       : []),
     ...(kennelFiles && !migration
@@ -543,15 +586,7 @@
   let acceptPolling = $state(false);
   const blocked = $derived(notReachable && !(localExternal && acceptPolling));
 
-  const targetError = $derived(
-    target.trim() === ''
-      ? ''
-      : targetType === 'repo' && !target.includes('/')
-        ? 'A repository target is written owner/repo.'
-        : targetType === 'org' && target.includes('/')
-          ? 'An organisation target is just its name, with no slash.'
-          : '',
-  );
+  const targetError = $derived(targetShapeError(targetType, target));
 
   async function buildManifest(): Promise<void> {
     if (!target.trim() || targetError) return;
@@ -561,10 +596,11 @@
       const result = await createAppManifest({
         name: appName.trim() || undefined,
         target: target.trim(),
-        target_type: targetType as TargetType,
+        target_type: apiTargetType(targetType),
+        account_type: apiAccountType(targetType),
         api_base_url: apiBase.trim() || undefined,
         migration,
-        kennel_settings: targetType === 'repo' ? undefined : kennelSettings,
+        kennel_settings: targetType === 'org' ? kennelSettings : undefined,
         kennel_files: kennelFiles,
       });
       postUrl = result.post_url ?? '';
@@ -598,7 +634,7 @@
       apiBase.trim(),
       appName.trim(),
       migration,
-      kennelSettings && targetType !== 'repo',
+      kennelSettings && targetType === 'org',
       kennelFiles,
     ]);
   }
@@ -670,7 +706,9 @@
       // filled in. The controller remembers what the manifest asked for, and
       // returns it here so the last step has a target to record.
       if (!target) target = result.target ?? '';
-      if (result.target_type) targetType = result.target_type;
+      if (result.target_type) {
+        targetType = result.account_type === 'user' ? 'user' : result.target_type;
+      }
       step = 2;
       saveProgress();
       onexchanged?.();
@@ -718,7 +756,8 @@
         app_id: app,
         installation_id: id,
         target: target.trim(),
-        target_type: targetType as TargetType,
+        target_type: apiTargetType(targetType),
+        account_type: apiAccountType(targetType),
         // Empty means "whatever Zoomies is configured to talk to".
         api_base_url: apiBase.trim(),
         // The private key is already held, sealed, from the exchange.
@@ -762,15 +801,7 @@
    * symptom is GitHub 404ing a runner registration -- a failure that looks
    * nothing like the setup mistake it is.
    */
-  const manualTargetError = $derived(
-    manualTarget.trim() === ''
-      ? ''
-      : manualTargetType === 'repo' && !manualTarget.includes('/')
-        ? 'A repository target is written owner/repo.'
-        : manualTargetType === 'org' && manualTarget.includes('/')
-          ? 'An organisation target is just its name, with no slash.'
-          : '',
-  );
+  const manualTargetError = $derived(targetShapeError(manualTargetType, manualTarget));
 
   /** The server rejects an empty private key, so the form says so first. */
   const manualKeyError = $derived(
@@ -796,7 +827,8 @@
         app_id: Number(parseId(manualAppId)),
         installation_id: Number(parseId(manualInstallationId)),
         target: manualTarget.trim(),
-        target_type: manualTargetType as TargetType,
+        target_type: apiTargetType(manualTargetType),
+        account_type: apiAccountType(manualTargetType),
         api_base_url: manualApiBase.trim(),
         private_key: manualKey,
         webhook_secret: manualSecret || undefined,
@@ -1018,11 +1050,17 @@
               name="target-type"
               legend="What this App will manage"
               inline
-              options={[
-                { value: 'org', label: 'An organisation' },
-                { value: 'repo', label: 'A single repository' },
-              ]}
+              options={TARGET_CHOICES}
             />
+
+            {#if targetType === 'user'}
+              <p class="caveat">
+                GitHub keeps runners on an organisation or a repository, never on a personal
+                account, so Zoomies registers each runner on the repository of the job it is for.
+                Install the App on your own account, on every repository or the ones you choose. A
+                pool for a personal account keeps no warm runners and has to be ephemeral.
+              </p>
+            {/if}
 
             {#if targetType === 'repo'}
               <!-- The caveat belongs under the option it is about, not inside
@@ -1035,7 +1073,7 @@
             {/if}
 
             <Field
-              label={targetType === 'repo' ? 'Repository' : 'Organisation login'}
+              label={targetLabel(targetType)}
               hint={targetHint}
               error={errors.target ?? targetError}
             >
@@ -1045,7 +1083,7 @@
                   {id}
                   {describedBy}
                   invalid={invalid || Boolean(targetError)}
-                  placeholder={targetType === 'repo' ? 'acme/widgets' : 'acme'}
+                  placeholder={targetPlaceholder(targetType)}
                   mono
                 />
               {/snippet}
@@ -1074,7 +1112,7 @@
             <!-- And for the one permission Kennel Club's checks of a repository's
                  settings need. A repository App holds it already, so only an
                  organisation App is asked. -->
-            {#if targetType !== 'repo'}
+            {#if targetType === 'org'}
               <Checkbox
                 bind:checked={kennelSettings}
                 label="Also let Kennel Club check repository settings"
@@ -1381,14 +1419,11 @@
             name="manual-target-type"
             legend="What this App manages"
             inline
-            options={[
-              { value: 'org', label: 'An organisation' },
-              { value: 'repo', label: 'A single repository' },
-            ]}
+            options={TARGET_CHOICES}
           />
 
           <Field
-            label={manualTargetType === 'repo' ? 'Repository' : 'Organisation login'}
+            label={targetLabel(manualTargetType)}
             hint={manualTargetType === 'repo'
               ? 'In owner/name form.'
               : 'The name as it appears in the URL: github.com/<this>.'}
@@ -1401,7 +1436,7 @@
                 {id}
                 {describedBy}
                 invalid={invalid || Boolean(manualTargetError)}
-                placeholder={manualTargetType === 'repo' ? 'acme/widgets' : 'acme'}
+                placeholder={targetPlaceholder(manualTargetType)}
                 mono
               />
             {/snippet}

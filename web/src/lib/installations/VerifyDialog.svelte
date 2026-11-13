@@ -66,7 +66,7 @@
     const base = installation?.web_url?.replace(/\/+$/, '');
     const slug = health?.app_slug;
     if (!base || !slug) return '';
-    return installation?.target_type === 'org'
+    return installation?.target_type === 'org' && installation.account_type !== 'user'
       ? `${base}/organizations/${installation.target}/settings/apps/${slug}`
       : `${base}/settings/apps/${slug}`;
   });
@@ -75,7 +75,7 @@
   const installationsURL = $derived.by(() => {
     const base = installation?.web_url?.replace(/\/+$/, '');
     if (!base || !installation?.target) return '';
-    return installation.target_type === 'org'
+    return installation.target_type === 'org' && installation.account_type !== 'user'
       ? `${base}/organizations/${installation.target}/settings/installations`
       : `${base}/settings/installations`;
   });

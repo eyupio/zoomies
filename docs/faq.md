@@ -21,7 +21,7 @@ description: >-
 ## What is Zoomies?
 
 Zoomies is a self-hosted GitHub Actions runner fleet controller. You point it at
-a GitHub organisation, or at a repository on a personal account; it watches for
+a GitHub organisation, a personal account or a single repository; it watches for
 queued jobs, starts a fresh runner container for each one, and destroys the
 runner when the job finishes. It is a single Go binary with SQLite for state and
 a web UI built in.
@@ -146,14 +146,15 @@ it went.
 
 ## Do I need a GitHub organisation?
 
-No. When you connect GitHub, the target is either an organisation or a single
-repository written as `owner/name`. A repository target is how a personal
-account is used: the App is created on your own account and installed there,
-scoped to that repository, and its runners register at the repository level --
-GitHub offers no account-wide runners for personal accounts. Each repository you
-want to run jobs for is one installation and one pool, and the installer and
-the Connect GitHub dialog both offer the choice.
-[One fleet for many repositories](many-repositories.md) covers both cases.
+No. When you connect GitHub, the target is an organisation, a personal account
+or a single repository written as `owner/name`, and the installer and the
+Connect GitHub dialog both offer the choice. A personal account is one
+installation and one pool for all its repositories: the App is created on your
+own account and installed there, on every repository or the ones you choose.
+GitHub offers no account-wide runners for a personal account, so Zoomies
+registers each runner on the repository of the job it is for; such a pool is
+ephemeral and keeps no warm runners.
+[One fleet for many repositories](many-repositories.md) covers every case.
 
 ## How do I move my existing workflows onto it?
 
@@ -311,7 +312,7 @@ modified or not, asks nothing of you. The full text is in
       "name": "What is Zoomies?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Zoomies is a self-hosted GitHub Actions runner fleet controller. You point it at a GitHub organisation, or at a repository on a personal account; it watches for queued jobs, starts a fresh runner container for each one, and destroys the runner when the job finishes. It is a single Go binary with SQLite for state and a web UI built in."
+        "text": "Zoomies is a self-hosted GitHub Actions runner fleet controller. You point it at a GitHub organisation, a personal account or a single repository; it watches for queued jobs, starts a fresh runner container for each one, and destroys the runner when the job finishes. It is a single Go binary with SQLite for state and a web UI built in."
       }
     },
     {
@@ -415,7 +416,7 @@ modified or not, asks nothing of you. The full text is in
       "name": "Does Zoomies need a GitHub organisation?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "No. The GitHub target is either an organisation or a single repository written as owner/name. A repository target is how a personal account is used: the App is created on your own account and installed there, scoped to that repository, and its runners register at the repository level, because GitHub offers no account-wide runners for personal accounts. Each repository is one installation and one pool."
+        "text": "No. The GitHub target is an organisation, a personal account or a single repository written as owner/name. A personal account is one installation and one pool for all its repositories: the App is created on your own account and installed there, on every repository or the ones you choose. GitHub offers no account-wide runners for a personal account, so Zoomies registers each runner on the repository of the job it is for; such a pool is ephemeral and keeps no warm runners."
       }
     },
     {

@@ -147,6 +147,7 @@ func (f *AppFactory) For(ctx context.Context, inst *store.Installation, privateK
 	// to storage is fetched by it, so the token cannot travel there.
 	c.http = &http.Client{Transport: instTransport, Timeout: f.http.Timeout}
 	c.archiveHTTP = &http.Client{Transport: base, Timeout: f.http.Timeout}
+	c.personal = inst.Personal()
 	c.enableConditionalReads(f.etags, apiBase+"|"+strconv.FormatInt(inst.InstallationID, 10))
 	return c, nil
 }
@@ -203,6 +204,17 @@ type appClient struct {
 	owner  string
 	repo   string
 	webURL string
+
+	// personal says the target is a personal account covered as a whole.
+	// GitHub has no account-wide runners for a person, so every runner call
+	// then works on one repository at a time; see personal.go.
+	personal bool
+	// runnerRepos remembers which repository each runner of a personal account
+	// is registered on, by GitHub's runner ID, so that a delete does not have
+	// to search every repository for it.
+	// It is held by pointer because a client is copied to narrow what one
+	// call may do, and every copy has to remember the same runners.
+	runnerRepos *runnerRepoIndex
 }
 
 func newAppClient(asApp, asInstallation *gh.Client, target string, kind store.TargetType, installationID int64, webBase string) *appClient {
@@ -216,6 +228,7 @@ func newAppClient(asApp, asInstallation *gh.Client, target string, kind store.Ta
 		owner:          owner,
 		repo:           repo,
 		webURL:         strings.TrimRight(webBase, "/") + "/" + target,
+		runnerRepos:    &runnerRepoIndex{byID: map[int64]string{}},
 	}
 }
 
@@ -249,9 +262,14 @@ func (c *appClient) Target() (string, store.TargetType) { return c.target, c.kin
 // WebURL returns the browser URL for the target.
 func (c *appClient) WebURL() string { return c.webURL }
 
-// isOrg reports whether the org-scoped half of each Actions endpoint pair
-// applies.
+// isOrg reports whether the target is an account as a whole, an organisation
+// or a person, rather than one repository.
 func (c *appClient) isOrg() bool { return c.kind == store.TargetOrg }
+
+// orgRunners reports whether the org-scoped half of each runner endpoint pair
+// applies. It does not for a personal account: GitHub answers those endpoints
+// with a 404 for a person, who has no runners of their own.
+func (c *appClient) orgRunners() bool { return c.isOrg() && !c.personal }
 
 // Probe verifies the credentials end to end: the private key signs a JWT, the
 // App exists, the installation exists, and the installation token it mints can
@@ -285,11 +303,34 @@ func (c *appClient) Probe(ctx context.Context) (*AppInfo, error) {
 	if len(inst.Events) > 0 {
 		info.Events = inst.Events
 	}
+	info.AccountType = accountTypeOf(inst.GetTargetType())
 
-	if _, err := c.ListRunners(ctx); err != nil {
+	// What GitHub says the account is decides where the runners are read from,
+	// not what this client was built believing: the first probe of an
+	// installation is how Zoomies learns it at all, and an organisation's
+	// endpoint asked about a person answers a bare 404 that reads like a
+	// missing permission and is not one.
+	if c.isOrg() && info.AccountType == store.AccountUser {
+		if err := c.probePersonalRunners(ctx); err != nil {
+			return nil, err
+		}
+		return info, nil
+	}
+	if _, err := c.listTargetRunners(ctx); err != nil {
 		return nil, err
 	}
 	return info, nil
+}
+
+// accountTypeOf maps GitHub's target_type on an installation onto ours.
+func accountTypeOf(kind string) store.AccountType {
+	switch {
+	case strings.EqualFold(kind, "User"):
+		return store.AccountUser
+	case strings.EqualFold(kind, "Organization"):
+		return store.AccountOrganization
+	}
+	return store.AccountUnknown
 }
 
 // MissingRequirements lists, in words an operator can act on, what this App is
@@ -304,7 +345,9 @@ func (a *AppInfo) MissingRequirements(kind store.TargetType) []string {
 		}
 		out = append(out, fmt.Sprintf("permission %q (%s) is %s", label, level, describeLevel(got)))
 	}
-	if kind == store.TargetOrg {
+	// A personal account has no organisation permissions to grant: its runners
+	// are its repositories', so it needs what a repository target needs.
+	if kind == store.TargetOrg && a.AccountType != store.AccountUser {
 		need("organization_self_hosted_runners", "write", "Self-hosted runners")
 	} else {
 		need("administration", "write", "Administration")
@@ -408,9 +451,19 @@ func (c *appClient) CreateJITConfig(ctx context.Context, req JITRequest) (*JITCo
 		resp *gh.Response
 		err  error
 	)
-	if c.isOrg() {
+	switch {
+	case c.personal:
+		repo, rerr := c.personalRepo(req.Repo)
+		if rerr != nil {
+			return nil, fmt.Errorf("github: create jit config for %s: %w", req.Name, rerr)
+		}
+		cfg, resp, err = c.asInstallation.Actions.GenerateRepoJITConfig(ctx, c.owner, repo, body)
+		if err == nil {
+			c.rememberRunnerRepo(cfg.GetRunner().GetID(), c.owner+"/"+repo)
+		}
+	case c.isOrg():
 		cfg, resp, err = c.asInstallation.Actions.GenerateOrgJITConfig(ctx, c.owner, body)
-	} else {
+	default:
 		cfg, resp, err = c.asInstallation.Actions.GenerateRepoJITConfig(ctx, c.owner, c.repo, body)
 	}
 	if err != nil {
@@ -434,6 +487,9 @@ func (c *appClient) CreateRegistrationToken(ctx context.Context) (*RegistrationT
 		resp *gh.Response
 		err  error
 	)
+	if c.personal {
+		return nil, c.errNoAccountToken("a registration token")
+	}
 	if c.isOrg() {
 		tok, resp, err = c.asInstallation.Actions.CreateOrganizationRegistrationToken(ctx, c.owner)
 	} else {
@@ -452,6 +508,9 @@ func (c *appClient) CreateRemoveToken(ctx context.Context) (*RegistrationToken, 
 		resp *gh.Response
 		err  error
 	)
+	if c.personal {
+		return nil, c.errNoAccountToken("a removal token")
+	}
 	if c.isOrg() {
 		tok, resp, err = c.asInstallation.Actions.CreateOrganizationRemoveToken(ctx, c.owner)
 	} else {
@@ -485,26 +544,59 @@ type runnersPage struct {
 	} `json:"runners"`
 }
 
-// ListRunners returns every self-hosted runner registered on the target.
+// ListRunners returns every self-hosted runner registered on the target. For
+// a personal account that is every runner on every repository the installation
+// covers, because there is nowhere else one can be.
 func (c *appClient) ListRunners(ctx context.Context) ([]Runner, error) {
-	base := "orgs/" + c.owner + "/actions/runners"
-	if !c.isOrg() {
-		base = "repos/" + c.owner + "/" + c.repo + "/actions/runners"
+	if c.personal {
+		return c.listPersonalRunners(ctx)
+	}
+	return c.listTargetRunners(ctx)
+}
+
+// listTargetRunners lists the runners registered on the target itself: the
+// organisation's, or the one repository's.
+func (c *appClient) listTargetRunners(ctx context.Context) ([]Runner, error) {
+	if c.isOrg() {
+		out, err := c.listRunnersAt(ctx, "orgs/"+c.owner+"/actions/runners", "")
+		if errors.Is(err, ErrNotFound) {
+			// A missing permission is a 403. A 404 means there is no such
+			// organisation for this installation, and the usual reason is
+			// that the name belongs to a person, which the next credential
+			// check finds out and corrects.
+			err = fmt.Errorf("%w; GitHub has no organisation %s that this App installation can reach: "+
+				"if %s is a personal account, verify the installation on the Installations page so that Zoomies learns it and "+
+				"registers runners on its repositories; otherwise check that the App is installed on %s",
+				err, c.owner, c.owner, c.owner)
+		}
+		return out, err
+	}
+	return c.listRunnersAt(ctx, "repos/"+c.owner+"/"+c.repo+"/actions/runners", "")
+}
+
+// listRunnersAt reads every page of one runner listing. repo is recorded on
+// each runner found, and is empty for a listing that is not a personal
+// account's repository.
+func (c *appClient) listRunnersAt(ctx context.Context, base, repo string) ([]Runner, error) {
+	where := c.target
+	if repo != "" {
+		where = repo
 	}
 	var out []Runner
 	for page := 1; ; {
 		u := fmt.Sprintf("%s?per_page=%d&page=%d", base, pollPerPage, page)
 		req, err := c.asInstallation.NewRequest(ctx, http.MethodGet, u, nil)
 		if err != nil {
-			return nil, errorf("list runners on "+c.target, err)
+			return nil, errorf("list runners on "+where, err)
 		}
 		var body runnersPage
 		resp, err := c.readClient().Do(req, &body)
 		if err != nil {
-			return nil, c.fail("list runners on "+c.target, resp, err)
+			return nil, c.fail("list runners on "+where, resp, err)
 		}
 		for _, r := range body.Runners {
 			runner := Runner{
+				Repo:      repo,
 				ID:        r.ID,
 				Name:      r.Name,
 				OS:        r.OS,
@@ -531,9 +623,24 @@ func (c *appClient) DeleteRunner(ctx context.Context, id int64) error {
 		resp *gh.Response
 		err  error
 	)
-	if c.isOrg() {
+	switch {
+	case c.personal:
+		repo, found, ferr := c.runnerRepo(ctx, id)
+		if ferr != nil {
+			return ferr
+		}
+		if !found {
+			// No repository of the account holds it, so it is already gone.
+			return nil
+		}
+		_, name, _ := SplitTarget(repo)
+		resp, err = c.asInstallation.Actions.RemoveRunner(ctx, c.owner, name, id)
+		if err == nil {
+			c.forgetRunnerRepo(id)
+		}
+	case c.isOrg():
 		resp, err = c.asInstallation.Actions.RemoveOrganizationRunner(ctx, c.owner, id)
-	} else {
+	default:
 		resp, err = c.asInstallation.Actions.RemoveRunner(ctx, c.owner, c.repo, id)
 	}
 	e := classify(resp, err)
@@ -550,7 +657,7 @@ func (c *appClient) DeleteRunner(ctx context.Context, id int64) error {
 // have them -- groups are an organisation concept -- so a repo target reports
 // none rather than failing, which lets the pool form show an empty picker.
 func (c *appClient) ListRunnerGroups(ctx context.Context) ([]RunnerGroup, error) {
-	if !c.isOrg() {
+	if !c.orgRunners() {
 		return nil, nil
 	}
 	opts := &gh.ListOrgRunnerGroupOptions{ListOptions: gh.ListOptions{PerPage: pollPerPage}}
@@ -583,6 +690,9 @@ func (c *appClient) ListRunnerGroups(ctx context.Context) ([]RunnerGroup, error)
 
 // CreateRunnerGroup creates a group under an organisation installation.
 func (c *appClient) CreateRunnerGroup(ctx context.Context, in RunnerGroupCreate) (*RunnerGroup, error) {
+	if c.personal {
+		return nil, fmt.Errorf("github: runner groups belong to an organisation, and %s is a personal account", c.target)
+	}
 	if !c.isOrg() {
 		return nil, fmt.Errorf("github: runner groups belong to an organisation, and %s is a repository", c.target)
 	}
@@ -843,7 +953,7 @@ func (c *appClient) decorate(op string, e error) error {
 // missing. "403" on its own sends operators to the wrong settings page.
 func (c *appClient) permissionHint() string {
 	perm := `"Administration" (administration) read and write`
-	if c.isOrg() {
+	if c.orgRunners() {
 		perm = `"Self-hosted runners" (organization_self_hosted_runners) read and write`
 	}
 	return fmt.Sprintf("check the App installation on %s: it needs %s, \"Actions\" (actions) read, "+

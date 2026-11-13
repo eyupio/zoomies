@@ -562,7 +562,7 @@ func (s *Server) planPool(r *http.Request, name string, entry map[string]any,
 		defaultNewPoolBurst(&in, candidate)
 		// The same default a create through the API gets: an organisation's
 		// pool goes in Zoomies' own runner group unless the document says.
-		if in.RunnerGroup == nil && inst.TargetType == store.TargetOrg {
+		if in.RunnerGroup == nil && inst.Organisation() {
 			candidate.RunnerGroup = controller.ManagedRunnerGroupName
 		}
 		errs = append(errs, s.validatePool(ctx, candidate, "")...)

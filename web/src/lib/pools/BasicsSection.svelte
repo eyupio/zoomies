@@ -102,7 +102,11 @@
   const installationOptions = $derived(
     installations.map((entry) => ({
       value: entry.id ?? '',
-      label: `${entry.target ?? 'unnamed'} (${entry.target_type ?? 'org'})`,
+      label: `${entry.target ?? 'unnamed'} (${
+        entry.target_type !== 'repo' && entry.account_type === 'user'
+          ? 'personal account'
+          : (entry.target_type ?? 'org')
+      })`,
     })),
   );
   const chosen = $derived(installations.find((entry) => entry.id === draft.installation_id));

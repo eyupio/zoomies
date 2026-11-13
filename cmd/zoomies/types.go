@@ -629,6 +629,7 @@ type installationItem struct {
 	InstallationID int64      `json:"installation_id"`
 	Target         string     `json:"target"`
 	TargetType     string     `json:"target_type"`
+	AccountType    string     `json:"account_type"`
 	APIBaseURL     string     `json:"api_base_url"`
 	AppSlug        string     `json:"app_slug"`
 	Enterprise     bool       `json:"enterprise"`

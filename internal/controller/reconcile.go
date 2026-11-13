@@ -489,6 +489,14 @@ func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, host *s
 			pool.Name, pool.InstallationID, err)
 	}
 
+	if inst.Personal() && a.Repo == "" {
+		// The pass that planned this create read the installation before the
+		// probe learned it was a personal account, where a runner has to be
+		// registered on the repository of its job. The next pass plans it with
+		// one; registering this one would only fail and count against the pool.
+		return nil
+	}
+
 	if !c.admitCredentialMint(inst.ID) {
 		return errRegistrationDeferred
 	}
@@ -522,6 +530,7 @@ func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, host *s
 		PoolID:            pool.ID,
 		HostID:            a.HostID,
 		Name:              name,
+		Repo:              a.Repo,
 		State:             store.RunnerProvisioning,
 		Ephemeral:         pool.Ephemeral,
 		Labels:            pool.Labels,
@@ -568,7 +577,7 @@ func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, host *s
 // GitHub answers. It runs apart from the pass that wrote the row -- see
 // createRunner -- so its own errors end here rather than back in apply().
 func (c *Controller) finishCreateRunner(ctx context.Context, inst *store.Installation, pool *store.Pool, r *store.Runner, a scheduler.Action, name string, resources store.Resources, source string) {
-	creds, ghID, err := c.mintCredentials(ctx, inst, pool, name)
+	creds, ghID, err := c.mintCredentials(ctx, inst, pool, name, r.Repo)
 	if err != nil {
 		msg := fmt.Sprintf("GitHub would not register %s: %v", name, err)
 		if failed, ferr := c.st.FailRunner(ctx, r.ID, msg, store.FaultRegistration); ferr == nil {
@@ -741,7 +750,10 @@ func wireSource(source string, pool *store.Pool) string {
 // cannot be replayed, and expires quickly, which is what makes it safe to hand
 // to a container through its environment. Non-ephemeral pools have to run
 // config.sh, so they get a registration token instead.
-func (c *Controller) mintCredentials(ctx context.Context, inst *store.Installation, pool *store.Pool, name string) (creds backend.Credentials, id int64, err error) {
+//
+// repo is the repository the runner is registered on when the installation is a
+// personal account, which has nowhere else to put one; it is empty otherwise.
+func (c *Controller) mintCredentials(ctx context.Context, inst *store.Installation, pool *store.Pool, name, repo string) (creds backend.Credentials, id int64, err error) {
 	if c.githubHeld(inst.ID, c.Now()) {
 		return backend.Credentials{}, 0, errRegistrationHeld
 	}
@@ -765,6 +777,7 @@ func (c *Controller) mintCredentials(ctx context.Context, inst *store.Installati
 			Name:          name,
 			Labels:        pool.Labels,
 			RunnerGroupID: group,
+			Repo:          repo,
 		})
 		c.observeGitHub(inst.ID, err)
 		if err != nil {

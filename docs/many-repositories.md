@@ -27,7 +27,8 @@ installed.
 
 [GitHub's documentation](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/add-runners)
 covers all three. A personal account has no level of its own: its runners are
-registered repository by repository.
+registered repository by repository, which Zoomies does for you under one
+[personal account target](#a-personal-account).
 
 ## One organisation, every repository
 
@@ -63,11 +64,41 @@ uses this fleet.
 
 ## A personal account
 
+Choose **A personal account** when you connect GitHub and give your login. The
+App is created on your own account and installed there, on every repository or
+only the ones you tick, and one installation with one pool then serves all of
+them.
+
 GitHub offers no account-wide runners for a personal account, so there is no
-single registration that covers all its repositories. Connect each repository
-you want to run jobs for as its own target, `owner/name`, with a pool of its
-own. It is one installation and one pool per repository, all in the same fleet
-and on the same hosts.
+single registration that covers its repositories. Zoomies makes one for each
+job instead: when a job is queued, its runner is registered on that job's
+repository, runs it, and is destroyed. That has three consequences worth knowing
+before you size a pool:
+
+* **No warm runners.** A warm runner waits for a job that has not arrived, and
+  here there is no repository to register it on until one has. `min_runners` on
+  such a pool has to be `0`, and every job pays the runner's start time.
+* **Ephemeral pools only.** A runner kept between jobs would stay on one
+  repository, out of reach of the others.
+* **A runner belongs to its repository.** The Runners page shows which one. If
+  the job is cancelled while its runner is starting, the runner is stopped
+  instead of being offered to another repository's job, which it could not take.
+
+The App needs `administration: write`, the permission that registers a runner on
+a repository, in place of the organisation's runner permission, which a person
+cannot grant. Creating the App from Zoomies asks for the right one.
+
+An installation recorded before Zoomies made the distinction, with a personal
+login typed as an organisation, used to answer `list runners on <login>: not
+found`. It now corrects itself: the credential check asks GitHub what kind of
+account it is on, within seconds of the controller starting or when you press
+**Verify**, and from then on registers runners on the account's repositories. If
+its pool has `min_runners` above `0` or is not ephemeral, change those two
+settings.
+
+A single repository on a personal account can still be its own target,
+`owner/name`, with a pool of its own, which is the way to keep one repository's
+runners and limits apart from the rest.
 
 ## Keeping repositories apart
 

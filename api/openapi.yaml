@@ -2292,6 +2292,14 @@ paths:
                 name: { type: string, examples: ["Zoomies (acme)"] }
                 target: { type: string, examples: [acme] }
                 target_type: { $ref: "#/components/schemas/TargetType" }
+                account_type:
+                  $ref: "#/components/schemas/AccountType"
+                  description: >-
+                    Send `user` when an `org` target is a personal account. GitHub creates
+                    that App under the person's own settings, and it asks for
+                    `administration: write` in place of the organisation's runner permission,
+                    because a person has no organisation permissions to grant. Absent means an
+                    organisation.
                 api_base_url: { type: string, examples: ["https://api.github.com"] }
                 migration:
                   type: boolean
@@ -2430,6 +2438,9 @@ paths:
                       where the operator is sent to give the App the Zoomies mark.
                   target: { type: string, description: The organisation or repository the App was created for. }
                   target_type: { $ref: "#/components/schemas/TargetType" }
+                  account_type:
+                    $ref: "#/components/schemas/AccountType"
+                    description: Echoed when the App was created for a personal account.
         "422": { $ref: "#/components/responses/Unprocessable" }
 
   /webhook-deliveries:
@@ -10823,6 +10834,19 @@ components:
     TargetType:
       type: string
       enum: [org, repo]
+      description: >-
+        Whether an installation covers an account as a whole (`org`, which is an
+        organisation or a personal account; `account_type` says which) or one repository
+        (`repo`).
+    AccountType:
+      type: string
+      enum: [organization, user]
+      description: >-
+        What GitHub says the account behind an installation is. It is learned from GitHub
+        by the credential check, so it is absent until the first one. A `user` account
+        covered as a whole has no runners of its own: GitHub registers each of its runners
+        on one repository, so Zoomies registers a runner on the repository of the job it is
+        for, keeps no warm runners there, and needs its pools to be ephemeral.
     BackendKind:
       type: string
       enum: [docker, podman, process]
@@ -11791,6 +11815,7 @@ components:
         installation_id: { type: integer, format: int64 }
         target: { type: string, examples: [acme, "acme/widgets"] }
         target_type: { $ref: "#/components/schemas/TargetType" }
+        account_type: { $ref: "#/components/schemas/AccountType" }
         api_base_url: { type: string }
         app_slug: { type: string }
         web_url: { type: string }
@@ -11816,6 +11841,11 @@ components:
         installation_id: { type: integer, format: int64 }
         target: { type: string }
         target_type: { $ref: "#/components/schemas/TargetType" }
+        account_type:
+          $ref: "#/components/schemas/AccountType"
+          description: >-
+            Optional. The first credential check asks GitHub what the account is and
+            records the answer, whatever is sent here.
         api_base_url: { type: string, default: "https://api.github.com" }
         private_key: { type: string, format: password, description: The App's PEM private key. Sealed before storage and never returned. }
         webhook_secret: { type: string, format: password }
@@ -13339,6 +13369,12 @@ components:
         host_id: { type: string }
         host_name: { type: string }
         state: { $ref: "#/components/schemas/RunnerState" }
+        repo:
+          type: string
+          description: >-
+            The repository the runner is registered on, as owner/name, for a runner of a
+            personal account, which takes that repository's jobs only. Absent for every
+            other runner.
         github_runner_id: { type: integer, format: int64 }
         container_id: { type: string }
         ephemeral: { type: boolean }

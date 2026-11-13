@@ -190,6 +190,63 @@ test('the App asks for write access to code only when the operator ticks the box
 });
 
 /**
+ * A personal account is its own choice.
+ *
+ * GitHub keeps no runners on a personal account, creates its App under the
+ * person's own settings and registers its runners through repository
+ * administration. Somebody with a personal account used to find only "An
+ * organisation" and "A single repository", typed their login under the first,
+ * and got an App and an installation that answered "not found" for ever. The
+ * dialog has to offer the choice, say what it means, list the permission that
+ * will really be asked for, and tell the controller which kind of account it is.
+ */
+test('a personal account is offered, explained and sent as one', async ({ page }) => {
+  const asked: Record<string, unknown>[] = [];
+  await page.route('**/api/v1/meta', async (route) => {
+    const read = await readThrough<Record<string, unknown>>(route);
+    if (!read) return;
+    const { response, body: meta } = read;
+    meta.external_url = 'https://zoomies.example.test';
+    meta.webhook_url = 'https://zoomies.example.test/webhooks/github';
+    await route.fulfill({ response, json: meta });
+  });
+  await page.route('**/api/v1/installations/manifest', async (route) => {
+    asked.push(route.request().postDataJSON() as Record<string, unknown>);
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        post_url: 'https://github.com/settings/apps/new',
+        manifest: '{"name":"zoomies-octocat"}',
+        state: 'a-state',
+      }),
+    });
+  });
+  await goto(page, '/installations', 'Installations');
+  await page.getByRole('button', { name: 'Connect GitHub' }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'Connect GitHub' });
+
+  await dialog.getByRole('radio', { name: 'A personal account' }).check();
+  await expect(dialog).toContainText('registers each runner on the repository of the job');
+  await expect(dialog).toContainText('administration: write');
+  await expect(dialog).not.toContainText('organization_self_hosted_runners');
+  // A personal account's App holds Administration already, so the question
+  // that offers to add read access to it has nothing to offer.
+  await expect(dialog.getByRole('checkbox', { name: /check repository settings/ })).toHaveCount(0);
+
+  const login = dialog.getByLabel('Account login');
+  await login.fill('octocat/widgets');
+  await expect(dialog).toContainText('A personal account is just its login, with no slash.');
+  await login.fill('octocat');
+  await dialog.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Create the App on GitHub' })).toBeVisible();
+  expect(asked.at(-1)).toMatchObject({
+    target: 'octocat',
+    target_type: 'org',
+    account_type: 'user',
+  });
+});
+
+/**
  * Administration read lets an App read configuration a runner fleet has no use
  * for, and only Kennel Club's checks of a repository's settings need it. An
  * organisation App asks for it only when the operator ticks the box. A repository

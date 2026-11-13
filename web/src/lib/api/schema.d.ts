@@ -6819,8 +6819,16 @@ export interface components {
          * @enum {string}
          */
         Role: "viewer" | "operator" | "admin" | "platform";
-        /** @enum {string} */
+        /**
+         * @description Whether an installation covers an account as a whole (`org`, which is an organisation or a personal account; `account_type` says which) or one repository (`repo`).
+         * @enum {string}
+         */
         TargetType: "org" | "repo";
+        /**
+         * @description What GitHub says the account behind an installation is. It is learned from GitHub by the credential check, so it is absent until the first one. A `user` account covered as a whole has no runners of its own: GitHub registers each of its runners on one repository, so Zoomies registers a runner on the repository of the job it is for, keeps no warm runners there, and needs its pools to be ephemeral.
+         * @enum {string}
+         */
+        AccountType: "organization" | "user";
         /** @enum {string} */
         BackendKind: "docker" | "podman" | "process";
         /**
@@ -7684,6 +7692,7 @@ export interface components {
              */
             target?: string;
             target_type?: components["schemas"]["TargetType"];
+            account_type?: components["schemas"]["AccountType"];
             api_base_url?: string;
             app_slug?: string;
             web_url?: string;
@@ -7710,6 +7719,8 @@ export interface components {
             installation_id: number;
             target: string;
             target_type: components["schemas"]["TargetType"];
+            /** @description Optional. The first credential check asks GitHub what the account is and records the answer, whatever is sent here. */
+            account_type?: components["schemas"]["AccountType"];
             /** @default https://api.github.com */
             api_base_url: string;
             /**
@@ -9077,6 +9088,8 @@ export interface components {
             host_id?: string;
             host_name?: string;
             state?: components["schemas"]["RunnerState"];
+            /** @description The repository the runner is registered on, as owner/name, for a runner of a personal account, which takes that repository's jobs only. Absent for every other runner. */
+            repo?: string;
             /** Format: int64 */
             github_runner_id?: number;
             container_id?: string;
@@ -17241,6 +17254,8 @@ export interface operations {
                     /** @example acme */
                     target: string;
                     target_type: components["schemas"]["TargetType"];
+                    /** @description Send `user` when an `org` target is a personal account. GitHub creates that App under the person's own settings, and it asks for `administration: write` in place of the organisation's runner permission, because a person has no organisation permissions to grant. Absent means an organisation. */
+                    account_type?: components["schemas"]["AccountType"];
                     /** @example https://api.github.com */
                     api_base_url?: string;
                     /**
@@ -17384,6 +17399,8 @@ export interface operations {
                         /** @description The organisation or repository the App was created for. */
                         target?: string;
                         target_type?: components["schemas"]["TargetType"];
+                        /** @description Echoed when the App was created for a personal account. */
+                        account_type?: components["schemas"]["AccountType"];
                     };
                 };
             };

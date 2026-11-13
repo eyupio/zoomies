@@ -53,10 +53,16 @@ func installationsList(ctx context.Context, e *env, args []string) error {
 		if !inst.Healthy {
 			health = p.paint(colourRed, "failing")
 		}
+		// An account-wide target is "org" whoever the account is; a person's is
+		// planned and registered differently, so the table says which it is.
+		kind := inst.TargetType
+		if kind == "org" && inst.AccountType == "user" {
+			kind = "personal"
+		}
 		rows = append(rows, []string{
 			inst.Target,
 			inst.ID,
-			inst.TargetType,
+			kind,
 			health,
 			strconv.Itoa(inst.PoolCount),
 			p.relTimePtr(inst.LastCheckedAt),

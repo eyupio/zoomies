@@ -33,6 +33,11 @@ type GitHubPlan struct {
 	// repository.
 	Target     string
 	TargetType store.TargetType
+	// Personal says the account-wide target is a personal account, not an
+	// organisation. GitHub creates that App under the person's own settings,
+	// and it registers runners through repository administration, a repository
+	// at a time, because a person has no runners of their own.
+	Personal bool
 	// AppName is the App's display name, which must be unique across all of
 	// GitHub.
 	AppName        string
@@ -112,6 +117,7 @@ func (i *Installer) appFromAnswers(ctx context.Context, st *store.Store, key *cr
 		InstallationID: p.GitHub.InstallationID,
 		Target:         p.GitHub.Target,
 		TargetType:     p.GitHub.TargetType,
+		AccountType:    p.GitHub.accountType(),
 		APIBaseURL:     p.GitHub.APIBaseURL,
 		PrivateKeyPEM:  pem,
 		WebhookSecret:  secret,
@@ -176,7 +182,7 @@ func (i *Installer) appFromManifest(ctx context.Context, st *store.Store, key *c
 	cfg := p.Config()
 	webhookURL := cfg.WebhookURL()
 	org := ""
-	if p.GitHub.TargetType == store.TargetOrg {
+	if p.GitHub.organisation() {
 		org = p.GitHub.Target
 	}
 
@@ -261,6 +267,7 @@ func (i *Installer) appFromManifest(ctx context.Context, st *store.Store, key *c
 		AppID:         creds.AppID,
 		Target:        p.GitHub.Target,
 		TargetType:    p.GitHub.TargetType,
+		AccountType:   p.GitHub.accountType(),
 		APIBaseURL:    p.GitHub.APIBaseURL,
 		AppSlug:       creds.Slug,
 		PrivateKeyPEM: creds.PEM,
@@ -311,6 +318,7 @@ func (i *Installer) appFromManifest(ctx context.Context, st *store.Store, key *c
 		InstallationID: p.GitHub.InstallationID,
 		Target:         p.GitHub.Target,
 		TargetType:     p.GitHub.TargetType,
+		AccountType:    p.GitHub.accountType(),
 		APIBaseURL:     p.GitHub.APIBaseURL,
 		AppSlug:        creds.Slug,
 		PrivateKeyPEM:  creds.PEM,
@@ -385,7 +393,7 @@ func (i *Installer) notePermissions(p *Plan) {
 	if p.GitHub.Migration {
 		events += ", issue_comment"
 	}
-	i.ui.note("              " + runnerPermission(p.GitHub.TargetType) + ":write, " + events)
+	i.ui.note("              " + runnerPermission(p.GitHub.TargetType, p.GitHub.Personal) + ":write, " + events)
 	if askedForAdministrationRead(p) {
 		i.ui.note("              administration:read (for Kennel Club's checks of repository settings)")
 	}
@@ -431,7 +439,7 @@ func (i *Installer) askMigrationPermissions(ctx context.Context, p *Plan) error 
 // because the operator asked for it. A repository App holds Administration write
 // to register its runners, which is listed with them and includes read.
 func askedForAdministrationRead(p *Plan) bool {
-	return p.GitHub.KennelSettings && p.GitHub.TargetType == store.TargetOrg
+	return p.GitHub.KennelSettings && p.GitHub.organisation()
 }
 
 // askKennelSettingsPermission asks whether an organisation App should also carry
@@ -440,10 +448,10 @@ func askedForAdministrationRead(p *Plan) bool {
 // lets an App read repository configuration Zoomies has no use for, and most
 // fleets will not turn those checks on.
 //
-// A repository App is not asked: it holds Administration write already, and the
-// question would offer to change nothing.
+// A repository App is not asked, and neither is a personal account's: each holds
+// Administration write already, and the question would offer to change nothing.
 func (i *Installer) askKennelSettingsPermission(ctx context.Context, p *Plan) error {
-	if p.GitHub.TargetType != store.TargetOrg {
+	if !p.GitHub.organisation() {
 		p.GitHub.KennelSettings = false
 		return nil
 	}
@@ -481,24 +489,39 @@ func (i *Installer) askKennelFilesPermission(ctx context.Context, p *Plan) error
 // askGitHubTarget settles which account's runners this fleet manages and where
 // its API lives.
 func (i *Installer) askGitHubTarget(ctx context.Context, p *Plan) error {
+	// Three choices over two target types: a personal account is an
+	// account-wide target whose account is a person.
+	const personal = "user"
 	kind := string(store.TargetOrg)
 	if p.GitHub.TargetType != "" {
 		kind = string(p.GitHub.TargetType)
 	}
+	if p.GitHub.Personal && p.GitHub.TargetType != store.TargetRepo {
+		kind = personal
+	}
 	if err := i.selectOne(ctx, "Whose runners will this fleet manage?",
 		"An organisation App manages runners for every repository in the org, which is almost always what you want. "+
-			"A repository App is narrower and needs a different permission.",
+			"A personal account has no runners of its own, so each runner is registered on the repository of the job it is for. "+
+			"A repository App is narrower still.",
 		[]huh.Option[string]{
 			huh.NewOption("An organisation (default)", string(store.TargetOrg)),
+			huh.NewOption("A personal account", personal),
 			huh.NewOption("A single repository", string(store.TargetRepo)),
 		}, &kind); err != nil {
 		return err
 	}
+	p.GitHub.Personal = kind == personal
+	if p.GitHub.Personal {
+		kind = string(store.TargetOrg)
+	}
 	p.GitHub.TargetType = store.TargetType(kind)
 
 	title, desc := "Organisation login", "The name as it appears in the URL: github.com/<this>."
-	if p.GitHub.TargetType == store.TargetRepo {
+	switch {
+	case p.GitHub.TargetType == store.TargetRepo:
 		title, desc = "Repository", "In owner/name form, e.g. acme/widgets."
+	case p.GitHub.Personal:
+		title = "Account login"
 	}
 	target := p.GitHub.Target
 	if err := i.input(ctx, title, desc, target, &target, func(s string) error {
@@ -510,6 +533,9 @@ func (i *Installer) askGitHubTarget(ctx context.Context, p *Plan) error {
 			return errors.New("use owner/name for a repository")
 		}
 		if p.GitHub.TargetType == store.TargetOrg && strings.Contains(s, "/") {
+			if p.GitHub.Personal {
+				return errors.New("an account login has no slash in it")
+			}
 			return errors.New("an organisation login has no slash in it")
 		}
 		return nil
@@ -579,11 +605,28 @@ func defaultAppName(target string) string {
 	return name
 }
 
-func runnerPermission(kind store.TargetType) string {
-	if kind == store.TargetRepo {
+func runnerPermission(kind store.TargetType, personal bool) string {
+	if kind == store.TargetRepo || personal {
 		return "administration"
 	}
 	return "organization_self_hosted_runners"
+}
+
+// organisation reports whether the plan's target is an organisation: the only
+// kind of account whose App is created under the account and asks for its
+// runner permission.
+func (g GitHubPlan) organisation() bool {
+	return g.TargetType == store.TargetOrg && !g.Personal
+}
+
+// accountType is what the plan knows of the account, which is only that it is a
+// person when the operator said so. Anything else is left for the first
+// credential check to ask GitHub.
+func (g GitHubPlan) accountType() store.AccountType {
+	if g.Personal && g.TargetType == store.TargetOrg {
+		return store.AccountUser
+	}
+	return store.AccountUnknown
 }
 
 // installationInput is what storeInstallation needs. The private key and the
@@ -593,6 +636,7 @@ type installationInput struct {
 	InstallationID int64
 	Target         string
 	TargetType     store.TargetType
+	AccountType    store.AccountType
 	APIBaseURL     string
 	AppSlug        string
 	PrivateKeyPEM  string
@@ -646,6 +690,7 @@ func storeInstallation(ctx context.Context, st *store.Store, key *cryptox.Key, i
 		InstallationID:   in.InstallationID,
 		Target:           in.Target,
 		TargetType:       in.TargetType,
+		AccountType:      in.AccountType,
 		APIBaseURL:       in.APIBaseURL,
 		AppSlug:          in.AppSlug,
 		PrivateKeyEnc:    sealedKey,

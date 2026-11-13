@@ -61,9 +61,13 @@ type installationCreateRequest struct {
 	InstallationID int64  `json:"installation_id"`
 	Target         string `json:"target"`
 	TargetType     string `json:"target_type"`
-	APIBaseURL     string `json:"api_base_url"`
-	PrivateKey     string `json:"private_key"`
-	WebhookSecret  string `json:"webhook_secret"`
+	// AccountType says the account is an "organization" or a "user" when the
+	// caller already knows. It is optional: the first credential check asks
+	// GitHub and records the answer, whatever is sent here.
+	AccountType   string `json:"account_type"`
+	APIBaseURL    string `json:"api_base_url"`
+	PrivateKey    string `json:"private_key"`
+	WebhookSecret string `json:"webhook_secret"`
 }
 
 // handleCreateInstallation connects a GitHub App installation.
@@ -94,6 +98,7 @@ func (s *Server) handleCreateInstallation(w http.ResponseWriter, r *http.Request
 	target := strings.TrimSpace(req.Target)
 	targetType := store.TargetType(strings.ToLower(strings.TrimSpace(req.TargetType)))
 	apiBase := strings.TrimSpace(req.APIBaseURL)
+	accountType := store.AccountType(strings.ToLower(strings.TrimSpace(req.AccountType)))
 	// A browser that finished the manifest flow in the tab GitHub redirected
 	// back to never saw the form the flow started from, so it may not know the
 	// target. The pending handshake does; it is the same App either way.
@@ -103,6 +108,9 @@ func (s *Server) handleCreateInstallation(w http.ResponseWriter, r *http.Request
 		}
 		if targetType == "" {
 			targetType = pending.targetType
+		}
+		if accountType == "" {
+			accountType = pending.accountType
 		}
 		if apiBase == "" {
 			apiBase = pending.apiBaseURL
@@ -132,6 +140,9 @@ func (s *Server) handleCreateInstallation(w http.ResponseWriter, r *http.Request
 	}
 	if !targetType.Valid() {
 		fields = append(fields, fieldError{"target_type", fmt.Sprintf("%q is not a target type; use org or repo", targetType)})
+	}
+	if !accountType.Valid() {
+		fields = append(fields, fieldError{"account_type", fmt.Sprintf("%q is not an account type; use organization or user, or leave it out and Zoomies asks GitHub", accountType)})
 	}
 	switch {
 	case privateKey == "" && pending == nil && strings.TrimSpace(req.PrivateKey) == "" && req.AppID > 0:
@@ -176,6 +187,7 @@ func (s *Server) handleCreateInstallation(w http.ResponseWriter, r *http.Request
 		InstallationID:   req.InstallationID,
 		Target:           target,
 		TargetType:       targetType,
+		AccountType:      accountType,
 		APIBaseURL:       normalised,
 		PrivateKeyEnc:    sealedKey,
 		WebhookSecretEnc: sealedSecret,
@@ -597,6 +609,7 @@ type pendingApp struct {
 	state         string
 	target        string
 	targetType    store.TargetType
+	accountType   store.AccountType
 	apiBaseURL    string
 	manifest      string
 	postURL       string
@@ -692,7 +705,12 @@ type manifestRequest struct {
 	Name       string `json:"name"`
 	Target     string `json:"target"`
 	TargetType string `json:"target_type"`
-	APIBaseURL string `json:"api_base_url"`
+	// AccountType is "user" when the account-wide target is a personal account.
+	// GitHub creates that App under the person's own settings and it manages
+	// runners through repository administration, because a person has no
+	// organisation permissions to grant. Absent means an organisation.
+	AccountType string `json:"account_type"`
+	APIBaseURL  string `json:"api_base_url"`
 	// Migration is the operator's answer to "also let Zoomies open migration
 	// pull requests?". Absent means no: a request from a client written before
 	// the question existed gets the smaller permission set.
@@ -735,12 +753,17 @@ func (s *Server) handleCreateManifest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	accountType := store.AccountType(strings.ToLower(strings.TrimSpace(req.AccountType)))
+
 	var fields []fieldError
 	if target == "" {
-		fields = append(fields, fieldError{"target", "name the organisation, or the owner/repo, this App will manage runners for"})
+		fields = append(fields, fieldError{"target", "name the organisation, the personal account, or the owner/repo, this App will manage runners for"})
 	}
 	if !targetType.Valid() {
 		fields = append(fields, fieldError{"target_type", fmt.Sprintf("%q is not a target type; use org or repo", targetType)})
+	}
+	if !accountType.Valid() {
+		fields = append(fields, fieldError{"account_type", fmt.Sprintf("%q is not an account type; use organization or user", accountType)})
 	}
 	if s.cfg().Server.ExternalURL == "" {
 		fields = append(fields, fieldError{"target", "server.external_url is not set, so Zoomies cannot tell GitHub where to deliver webhooks; set it and restart before creating the App"})
@@ -764,8 +787,12 @@ func (s *Server) handleCreateManifest(w http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		name = "Zoomies (" + strings.ReplaceAll(target, "/", "-") + ")"
 	}
+	// Only an organisation's App is created under the organisation and asks
+	// for its runner permission. A personal account's is created under the
+	// person's own settings and asks for repository administration, which is
+	// the manifest a repository target gets.
 	org := ""
-	if targetType == store.TargetOrg {
+	if targetType == store.TargetOrg && accountType != store.AccountUser {
 		org = target
 	}
 
@@ -802,13 +829,14 @@ func (s *Server) handleCreateManifest(w http.ResponseWriter, r *http.Request) {
 
 	state := store.NewSecret(16)
 	s.manifests.put(&pendingApp{
-		state:      state,
-		target:     target,
-		targetType: targetType,
-		apiBaseURL: normalised,
-		manifest:   string(manifest),
-		postURL:    postURL,
-		createdAt:  s.ctrl.Now(),
+		state:       state,
+		target:      target,
+		targetType:  targetType,
+		accountType: accountType,
+		apiBaseURL:  normalised,
+		manifest:    string(manifest),
+		postURL:     postURL,
+		createdAt:   s.ctrl.Now(),
 	})
 
 	writeJSON(w, http.StatusOK, manifestResponse{
@@ -885,6 +913,9 @@ type exchangeResponse struct {
 	// started from. Without them the last step has no target to record.
 	Target     string `json:"target"`
 	TargetType string `json:"target_type"`
+	// AccountType is echoed for the same reason, when the flow said the
+	// target is a personal account.
+	AccountType string `json:"account_type,omitempty"`
 }
 
 // handleExchangeManifest turns the code GitHub redirected back with into App
@@ -961,9 +992,10 @@ func (s *Server) handleExchangeManifest(w http.ResponseWriter, r *http.Request) 
 	})
 
 	// The settings page lives under the organisation for an org App and under
-	// the operator's own account for a repo App, and GitHub 404s the wrong one.
+	// the operator's own account for a repo App or a personal account's, and
+	// GitHub 404s the wrong one.
 	settingsOrg := ""
-	if pending.targetType == store.TargetOrg {
+	if pending.targetType == store.TargetOrg && pending.accountType != store.AccountUser {
 		settingsOrg = pending.target
 	}
 	writeJSON(w, http.StatusOK, exchangeResponse{
@@ -975,6 +1007,7 @@ func (s *Server) handleExchangeManifest(w http.ResponseWriter, r *http.Request) 
 		SettingsURL: github.SettingsURL(apiBase, creds.Slug, settingsOrg),
 		Target:      pending.target,
 		TargetType:  string(pending.targetType),
+		AccountType: string(pending.accountType),
 	})
 }
 
