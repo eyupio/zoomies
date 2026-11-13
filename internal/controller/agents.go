@@ -2113,11 +2113,17 @@ func (c *Controller) markHostSeen(id string, force bool) bool {
 	return true
 }
 
+// fallbackHeartbeatInterval is what agents are told to use when the
+// configuration carries no positive value. It matches the shipped default, so a
+// config that was written by hand with the key zeroed behaves like one that
+// never mentioned it.
+const fallbackHeartbeatInterval = 30 * time.Second
+
 func (c *Controller) heartbeatInterval() time.Duration {
 	if d := c.cfg().Agent.HeartbeatInterval; d > 0 {
 		return d
 	}
-	return 30 * time.Second
+	return fallbackHeartbeatInterval
 }
 
 // diskFreeTolerance is how far free disk may drift before the host row is
