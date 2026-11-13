@@ -385,19 +385,20 @@ input,
   background: var(--z-surface);
 }
 
-/* Buttons. The product's, in the docs: a filled accent primary and a quiet
-   bordered secondary, both on the same radius as everything else here. */
+/* Buttons. A filled primary and a quiet bordered secondary, on the corner,
+   the weight and the blue of the buttons in the header and the hero
+   (showcase.css's .button), so a page never shows two primaries. */
 .md-typeset .md-button {
   display: inline-flex;
   align-items: center;
   gap: 0.45em;
   padding: 0.6em 1.15em;
   border: 1px solid var(--z-line-strong);
-  border-radius: var(--z-radius-md);
+  border-radius: var(--button-radius);
   background: var(--z-surface);
   color: var(--md-default-fg-color);
   font-size: 0.72rem;
-  font-weight: 550;
+  font-weight: 500;
   letter-spacing: -0.005em;
   line-height: 1.3;
   box-shadow: var(--z-shadow-sm);
@@ -416,14 +417,14 @@ input,
   transform: translateY(-1px);
 }
 .md-typeset .md-button--primary {
-  background: var(--z-accent);
-  border-color: var(--z-accent);
-  color: var(--z-accent-contrast);
+  background: var(--button-fill);
+  border-color: var(--button-fill);
+  color: #fff;
 }
 .md-typeset .md-button--primary:is(:hover, :focus-visible) {
-  background: var(--z-accent-hover);
-  border-color: var(--z-accent-hover);
-  color: var(--z-accent-contrast);
+  background: var(--button-fill-hover);
+  border-color: var(--button-fill-hover);
+  color: #fff;
 }
 .md-typeset .md-button .twemoji {
   height: 1em;
@@ -1122,7 +1123,7 @@ input,
 }
 .md-typeset .zoomies-grid h3 {
   margin: 0 0 0.35rem;
-  font-size: 0.86rem;
+  font-size: 0.9rem;
   font-weight: 600;
   letter-spacing: -0.01em;
   line-height: 1.3;
