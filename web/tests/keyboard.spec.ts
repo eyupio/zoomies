@@ -179,6 +179,13 @@ test('every item on the command centre is reached by Tab, and shows its focus', 
   page,
 }) => {
   test.skip(!!test.info().project.use.isMobile, 'Tab is the desktop keyboard');
+  // A hundred and fifty presses, each read back from the page, is five to
+  // seven seconds on a quick machine and past the thirty-second limit on the
+  // fleet's slowest runners, where the whole suite takes two and a half times
+  // as long. Nothing here waits on anything, so the limit only measured the
+  // machine: it failed twice running on one class of runner and never on the
+  // others.
+  test.slow();
   await goto(page, '/command', 'Command centre');
   await expect(page.getByTestId('command-lane').first()).toBeVisible();
   await expect(page.getByRole('region', { name: /^Waiting/ })).toHaveAttribute(

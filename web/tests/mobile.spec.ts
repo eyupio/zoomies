@@ -685,6 +685,10 @@ test('an overlay covers the window, not a page that has outgrown it', async ({ p
  * laid out against it, with it.
  */
 test('every section fits a 360px phone, not just the one these tests emulate', async ({ page }) => {
+  // Every section and every settings page, one navigation after another: the
+  // sum is what runs out of thirty seconds on the fleet's slowest runners, not
+  // any one page.
+  test.slow();
   await page.setViewportSize({ width: 360, height: 780 });
 
   for (const section of SECTIONS) {
