@@ -312,6 +312,38 @@ func (s *Store) SaveEliRepair(ctx context.Context, r *EliRepair) error {
 	return err
 }
 
+// SettleEliRepair records that a finished repair no longer needs anyone: its
+// pull request closed, moved to a newer commit or now passes its checks. It
+// becomes superseded, which is the state the page already reads as "no longer
+// needed", with the code saying which of the three it was, and it reports
+// whether this call made the change.
+//
+// seen is the row as it was read before GitHub was asked. A person can ask for
+// the repair again in that time, which puts the same row back in the queue, so
+// the write is refused unless the row still is what was read: an answer about
+// the old attempt must not take the new one out of the queue.
+func (s *Store) SettleEliRepair(ctx context.Context, seen *EliRepair, code, message string) (bool, error) {
+	settled := false
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		now, err := scanEliRepair(tx.QueryRowContext(ctx, `SELECT `+eliRepairCols+` FROM eli_repairs WHERE id=?`, seen.ID))
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if now.State != seen.State || !now.UpdatedAt.Equal(seen.UpdatedAt) {
+			return nil
+		}
+		now.Details.FailureCode = code
+		_, err = tx.ExecContext(ctx, `UPDATE eli_repairs SET state='superseded',message=?,details=?,updated_at=? WHERE id=?`,
+			message, repairDetailsJSON(now.Details), ms(s.Now()), seen.ID)
+		settled = err == nil
+		return err
+	})
+	return settled, err
+}
+
 // Comment delivery can finish after the check observer has settled the repair.
 // Neither side may replace the other's fields or restart the polling interval.
 func (s *Store) SetEliRepairComment(ctx context.Context, id string, commentID int64) error {

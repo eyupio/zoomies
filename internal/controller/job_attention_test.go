@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
@@ -25,6 +26,19 @@ type attentionFake struct {
 	// while the answer is on its way.
 	asked *int
 	onAsk func()
+	// refPull and refPullErr are what GitHub says of the pull request a run's
+	// ref names, and refAsked counts the times it was asked.
+	refPull    github.RepairPull
+	refPullErr error
+	refAsked   *int
+}
+
+func (f attentionFake) RepairPull(ctx context.Context, repo string, number int) (github.RepairPull, error) {
+	if f.refAsked == nil {
+		return f.repairFake.RepairPull(ctx, repo, number)
+	}
+	*f.refAsked++
+	return f.refPull, f.refPullErr
 }
 
 func (f attentionFake) GetWorkflowRun(context.Context, string, int64) (*github.WorkflowRunState, error) {
@@ -88,6 +102,51 @@ func TestAttentionRechecksGitHubWithoutPersonalRepairSetup(t *testing.T) {
 			}
 			if err != nil || count != want {
 				t.Fatalf("attention count %d, error %v; want %d", count, err, want)
+			}
+		})
+	}
+}
+
+// Code scanning's default setup starts its runs itself: the run of a pull
+// request links no pull request and reports "dynamic" as its event, so the
+// lookup that settles an ordinary PR failure calls it unsupported, and its
+// failure stayed in the list for the whole week after the PR merged. The ref
+// it ran on, refs/pull/7/head, names the pull request exactly, which a commit
+// or a branch name cannot.
+func TestACodeScanningFailureIsSettledThroughThePullRequestItsRefNames(t *testing.T) {
+	unsupported := fmt.Errorf("%w: a draft", github.ErrRepairUnsupported)
+	for _, tc := range []struct {
+		name, branch, checks, reason string
+		pull                         github.RepairPull
+		pullErr                      error
+		known                        bool
+		asked                        int
+	}{
+		{name: "the PR merged or closed", branch: "refs/pull/7/head", pullErr: &github.RepairTargetChanged{Code: "closed"}, reason: "closed", known: true, asked: 1},
+		{name: "the PR has a newer commit", branch: "refs/pull/7/head", pull: github.RepairPull{Number: 7, HeadSHA: "newer", Open: true}, reason: "superseded", known: true, asked: 1},
+		{name: "a draft PR has a newer commit", branch: "refs/pull/7/head", pull: github.RepairPull{Number: 7, HeadSHA: "newer", Open: true, Draft: true}, pullErr: unsupported, reason: "superseded", known: true, asked: 1},
+		{name: "the checks on the same commit now pass", branch: "refs/pull/7/merge", pull: github.RepairPull{Number: 7, HeadSHA: "ran", Open: true}, checks: "passed", reason: "fixed", known: true, asked: 1},
+		{name: "the same commit still fails", branch: "refs/pull/7/head", pull: github.RepairPull{Number: 7, HeadSHA: "ran", Open: true}, checks: "failed", known: true, asked: 1},
+		{name: "the PR could not be read", branch: "refs/pull/7/head", pullErr: errors.New("GitHub unavailable"), asked: 1},
+		{name: "a run on a branch", branch: "main"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			inst := h.installation()
+			asked := 0
+			fake := attentionFake{
+				repairFake: &repairFake{Client: h.gh.Client(inst.Target, inst.TargetType), check: tc.checks},
+				pullErr:    github.ErrRepairUnsupported,
+				runState:   github.WorkflowRunState{Status: "completed", Conclusion: "failure", Event: "dynamic", HeadBranch: tc.branch, HeadSHA: "ran"},
+				refPull:    tc.pull, refPullErr: tc.pullErr, refAsked: &asked,
+			}
+			h.c.clients.entries[inst.ID] = &clientEntry{client: fake, updatedAt: inst.UpdatedAt.Truncate(time.Millisecond)}
+			reason, known, deferred := h.c.jobAttentionOnGitHub(h.ctx, inst.Target+"/repo", 9)
+			if reason != tc.reason || known != tc.known || deferred {
+				t.Fatalf("reason %q, known %v, deferred %v; want %q, %v, false", reason, known, deferred, tc.reason, tc.known)
+			}
+			if asked != tc.asked {
+				t.Fatalf("GitHub was asked about the pull request %d times, want %d", asked, tc.asked)
 			}
 		})
 	}

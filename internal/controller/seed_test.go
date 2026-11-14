@@ -912,3 +912,27 @@ func TestTheDemoSeedReusesAnAssistantProviderRowItFindsByName(t *testing.T) {
 		t.Errorf("rows after seeding: %+v", rows)
 	}
 }
+
+// The Overview's failures panel shows two and links to the rest, and the demo
+// is where that link is seen and where the browser suite follows it. A failure
+// leaves the list as soon as its branch moves to another commit, and nearly
+// every seeded run is a commit of its own, so a fixture that put all its
+// failures on main would keep one of them and the link would never be drawn.
+func TestTheDemoFleetHasMoreFailuresWaitingThanTheOverviewShows(t *testing.T) {
+	h := newHarness(t)
+	if err := h.c.SeedDemo(h.ctx); err != nil {
+		t.Fatalf("SeedDemo: %v", err)
+	}
+	rows, total, err := h.st.ListJobs(h.ctx, store.JobFilter{AttentionOnly: true, ManagedOnly: true}, store.Page{Limit: 50})
+	if err != nil {
+		t.Fatalf("ListJobs: %v", err)
+	}
+	// RecentFailures.svelte shows two (SHOWN).
+	if total <= 2 {
+		var ids []string
+		for _, j := range rows {
+			ids = append(ids, j.ID)
+		}
+		t.Fatalf("the demo fleet has %d failures waiting on its own runners (%v), want more than the two the panel shows", total, ids)
+	}
+}

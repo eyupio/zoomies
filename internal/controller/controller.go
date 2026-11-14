@@ -318,6 +318,10 @@ type Controller struct {
 	// reads. It is a pointer so the zero value -- no fence -- costs nothing to
 	// express and a lift is one atomic store.
 	fence atomic.Pointer[store.RecoveryFence]
+	// eliSettleOffset is where the walk over the finished Eli repairs that ask
+	// for a person has got to. Only the repair loop touches it.
+	eliSettleOffset int
+
 	// githubMu guards githubPaused, which is a map rather than one deadline
 	// because GitHub's quota is per installation: one organisation spending
 	// its hour must not stop the fleet polling another's, which is the whole

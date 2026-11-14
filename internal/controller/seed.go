@@ -1326,6 +1326,12 @@ func demoOOMTail() []string {
 // room for: a job GitHub timed out, and a job whose runner never registered.
 // They are older than everything else, so the most recent failure stays the
 // lost runner the problems drawer looks for.
+//
+// Each is the last thing that ran on its branch. A failure leaves the
+// attention list once its branch moves to another commit, and every run of the
+// morning above is a commit of its own, so on main these two would be out of
+// date before anybody opened the demo and the Overview's panel would have
+// nothing beyond the two failures it shows.
 func (c *Controller) seedWhyJobs(ctx context.Context, now time.Time, pools []*store.Pool, runners []*store.Runner) error {
 	pool := pools[0]
 	if _, err := c.st.GetJob(ctx, demoTimedOutJobID); err == nil {
@@ -1342,7 +1348,7 @@ func (c *Controller) seedWhyJobs(ctx context.Context, now time.Time, pools []*st
 		QueuedAt: started.Add(-40 * time.Second), StartedAt: &started, CompletedAt: &timedOut,
 		RunnerID: r.ID, RunnerName: r.Name, HostID: r.HostID,
 		HTMLURL:    fmt.Sprintf("https://github.com/%s/actions/runs/%d", demoRepos[0], 40045),
-		HeadBranch: "main", HeadSHA: fmt.Sprintf("%040x", 0xC0FFEE+90*7919), RunAttempt: 1,
+		HeadBranch: "release/2.3", HeadSHA: fmt.Sprintf("%040x", 0xC0FFEE+90*7919), RunAttempt: 1,
 		Steps:             demoSteps("test", "timed_out", started, timedOut),
 		ControllerVersion: "v1.3.3", ControllerChannel: "stable", AgentVersion: "v1.3.3",
 	}
@@ -1369,7 +1375,7 @@ func (c *Controller) seedWhyJobs(ctx context.Context, now time.Time, pools []*st
 		RunnerFault: "GitHub would not register zoomies-demo-linux-x64-f4k3: github: create jit config: 403 Forbidden",
 		FaultKind:   store.FaultRegistration,
 		HTMLURL:     fmt.Sprintf("https://github.com/%s/actions/runs/%d", demoRepos[1], 40046),
-		HeadBranch:  "main", HeadSHA: fmt.Sprintf("%040x", 0xC0FFEE+91*7919), RunAttempt: 1,
+		HeadBranch:  "feature/smaller-images", HeadSHA: fmt.Sprintf("%040x", 0xC0FFEE+91*7919), RunAttempt: 1,
 		Steps:             demoSteps("build", "failure", queued, failedAt),
 		ControllerVersion: "v1.3.3", ControllerChannel: "stable", AgentVersion: "v1.3.3",
 	}

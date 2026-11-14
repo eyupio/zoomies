@@ -87,3 +87,28 @@ func TestAGitHubRefusalForQuotaArrivesWithItsResetTime(t *testing.T) {
 		t.Fatalf("resume at %v, want the reset GitHub sent, %v", at, reset.UTC())
 	}
 }
+
+// Code scanning's default setup runs on a pull request without linking it: the
+// ref is all that names the pull request. A branch must never read as one, or
+// a failure on a branch somebody called "refs/pull" would be settled by a pull
+// request it has nothing to do with.
+func TestPullOfRefReadsOnlyGitHubsOwnPullRequestRefs(t *testing.T) {
+	for ref, want := range map[string]int{
+		"refs/pull/164/head":       164,
+		"refs/pull/7/merge":        7,
+		"refs/pull/0/head":         0,
+		"refs/pull/-3/head":        0,
+		"refs/pull/x/head":         0,
+		"refs/pull/7":              0,
+		"refs/pull/7/head/extra":   0,
+		"refs/heads/pull/7/head":   0,
+		"feature/refs/pull/7/head": 0,
+		"main":                     0,
+		"":                         0,
+	} {
+		got, ok := PullOfRef(ref)
+		if got != want || ok != (want > 0) {
+			t.Errorf("PullOfRef(%q) = %d, %v; want %d, %v", ref, got, ok, want, want > 0)
+		}
+	}
+}
