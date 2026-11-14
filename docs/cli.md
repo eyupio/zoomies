@@ -315,8 +315,10 @@ The runners that exist right now.
 `--failed` and `--attention` are the three questions worth a switch of their
 own; `--attention` is the one GitHub cannot answer at all: failures from the
 last week that nobody has acknowledged, that no later attempt of the job, or
-later run of it on the same branch, has replaced, and that GitHub has not
-settled since. The controller asks GitHub about each such run in the
+later run of it on the same branch, has replaced, whose branch has not moved to
+another commit since, and that GitHub has not settled since. An attempt of a
+Dependabot update is replaced by the next attempt of that update, although each
+runs under a workflow name of its own. The controller asks GitHub about each such run in the
 background, and one whose PR is closed, whose PR has newer commits than the run
 or whose checks now pass leaves this list on its own, and stays in `--failed`.
 `jobs get <job-id>` shows one.

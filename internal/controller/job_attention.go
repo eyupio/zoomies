@@ -105,6 +105,25 @@ func (c *Controller) jobAttentionOnGitHub(ctx context.Context, repo string, run 
 		return "", false, false
 	}
 	pr, err := client.RepairPullForRun(ctx, repo, run)
+	if errors.Is(err, github.ErrRepairUnsupported) && state != nil {
+		// A run GitHub starts itself on a pull request, as code scanning's
+		// default setup does, links no pull request and is not a pull_request
+		// event, so the lookup above has nothing to go on and its failure sat
+		// in the list for the week after the PR merged. Its ref names the pull
+		// request exactly, which is why this is safe where resolving a push
+		// run by its commit is not.
+		if number, ok := github.PullOfRef(state.HeadBranch); ok {
+			pr, err = client.RepairPull(ctx, repo, number)
+			// A draft or a fork cannot be repaired, but GitHub still said
+			// where its head is, and that is all that is asked here.
+			if errors.Is(err, github.ErrRepairUnsupported) && pr.HeadSHA != "" {
+				err = nil
+			}
+			if err == nil && state.HeadSHA != "" && pr.HeadSHA != state.HeadSHA {
+				return "superseded", true, false
+			}
+		}
+	}
 	var changed *github.RepairTargetChanged
 	if errors.As(err, &changed) {
 		return changed.Code, true, false

@@ -731,9 +731,13 @@ PR offers are retired during reconciliation. External notifications are not sent
 
 **Needs you** also shows the latest failed, blocked, interrupted or unverified
 attempt for each PR. A newer attempt, including one cleared from history,
-supersedes an older failure. The inbox is a record of repairs needing review,
-not a fresh claim about GitHub's current PR head. An unavailable read never
-produces an all-clear. The attempt page keeps **What Eli changed**, its changed
+supersedes an older failure. The same five-minute reconciliation asks GitHub
+about each of them, and an attempt whose PR was closed or merged, has a newer
+commit than the one the attempt was about, or now passes its checks leaves
+**Needs you** and reads **No longer needed** in the history, with the reason
+ahead of what Eli said when it stopped. Between those reads the inbox is a
+record of repairs needing review, not a fresh claim about GitHub's current PR
+head. An unavailable read never produces an all-clear. The attempt page keeps **What Eli changed**, its changed
 paths and its commit separately from the subsequent check outcome. **Review fix**
 opens the published commit's diff, so it can be reviewed even if checks later fail.
 

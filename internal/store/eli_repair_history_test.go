@@ -527,3 +527,62 @@ func TestTheClearedColumnMigrationKeepsExistingRepairsInTheHistory(t *testing.T)
 		t.Fatalf("an existing repair left the history on upgrade: %v total %d, %v", repairIDs(rows), total, err)
 	}
 }
+
+// Settling is decided from what GitHub said a moment ago, and a person can ask
+// for the repair again in that moment: the row goes back to queued under the
+// same id. The write must lose that race, or it would mark a repair that is
+// about to run as no longer needed and take it out of the queue.
+func TestSettlingAnEliRepairLeavesOneThatHasMovedOnAlone(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	clock := now
+	s := newTestStoreAt(t, func() time.Time { return clock })
+	ctx := context.Background()
+	r := &EliRepair{DedupKey: "ui:1", Repo: "acme/repo", PullNumber: 7, HeadSHA: "old", UserID: "usr_1", Trigger: "mention"}
+	if added, err := s.EnqueueEliRepair(ctx, r); err != nil || !added {
+		t.Fatalf("EnqueueEliRepair = %v, %v", added, err)
+	}
+	r.State, r.Message, r.Details.FailureCode = "failed", "Eli could not find a fix.", "no_fix"
+	if err := s.SaveEliRepair(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+	seen, err := s.GetEliRepair(ctx, r.ID, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The person asks again while GitHub is being read.
+	clock = now.Add(time.Second)
+	r.State = "queued"
+	if err := s.SaveEliRepair(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+	if settled, err := s.SettleEliRepair(ctx, seen, "closed", "The pull request was closed."); err != nil || settled {
+		t.Fatalf("SettleEliRepair on a requeued repair = %v, %v; want it left alone", settled, err)
+	}
+	if got, _ := s.GetEliRepair(ctx, r.ID, "", false); got.State != "queued" {
+		t.Fatalf("a requeued repair became %q", got.State)
+	}
+
+	r.State = "failed"
+	if err := s.SaveEliRepair(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+	seen, _ = s.GetEliRepair(ctx, r.ID, "", false)
+	clock = now.Add(time.Minute)
+	if settled, err := s.SettleEliRepair(ctx, seen, "closed", "The pull request was closed."); err != nil || !settled {
+		t.Fatalf("SettleEliRepair = %v, %v; want it settled", settled, err)
+	}
+	got, err := s.GetEliRepair(ctx, r.ID, "", false)
+	if err != nil || got.State != "superseded" || got.Details.FailureCode != "closed" || got.Message != "The pull request was closed." || !got.UpdatedAt.Equal(clock) {
+		t.Fatalf("settled repair = %+v (err %v)", got, err)
+	}
+	if _, total, err := s.ListEliRepairsPage(ctx, EliRepairFilter{Group: "needs_action"}); err != nil || total != 0 {
+		t.Fatalf("needs_action total = %d (err %v), want the settled repair gone", total, err)
+	}
+	if _, total, err := s.ListEliRepairsPage(ctx, EliRepairFilter{}); err != nil || total != 1 {
+		t.Fatalf("history total = %d (err %v), want the repair kept", total, err)
+	}
+	if settled, err := s.SettleEliRepair(ctx, &EliRepair{ID: "erf_missing"}, "closed", "x"); err != nil || settled {
+		t.Fatalf("settling a repair that does not exist = %v, %v", settled, err)
+	}
+}

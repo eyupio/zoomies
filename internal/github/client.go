@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -221,6 +222,31 @@ type WorkflowRunState struct {
 	RunNumber int64
 	// Event is what started the run: push, pull_request, schedule and so on.
 	Event string
+	// HeadBranch and HeadSHA are the ref and commit the run was for. A run
+	// GitHub starts itself on a pull request (code scanning's default setup is
+	// one) links no pull request and reports "dynamic" as its event; the ref,
+	// refs/pull/7/head, is then the only thing that says whose it is.
+	HeadBranch string
+	HeadSHA    string
+}
+
+// PullOfRef is the pull request a ref of the form refs/pull/7/head or
+// refs/pull/7/merge belongs to, and whether the ref is one. A branch name
+// cannot be mistaken for it: GitHub keeps refs/pull for itself.
+func PullOfRef(ref string) (int, bool) {
+	rest, ok := strings.CutPrefix(ref, "refs/pull/")
+	if !ok {
+		return 0, false
+	}
+	number, kind, ok := strings.Cut(rest, "/")
+	if !ok || (kind != "head" && kind != "merge") {
+		return 0, false
+	}
+	n, err := strconv.Atoi(number)
+	if err != nil || n <= 0 {
+		return 0, false
+	}
+	return n, true
 }
 
 // Cancelled reports whether GitHub has finished the whole run as cancelled.

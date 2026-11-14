@@ -1,6 +1,7 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -321,7 +322,9 @@ func legacyUnreplacedJobSQL(laterAttempt, laterRun bool) string {
 // on a small pseudo-random fleet whose few repositories, runs, branches and
 // workflows collide constantly, so every combination of the two kinds of later
 // job, the guards on missing metadata and the jobs that do not count as a
-// replacement turn up many times over.
+// replacement turn up many times over. The fleet names no commit and has no
+// Dependabot job, so the two tests added since, which have no older spelling
+// to agree with, stand aside.
 func TestSplittingTheReplacementTestKeepsTheSameJobs(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	s := newTestStoreAt(t, func() time.Time { return now })
@@ -437,5 +440,127 @@ func TestSettledRunsAreCheckedAgainHourlyAndTheRestEveryFiveMinutes(t *testing.T
 	}
 	if got := dueAt(61 * time.Minute); !slices.Equal(got, []int64{1, 2, 3, 4}) {
 		t.Fatalf("an hour later the runs due are %v, want the closed run looked at again", got)
+	}
+}
+
+// A failure describes the commit it ran on. Once the branch has moved to
+// another commit the failure is about code that is no longer there, and a
+// workflow that a path filter kept from running again would otherwise leave it
+// asking for ever: nothing later ever takes the job's own place. The order of
+// two commits is read from the run ids, which GitHub hands out in order, and
+// not from when a job was queued, because an older commit's run goes on
+// queueing jobs after a newer commit has already failed.
+func TestAFailureLeavesAttentionOnceItsBranchHasMovedToAnotherCommit(t *testing.T) {
+	for _, tc := range []struct {
+		name                    string
+		sha, branch, conclusion string
+		run                     int64
+		wantOld                 bool
+	}{
+		{name: "a newer commit ran another workflow", sha: "bbb", branch: "main", conclusion: "success", run: 20},
+		{name: "a newer commit's run was cancelled", sha: "bbb", branch: "main", conclusion: "cancelled", run: 20},
+		{name: "another workflow passed on the same commit", sha: "aaa", branch: "main", conclusion: "success", run: 20, wantOld: true},
+		{name: "a newer commit on another branch", sha: "bbb", branch: "feature", conclusion: "success", run: 20, wantOld: true},
+		{name: "an older commit's run queued a job late", sha: "000", branch: "main", conclusion: "success", run: 5, wantOld: true},
+		{name: "the later job does not say its commit", sha: "", branch: "main", conclusion: "success", run: 20, wantOld: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			now := time.Now().UTC()
+			s := newTestStoreAt(t, func() time.Time { return now })
+			ctx := context.Background()
+			old := &Job{GitHubJobID: 1, GitHubRunID: 10, Repo: "acme/repo", Workflow: "Browser", JobName: "browser", HeadBranch: "main", HeadSHA: "aaa",
+				State: JobCompleted, Conclusion: "failure", QueuedAt: now.Add(-time.Hour)}
+			if _, err := s.UpsertJob(ctx, old); err != nil {
+				t.Fatal(err)
+			}
+			later := &Job{GitHubJobID: 2, GitHubRunID: tc.run, Repo: "acme/repo", Workflow: "Release", JobName: "build", HeadBranch: tc.branch, HeadSHA: tc.sha,
+				State: JobCompleted, Conclusion: tc.conclusion, QueuedAt: now.Add(-time.Minute)}
+			if _, err := s.UpsertJob(ctx, later); err != nil {
+				t.Fatal(err)
+			}
+			rows, _, err := s.ListJobs(ctx, JobFilter{AttentionOnly: true}, Page{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := slices.ContainsFunc(rows, func(j *Job) bool { return j.GitHubJobID == 1 })
+			if found != tc.wantOld {
+				t.Fatalf("old failure visible = %v, want %v", found, tc.wantOld)
+			}
+		})
+	}
+}
+
+// A failure that does not say which commit it ran on cannot be called out of
+// date: missing metadata is not a licence to guess, here as for the branch.
+func TestAFailureWithNoCommitIsNotCalledOutOfDate(t *testing.T) {
+	now := time.Now().UTC()
+	s := newTestStoreAt(t, func() time.Time { return now })
+	ctx := context.Background()
+	for _, j := range []*Job{
+		{GitHubJobID: 1, GitHubRunID: 10, Repo: "acme/repo", Workflow: "Browser", JobName: "browser", HeadBranch: "main", State: JobCompleted, Conclusion: "failure", QueuedAt: now.Add(-time.Hour)},
+		{GitHubJobID: 2, GitHubRunID: 20, Repo: "acme/repo", Workflow: "Release", JobName: "build", HeadBranch: "main", HeadSHA: "bbb", State: JobCompleted, Conclusion: "success", QueuedAt: now.Add(-time.Minute)},
+	} {
+		if _, err := s.UpsertJob(ctx, j); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, total, err := s.ListJobs(ctx, JobFilter{AttentionOnly: true}, Page{}); err != nil || total != 1 {
+		t.Fatalf("attention total = %d (err %v), want the failure still listed", total, err)
+	}
+}
+
+// Dependabot names every run of an update after the update and a number of its
+// own, so no two runs share a workflow name and the test for a later run of the
+// same workflow never matches: each attempt of an update that keeps failing
+// stayed in the list beside the one before it. The update is the ecosystem and
+// the directories, and for a security update the dependencies it is for, whose
+// list grows from one attempt to the next.
+func TestALaterAttemptOfADependabotUpdateReplacesTheOlderOne(t *testing.T) {
+	const grouped = "npm_and_yarn in /tools, /web for body-parser, body-parser, qs, qs - Update #100"
+	for _, tc := range []struct {
+		name, old, later, laterJob, conclusion string
+		wantOld                                bool
+	}{
+		{name: "the same group with more in it", old: grouped, later: "npm_and_yarn in /tools, /web for @hono/node-server, body-parser, body-parser, hono, qs, qs - Update #101", conclusion: "failure"},
+		{name: "the same group passed", old: grouped, later: "npm_and_yarn in /tools, /web for body-parser, body-parser, qs, qs - Update #101", conclusion: "success"},
+		{name: "the same group is running", old: grouped, later: "npm_and_yarn in /tools, /web for body-parser, body-parser, qs, qs - Update #101"},
+		{name: "a version update ran again", old: "docker in /. - Update #100", later: "docker in /. - Update #101", conclusion: "success"},
+		{name: "a later attempt was cancelled", old: grouped, later: "npm_and_yarn in /tools, /web for body-parser, body-parser, qs, qs - Update #101", conclusion: "cancelled", wantOld: true},
+		{name: "another directory", old: grouped, later: "npm_and_yarn in /docs for body-parser, qs - Update #101", conclusion: "success", wantOld: true},
+		{name: "another ecosystem", old: "docker in /. - Update #100", later: "pip in /. - Update #101", conclusion: "success", wantOld: true},
+		{name: "another dependency in the same directory", old: "npm_and_yarn in /web for deepmerge - Update #100", later: "npm_and_yarn in /web for lodash - Update #101", conclusion: "success", wantOld: true},
+		{name: "a dependency whose name only starts the same", old: "npm_and_yarn in /web for qs - Update #100", later: "npm_and_yarn in /web for qs-lite - Update #101", conclusion: "success", wantOld: true},
+		{name: "a version update is not a security update", old: "npm_and_yarn in /web for deepmerge - Update #100", later: "npm_and_yarn in /web - Update #101", conclusion: "success", wantOld: true},
+		{name: "a security update is not a version update", old: "npm_and_yarn in /web - Update #100", later: "npm_and_yarn in /web for deepmerge - Update #101", conclusion: "success", wantOld: true},
+		{name: "a job that is not Dependabot's", old: grouped, later: "npm_and_yarn in /tools, /web for body-parser, body-parser, qs, qs - Update #101", laterJob: "build", conclusion: "success", wantOld: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			now := time.Now().UTC()
+			s := newTestStoreAt(t, func() time.Time { return now })
+			ctx := context.Background()
+			// Both run on the default branch at one commit, as two attempts on
+			// one afternoon do, so the branch moving on cannot be what decides.
+			old := &Job{GitHubJobID: 1, GitHubRunID: 10, Repo: "acme/repo", Workflow: tc.old, JobName: "Dependabot", HeadBranch: "main", HeadSHA: "aaa",
+				State: JobCompleted, Conclusion: "failure", QueuedAt: now.Add(-time.Hour)}
+			if _, err := s.UpsertJob(ctx, old); err != nil {
+				t.Fatal(err)
+			}
+			later := &Job{GitHubJobID: 2, GitHubRunID: 20, Repo: "acme/repo", Workflow: tc.later, JobName: cmp.Or(tc.laterJob, "Dependabot"), HeadBranch: "main", HeadSHA: "aaa",
+				State: JobCompleted, Conclusion: tc.conclusion, QueuedAt: now.Add(-time.Minute)}
+			if tc.conclusion == "" {
+				later.State = JobInProgress
+			}
+			if _, err := s.UpsertJob(ctx, later); err != nil {
+				t.Fatal(err)
+			}
+			rows, _, err := s.ListJobs(ctx, JobFilter{AttentionOnly: true}, Page{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := slices.ContainsFunc(rows, func(j *Job) bool { return j.GitHubJobID == 1 })
+			if found != tc.wantOld {
+				t.Fatalf("old attempt visible = %v, want %v", found, tc.wantOld)
+			}
+		})
 	}
 }

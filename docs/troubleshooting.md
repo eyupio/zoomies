@@ -402,7 +402,11 @@ None of that answers the other half of the question, which is whether anybody
 has read the failure. The Overview's **Recent failures** lists what failed in
 the last week that nobody has marked as known and no later attempt has
 replaced, with the whole count in its header; the Jobs page's **Needs
-attention** view is the same list with room for the rest. Marking a failure as
+attention** view is the same list with room for the rest. A failure also leaves
+once its branch has moved to another commit, because it then describes code
+that is no longer the branch's: a workflow that a path filter kept from running
+again is still broken if nothing fixed it, so look in **Failed** when a branch
+moved on before you had read its failures. Marking a failure as
 known takes it off that list without changing anything about it, a re-run that
 passes settles it, and either decision can be taken back.
 

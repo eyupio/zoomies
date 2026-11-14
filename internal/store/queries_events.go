@@ -1317,7 +1317,8 @@ const AttentionWindow = 7 * 24 * time.Hour
 
 // attentionJobSQL keeps the unresolved inbox separate from failure history.
 // New attempts and runs replace the same job on a known branch; a cancelled,
-// skipped or neutral result is not evidence of a fix. GitHub observations can
+// skipped or neutral result is not evidence of a fix. A branch that has moved
+// to another commit takes its failures with it. GitHub observations can
 // also settle a run, but only failures older than that observation, so a new
 // failure is never hidden by a previous passing result. Missing run or branch
 // metadata is not a licence to guess which failure a newer job replaces.
@@ -1339,14 +1340,17 @@ func settledOnGitHubSQL(observation, jobs string) string {
 }
 
 // unreplacedJobSQL says that no later job has taken this one's place. A later
-// job does that in one of two ways, and each is its own NOT EXISTS: a later
-// attempt of the same run is found through idx_jobs_run, and a later run of the
-// same workflow on the same branch through idx_jobs_attention_branch. Joined
-// by an OR inside a single NOT EXISTS, SQLite could use neither and walked
-// every retained job with the same name in every repository, which took seconds
-// on a month of history and queued every other read behind it.
+// job does that in one of four ways, and each is its own NOT EXISTS: a later
+// attempt of the same run is found through idx_jobs_run, a later run of the
+// same workflow on the same branch through idx_jobs_attention_branch, and a
+// run of another commit on the branch, or a later attempt of the same
+// Dependabot update, through idx_jobs_branch_run. Joined by an OR inside a
+// single NOT EXISTS, SQLite could use none of them and walked every retained
+// job with the same name in every repository, which took seconds on a month of
+// history and queued every other read behind it.
 // TestTheAttentionFilterIsReadFromTheRunAndBranchIndexes holds the plan, and
-// TestSplittingTheReplacementTestKeepsTheSameJobs holds the meaning.
+// TestSplittingTheReplacementTestKeepsTheSameJobs holds the meaning of the
+// first two.
 func unreplacedJobSQL() string {
 	const countsAsReplacement = `(later.state != 'completed' OR later.conclusion NOT IN ('cancelled','skipped','neutral')
 				OR later.runner_fault != '' OR later.fault_kind != '')`
@@ -1363,7 +1367,75 @@ func unreplacedJobSQL() string {
 			AND later.workflow = jobs.workflow AND later.job_name = jobs.job_name
 			AND later.github_run_id != 0 AND later.github_run_id != jobs.github_run_id
 			AND later.queued_at > jobs.queued_at
-			AND ` + countsAsReplacement + `))`
+			AND ` + countsAsReplacement + `)
+	AND ` + branchNotMovedSQL() + `
+	AND ` + dependabotNotRetriedSQL(countsAsReplacement) + `)`
+}
+
+// branchNotMovedSQL says that the branch is still at the commit this job ran
+// on, as far as the jobs seen since can tell. A failure describes its commit;
+// once a run of another commit has started on the branch it describes code
+// that is no longer the branch's, and a workflow a path filter kept from
+// running again would otherwise leave it in the list until it aged out,
+// because nothing later ever takes the job's own place.
+//
+// "Since" is read from the run ids, which GitHub hands out in order, and not
+// from when a job was queued: an older commit's run goes on queueing its later
+// jobs after a newer commit has already failed, and a re-run of an old run
+// queues jobs days later under the id it always had. What the later job
+// concluded is not asked, because a cancelled run of a newer commit still shows
+// that the branch moved. A job that names no commit proves nothing either way.
+//
+// The price is the one an operator accepts with it: a path-filtered workflow
+// that is still broken leaves the list when the branch next moves, unfixed.
+func branchNotMovedSQL() string {
+	return `NOT EXISTS (
+		SELECT 1 FROM jobs later
+		WHERE jobs.github_run_id != 0 AND jobs.head_branch != '' AND jobs.head_sha != ''
+			AND later.repo = jobs.repo AND later.head_branch = jobs.head_branch
+			AND later.github_run_id > jobs.github_run_id
+			AND later.head_sha != '' AND later.head_sha != jobs.head_sha)`
+}
+
+// dependabotNotRetriedSQL says that Dependabot has not tried this update again.
+//
+// Dependabot runs each update as a workflow named after the update and a number
+// of its own ("npm_and_yarn in /web for qs - Update #1702143823"), so no two
+// runs share a workflow name and the test for a later run of the same workflow
+// never matches: every attempt of an update that keeps failing stayed in the
+// list beside the last. The update is what comes before the number: the
+// ecosystem and directories, and whether it is a security update, which names
+// the dependencies it is for. That list grows from one attempt of a grouped
+// update to the next, so a later attempt is the same update when it still
+// names the first dependency this one did; an update for one dependency is
+// then replaced only by another for that dependency, not by its neighbour's.
+func dependabotNotRetriedSQL(countsAsReplacement string) string {
+	is, update, list := dependabotUpdateSQL("jobs")
+	laterIs, laterUpdate, laterList := dependabotUpdateSQL("later")
+	first := `substr(` + list + ` || ', ', 1, instr(` + list + ` || ', ', ', ') - 1)`
+	return `NOT EXISTS (
+		SELECT 1 FROM jobs later
+		WHERE jobs.github_run_id != 0 AND jobs.head_branch != '' AND ` + is + `
+			AND later.repo = jobs.repo AND later.head_branch = jobs.head_branch
+			AND later.github_run_id > jobs.github_run_id
+			AND ` + laterIs + ` AND ` + laterUpdate + ` = ` + update + `
+			AND instr(', ' || ` + laterList + ` || ', ', ', ' || ` + first + ` || ', ') > 0
+			AND ` + countsAsReplacement + `)`
+}
+
+// dependabotUpdateSQL reads a Dependabot run's workflow name: whether it is
+// one, which update it is (the name up to the number, cut after " for" on a
+// security update so the two kinds never compare equal), and the dependencies a
+// security update names, empty for a version update.
+func dependabotUpdateSQL(jobs string) (is, update, list string) {
+	name := jobs + `.workflow`
+	number := `instr(` + name + `, ' - Update #')`
+	deps := `instr(` + name + `, ' for ')`
+	security := `(` + deps + ` > 0 AND ` + deps + ` < ` + number + `)`
+	is = `(` + jobs + `.job_name = 'Dependabot' AND ` + number + ` > 0)`
+	update = `substr(` + name + `, 1, CASE WHEN ` + security + ` THEN ` + deps + ` + 4 ELSE ` + number + ` END)`
+	list = `(CASE WHEN ` + security + ` THEN substr(` + name + `, ` + deps + ` + 5, ` + number + ` - ` + deps + ` - 5) ELSE '' END)`
+	return is, update, list
 }
 
 // StatsSince counts the jobs behind the Overview.

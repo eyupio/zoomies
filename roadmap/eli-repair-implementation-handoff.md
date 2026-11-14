@@ -1,6 +1,6 @@
 # Eli Repair implementation handoff
 
-Last updated: 6 November 2026.
+Last updated: 14 November 2026.
 
 This file is the continuation record for the repository-first Eli Repair setup,
 continuous PR watching and merge-conflict repair work. Read it before changing
@@ -546,6 +546,7 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1416](https://github.com/eyupio/zoomies/pull/1416), open, stacked on #1413 | S4 backend: REST routes to list, admit, pause, resume and stop per-PR watches, and to list, admit, pause and resume repository-wide decisions, with owner, role and audit handling | API and store tests, spec/router coverage, `make openapi`, vet, staticcheck, docs and formatting pass; no UI | The final UI and live end-to-end validation |
 | [#1417](https://github.com/eyupio/zoomies/pull/1417), open, stacked on #1416 | S4 UI: repair settings lead with the three behaviours and admit repository watching on save; the hub and repair settings list each repository's effective behaviour, watched count, last successful observation, activity and attention with its pull requests underneath; one pull request shows its intended action, evidence, first failure, published commit and files and the checks now; pause one pull request, pause a repository, resume either and stop all, each saying what happens to work already under way; a failed read never shows an all-clear | UI unit, type, lint and production build pass; 26 Playwright cases on desktop and mobile for the watching spec, the repairs, setup, hub and automatic suites and the repairs accessibility audit; Go and docs tests unchanged and green; no live model, worker image or GitHub PR | Live end-to-end validation; the attempt history beside the current pull request; one row per repository; non-administrator activity; notifications |
 | [#1418](https://github.com/eyupio/zoomies/pull/1418), open, stacked on #1417 | S4 UI follow-up: the watched pull request's disclosure lists every attempt on that pull request, newest first, with how it ended, when, who began it and the commit it published, and links each to the attempt page; the list is narrowed to the watched pull request, a failed read says so, and a truncated history says older attempts may be missing | UI type, lint and production build pass; 1,335 unit cases pass including two new history-order cases; 28 Playwright cases on desktop and mobile for `repair-watching`, including the new history case; the repairs pages of the accessibility audit pass on both devices; no Go or API change | One row per repository; non-administrator activity or an explicit administrator-only statement; notifications; live end-to-end validation |
+| PRLINK, open | Corrective, not a slice: a finished attempt stops asking in **Needs you** once its pull request no longer needs it. See "Finished attempts that no longer need anyone, 14 November 2026" | Store and controller tests named in that section, the full Go suite, vet, gofmt, UI type check and lint pass; checked against one live instance's list, read-only; no live model or GitHub write | Unchanged: the S4 items in the checkpoint table |
 | [#1392](https://github.com/eyupio/zoomies/pull/1392), open | Controller load, not a slice: the S2c due-watch claim looks on the reader pool before taking the writer, alongside the enrichment claim, the event stream's figures and the database file's mapping | Full `make test` race suite (55 packages), vet, staticcheck, gofmt and `go mod tidy -diff` pass; no UI, public API or watch behaviour change | Unchanged: S3b resolution and publication, then S4 UX |
 
 S4 attempt-history validation on 6 November 2026:
@@ -2197,3 +2198,60 @@ Not done: conditional requests (`If-None-Match`), which GitHub does not count
 against the rate limit when nothing changed. They need a response cache per
 installation client and a rule for when a cached answer may not be used, so they
 are their own change. Observation is also still one watch at a time.
+
+## Finished attempts that no longer need anyone, 14 November 2026
+
+Corrective PR: PRLINK. Not a slice; S4's remaining items in the checkpoint table
+are unchanged and still the next unfinished step.
+
+**What was wrong.** **Needs you** lists the newest attempt on each pull request
+that ended `failed`, `blocked`, `checks_failed`, `interrupted` or `unverified`
+(`EliRepairFilter` group `needs_action`), with no window. Nothing looked at a
+finished attempt again, so one whose pull request had been closed, had moved to a
+newer commit, or had since passed its checks went on asking. On the instance this
+was found on, ten attempts were listed, the oldest five days old; the one checked
+against GitHub, a Dependabot pull request, had been closed the same morning it
+failed. Offers were already retired this way (`retireStaleEliOffers`) and a
+`checking` attempt is settled by `checkEliRepairs`; finished attempts were the
+gap.
+
+**Shipped.**
+
+* `retireSettledEliRepairs` (`internal/controller/eli_repair_settle.go`) runs in
+  `reconcileEliOpportunities`, every five minutes, after the offers and on its own
+  30-second budget. For each `needs_action` attempt it reads the pull request and,
+  when that is still open at the commit the attempt was about (Eli's commit when
+  it published one, otherwise the head it was asked about), its checks. Closed or
+  merged, a newer commit, or passing checks settle the attempt; anything else,
+  including a read GitHub did not answer, leaves it exactly as it was.
+* A settled attempt becomes `superseded`, the state the page already shows as
+  **No longer needed**, with `details.failure_code` of `closed`, `superseded` or
+  `fixed`. Its message leads with the reason and keeps what Eli said when it
+  stopped. Head and commit are not touched, and nothing is posted on the pull
+  request.
+* `store.SettleEliRepair` makes the write only if the row is still the one that
+  was read. A person can ask again while GitHub is being read, which puts the same
+  row back in the queue; the settlement must lose that race.
+* A pass asks about at most 25 attempts (`eliSettleBatch`) and walks a longer list
+  a batch at a time. It stands down from an installation GitHub is rate-limiting,
+  as the attention loop does.
+* The same PR changes the fleet's failure attention list, which is not Eli's:
+  a failure leaves once its branch has moved to another commit, an attempt of a
+  Dependabot update is replaced by the next, and a code scanning failure on a
+  pull request's ref is settled through that pull request. `RepairPullForRun` is
+  unchanged, so what Eli is offered is unchanged: the code scanning path is in
+  `jobAttentionOnGitHub` only.
+
+**Not done, deliberately.** No `pull_request` webhook settles an attempt the
+moment its pull request closes; the five-minute pass is the only path, so an
+attempt can outlive its pull request by that long. A settled attempt is not
+turned into `succeeded` when its checks pass later, because nobody watched the
+commit pass and the page's "checks passed" wording is Eli's own claim.
+
+**Validation.** `go test -count=1 ./internal/store/ ./internal/controller/
+./internal/github/`, including the new
+`TestAFinishedRepairStopsAskingOnceItsPullRequestNoLongerNeedsIt`,
+`TestOnlyRepairsThatAskForSomeoneAreCheckedAgain` and
+`TestSettlingAnEliRepairLeavesOneThatHasMovedOnAlone`. Fakes only: no live
+model, and nothing was written to GitHub or to the instance the list was read
+from.

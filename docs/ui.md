@@ -104,7 +104,8 @@ fleet itself needs a person it is one line and a *Review* button, never a list
 that pushes the fleet below the fold. The exception is the failures nobody has
 read, because each is a separate job with a separate thing to do about it:
 **Recent failures** shows the newest two of what failed in the last week and
-nobody has marked as known or replaced with a later attempt, with the whole
+nobody has marked as known or replaced with a later attempt, and whose branch
+has not moved to another commit since, with the whole
 count in its header and a link to the rest on the Jobs page's **Needs
 attention** view. A row opens the job's drawer and **Fix with Eli** opens the
 repair page for it, except on a failure of a run no pull request started, which
@@ -473,7 +474,8 @@ promised.
 
 Two of the buttons are questions about a failure more than a status.
 **Needs attention** is the failures from the last week that nobody has marked as
-known and no later attempt has replaced, the list the Overview's **Recent
+known, no later attempt has replaced and no newer commit on the branch has left
+behind, the list the Overview's **Recent
 failures** counts, with room for the rest of it. **Our failures** is the half of
 **Failed** this fleet caused, a runner that never started or one that stopped
 under the job, which GitHub records as an ordinary failure.

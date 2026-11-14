@@ -8,7 +8,7 @@
   third day the same red row is wallpaper, and the failure that is actually new
   is somewhere under it. The three halves of the question live on the server in
   one filter (failed, recent, acknowledged by nobody, not replaced by a later
-  attempt), so this panel, the Jobs page's "Needs attention" view and anything
+  attempt or left behind by a newer commit), so this panel, the Jobs page's "Needs attention" view and anything
   else that asks cannot disagree about what is still owed.
 
   Marking as known is not resolving. The failure keeps its row, its conclusion
@@ -242,8 +242,8 @@
         title="Recent failures"
         icon={Zap}
         description={others
-          ? 'Unresolved failures from the last week, wherever they ran. Fixed, superseded and closed PR failures leave this list.'
-          : 'Unresolved failures from the last week. Fixed, superseded and closed PR failures leave this list.'}
+          ? 'Unresolved failures from the last week, wherever they ran. Fixed, superseded, outdated and closed PR failures leave this list.'
+          : 'Unresolved failures from the last week. Fixed, superseded, outdated and closed PR failures leave this list.'}
         class={className}
         flush
       >

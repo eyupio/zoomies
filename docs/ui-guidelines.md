@@ -957,7 +957,8 @@ The one page that has to earn the second monitor.
   toast carrying the undo and the drawer able to put it back. It is a panel
   rather than a line like the problems summary, because each entry is a
   separate job with a separate thing to do about it and each leaves when
-  somebody acknowledges it or a newer run replaces it. Background GitHub checks
+  somebody acknowledges it, a newer run replaces it or its branch moves to
+  another commit. Background GitHub checks
   also remove fixed, superseded and closed PR failures; cancelled or skipped
   results are not proof of a fix. An unavailable GitHub read never resolves a
   failure. Opening a stale repair link explains what changed and offers the

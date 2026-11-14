@@ -443,6 +443,9 @@ func (c *Controller) reconcileEliOpportunities(parent context.Context) {
 	// whose discovery used the time up never reached it, and an offer for a PR
 	// that had since been closed or fixed stayed on the page for good.
 	c.retireStaleEliOffers(parent)
+	// The same for the attempts that ended without a fix, on a budget of their
+	// own for the same reason.
+	c.retireSettledEliRepairs(parent)
 	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
 	policies, err := c.st.EliRepairPolicies(ctx)
