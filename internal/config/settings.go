@@ -465,6 +465,10 @@ var registry = buildRegistry([]Setting{
 		RestartReason: "the agent reads its startup grace when it starts",
 	},
 	{
+		Key: "agent.process_admission_file", Label: "Native slot admission file", Env: "ZOOMIES_AGENT_PROCESS_ADMISSION_FILE", Kind: KindString, Scope: ScopeInstance,
+		Summary:       "Host-local JSON policy for reserving a slot before registering a native runner.",
+		RestartReason: "the process backend is built with it",
+	}, {
 		Key: "agent.finished_retention", Label: "Keep finished containers for", Env: "ZOOMIES_AGENT_FINISHED_RETENTION", Kind: KindDuration, Scope: ScopeInstance,
 		Summary:       "How long a finished runner's container stays on the host before the agent deletes it. It is the window for reading a finished runner's log, and it is host disk: 0 deletes on the next pass.",
 		RestartReason: "the agent is told its retention when it starts",

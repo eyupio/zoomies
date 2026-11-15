@@ -655,6 +655,7 @@ func buildBackends(ctx context.Context, cfg *config.Config, log *slog.Logger) (*
 	}
 	if b, err := backend.NewProcess(backend.ProcessOptions{
 		WorkDir:                 cfg.Agent.WorkDir,
+		AdmissionFile:           cfg.Agent.ProcessAdmissionFile,
 		RunnerVersion:           cfg.GitHub.RunnerVersion,
 		RunnerSHA256:            cfg.Agent.RunnerSHA256,
 		AllowUnverifiedDownload: cfg.Agent.AllowUnverifiedRunnerDownload,
