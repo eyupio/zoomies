@@ -160,6 +160,15 @@ on, so a screen reader or the keyboard reaches them without passing every slot
 of every host first, and one source order serves both the phone, where the
 page is a single stacked column, and the keyboard on a desktop.
 
+A host with nothing running on it is drawn as one line, so a quiet fleet takes
+little room and the hosts that are working stand out. When the hosts still do
+not fit the screen, the page shows them a page at a time, ten seconds each, and
+comes back round to the first: a small pager at the foot says which hosts are
+on show (*Hosts 5 to 8 of 9*) and fills as the page's time runs out. The hosts
+hold still while the pointer or the keyboard is on them, and for as long as the
+pager's **Pause** is pressed; you can still scroll them by hand. With reduced
+motion asked for, a page is swapped rather than slid.
+
 ![The command centre in the Classic style: a bar with the wordmark, the clock, Full screen and Exit; a ring of slots in use beside the verdict and three figures; host lanes with a tile for each slot; and a rail of waiting jobs and problems](screenshots/command-dark.webp#only-dark){ .zoomies-shot }
 ![The command centre in the Classic style: a bar with the wordmark, the clock, Full screen and Exit; a ring of slots in use beside the verdict and three figures; host lanes with a tile for each slot; and a rail of waiting jobs and problems](screenshots/command-light.webp#only-light){ .zoomies-shot }
 

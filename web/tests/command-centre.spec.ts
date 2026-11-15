@@ -931,3 +931,107 @@ test('a tile description is short and does not change while the clock runs', asy
   await page.waitForTimeout(2200);
   expect(await described()).toBe(before);
 });
+
+/*
+ * The owner's report: five hosts, four of them idle, on a 1908 by 926 screen,
+ * and the fifth cut off at the foot of the deck with nothing to say it was
+ * there. An idle host is one line, so a quiet fleet fits.
+ */
+test('a host with nothing running is one line, so an idle fleet fits the deck whole', async ({
+  page,
+}) => {
+  test.skip(!!test.info().project.use.isMobile, 'a phone stacks the page and scrolls it');
+  await page.setViewportSize({ width: 1908, height: 926 });
+  await busyFleet(page, { hosts: 5, slots: 11, busy: 0, waiting: 0 });
+  await goto(page, '/command', 'Command centre');
+  const lanes = page.getByTestId('command-lane');
+  await expect(lanes).toHaveCount(5);
+  for (const lane of await lanes.all()) {
+    await expect(lane).toHaveAttribute('data-compact', 'true');
+    await expect(lane.getByTestId('command-free')).toHaveAccessibleName(/^11 free slots on busy-/);
+  }
+  const sizes = await page.evaluate(() => {
+    const deck = document.querySelector<HTMLElement>('[data-testid="command-deck"]')!;
+    const box = deck.getBoundingClientRect();
+    return {
+      cut: Array.from(deck.querySelectorAll('[data-testid="command-lane"]')).filter(
+        (lane) => lane.getBoundingClientRect().bottom > box.bottom,
+      ).length,
+      // The name, the note and the chip on one line: under a tile's height.
+      tallest: Math.max(
+        ...Array.from(deck.querySelectorAll('[data-testid="command-lane"]')).map(
+          (lane) => lane.getBoundingClientRect().height,
+        ),
+      ),
+    };
+  });
+  expect(sizes.cut, 'lanes past the foot of the deck').toBe(0);
+  expect(sizes.tallest, 'an idle lane as tall as a working one').toBeLessThan(64);
+  await expect(page.getByTestId('command-pager')).toHaveCount(0);
+});
+
+/*
+ * A fleet that does not fit even so is shown a page at a time, since nobody
+ * scrolls a wall. A page begins at the top of a lane, so no host is read
+ * through a cut edge, and the tour stands still for anybody using the deck.
+ */
+test('a fleet taller than the deck is toured a page at a time, and holds for a hand', async ({
+  page,
+}) => {
+  test.skip(!!test.info().project.use.isMobile, 'a phone stacks the page and scrolls it');
+  await page.setViewportSize({ width: 1440, height: 900 });
+  // Swapped rather than slid, so where the deck is after a page is exact.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.clock.install();
+  await busyFleet(page, { hosts: 12, slots: 11, waiting: 2 });
+  await goto(page, '/command', 'Command centre');
+  await expect(page.getByTestId('command-lane')).toHaveCount(12);
+  await page.mouse.move(0, 0);
+
+  const pager = page.getByRole('group', { name: 'Hosts on show' });
+  const count = page.getByTestId('command-pager-count');
+  await expect(pager).toBeVisible();
+  await expect(count).toHaveText(/^Hosts 1 to \d+ of 12$/);
+  const first = await count.textContent();
+
+  const deck = page.getByTestId('command-deck');
+  const scrollTop = () => deck.evaluate((el) => el.scrollTop);
+  // How far the first lane on show starts from the deck's top edge.
+  const lead = () =>
+    deck.evaluate((el) => {
+      const top = el.getBoundingClientRect().top;
+      const tops = Array.from(el.querySelectorAll('[data-testid="command-lane"]'))
+        .map((lane) => lane.getBoundingClientRect().top - top)
+        .filter((at) => at >= 0);
+      return Math.min(...tops);
+    });
+  expect(await scrollTop()).toBe(0);
+
+  await page.clock.runFor(10_500);
+  await expect.poll(scrollTop).toBeGreaterThan(0);
+  await expect(count).not.toHaveText(first!);
+  expect(await lead(), 'the page begins at the top of a lane').toBeLessThanOrEqual(8);
+
+  // The pointer on the deck holds it, for as long as it stays.
+  const held = await scrollTop();
+  await deck.hover();
+  await page.clock.runFor(25_000);
+  expect(await scrollTop()).toBe(held);
+
+  // So does Pause, with the pointer away.
+  const pause = pager.getByRole('button', { name: 'Pause' });
+  await pause.click();
+  await expect(pause).toHaveAttribute('aria-pressed', 'true');
+  await page.mouse.move(0, 0);
+  await page.clock.runFor(25_000);
+  expect(await scrollTop()).toBe(held);
+
+  // Let go, it goes on, and after the last page it comes back to the first.
+  await pause.click();
+  await page.mouse.move(0, 0);
+  await page.clock.runFor(10_500);
+  await expect.poll(scrollTop).not.toBe(held);
+  for (let i = 0; i < 12 && (await scrollTop()) !== 0; i += 1) await page.clock.runFor(10_500);
+  expect(await scrollTop(), 'the tour comes round to the first page').toBe(0);
+  await expect(count).toHaveText(first!);
+});

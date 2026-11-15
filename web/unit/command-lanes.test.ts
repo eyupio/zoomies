@@ -230,3 +230,17 @@ test('two runners with no id get keys of their own', () => {
   assert.equal(new Set(keys).size, keys.length);
   assert.deepEqual(keys, ['a:0', 'a:1', 'a:free']);
 });
+
+// An idle host drawn at a tile's height pushed the hosts under it off a wall
+// display; it is one line until something runs on it.
+test('a host is compact while nothing holds a slot on it, whatever its state', () => {
+  const [idle, working, starting, down] = lanes(
+    [host('a', 9), host('b', 8), host('c', 7), host('d', 6, { healthy: false })],
+    [runner('b', 'idle'), runner('c', 'provisioning'), runner('a', 'removed')],
+    [],
+  );
+  assert.equal(idle!.compact, true);
+  assert.equal(working!.compact, false);
+  assert.equal(starting!.compact, false);
+  assert.equal(down!.compact, true);
+});

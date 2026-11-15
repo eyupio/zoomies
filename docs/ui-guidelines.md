@@ -558,6 +558,19 @@ lane, whatever it holds, so a lane's grid keeps its shape when a runner comes or
 goes and only the tile's colour and mark change. `--z-command-rail` (20rem) is
 the rail's width at desktop, which the deck also measures from, since the deck
 is laid beside the rail rather than in its grid so that each scrolls alone.
+`--z-command-pager` (3.5rem) is the room the deck keeps clear at its foot while
+it is toured, and the length its last lines fade over, so the pager that floats
+there never covers a lane.
+
+A host with nothing running on it is one line in the deck (its name, its note,
+its CPU and the free slots as a chip), so a quiet fleet is a short list and the
+working hosts are the tall ones. A fleet still taller than the deck is toured a
+page at a time, ten seconds a page, since nobody scrolls a wall: a page begins
+at the top of a lane, the foot fades instead of cutting a lane, and a pager
+says which hosts are on show and fills as the page's time runs out. The tour
+holds while the pointer or keyboard focus is on the deck or the pager and while
+its Pause is pressed, and under reduced motion a page is swapped rather than
+slid.
 
 ### 1.5 Elevation
 

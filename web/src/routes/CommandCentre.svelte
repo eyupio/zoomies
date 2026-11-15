@@ -18,6 +18,7 @@
   import RefreshButton from '$lib/components/RefreshButton.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import AttentionList from '$lib/command/AttentionList.svelte';
+  import DeckPager from '$lib/command/DeckPager.svelte';
   import FinishedList from '$lib/command/FinishedList.svelte';
   import Hero from '$lib/command/Hero.svelte';
   import HostLane from '$lib/command/HostLane.svelte';
@@ -28,6 +29,7 @@
   import { commandJobs } from '$lib/command/jobs.svelte';
   import { FINISHED_WINDOW_MS, waitingSummary } from '$lib/command/jobs-merge';
   import { lanes } from '$lib/command/lanes';
+  import { DeckTour } from '$lib/command/tour.svelte';
   import { completedSinceHref } from '$lib/command/links';
   import { verdict, type VerdictInput } from '$lib/command/verdict';
   import { onClockTick } from '$lib/format';
@@ -118,6 +120,8 @@
     and the lanes can never disagree about how many slots are working.
   */
   const deck = $derived(lanes(fleet.hosts, fleet.runners, commandJobs.waiting));
+  // The deck a page at a time, for a fleet taller than the screen.
+  const tour = new DeckTour();
   const cells = $derived(deck.flatMap((lane) => lane.cells));
   // The free cell stands for every free slot on its host, so slots are
   // counted from the lanes rather than from the cells drawn.
@@ -359,12 +363,19 @@
             {/if}
           </section>
         {:else if deck.length > 0}
-          <section class="deck" aria-labelledby="command-hosts" data-testid="command-deck">
+          <section
+            class="deck"
+            aria-labelledby="command-hosts"
+            data-testid="command-deck"
+            data-touring={tour.active}
+            {@attach tour.attach}
+          >
             <h2 id="command-hosts" class="sr-only">Hosts</h2>
             {#each deck as lane (lane.host.id)}
               <HostLane {lane} />
             {/each}
           </section>
+          <div class="pager"><DeckPager {tour} /></div>
         {/if}
         <div class="rail finished">
           <FinishedList
@@ -606,6 +617,30 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--z-space-2);
   }
+  /* A fleet taller than the deck is toured a page at a time. The pager floats
+     over the deck's foot, so the deck keeps that much clear under its last
+     lane and lets what is below the page fade out: a lane cut by a hard edge
+     reads as a fault, and one that fades reads as more to come. The mask is
+     alpha alone, so it is the same in either theme. */
+  .deck[data-touring='true'] {
+    padding-bottom: var(--z-command-pager);
+    mask-image: linear-gradient(
+      to bottom,
+      black calc(100% - var(--z-command-pager)),
+      transparent calc(100% - var(--z-space-2))
+    );
+  }
+  /* Centred under the deck, which is placed the same way. Only the pill takes
+     the pointer; the strip around it lets a click through to the lane. */
+  .pager {
+    position: absolute;
+    right: calc(var(--command-gutter) * 2 + var(--z-command-rail));
+    bottom: var(--command-gutter);
+    left: var(--command-gutter);
+    display: flex;
+    justify-content: center;
+    pointer-events: none;
+  }
   .deck-error {
     grid-column: 1 / -1;
   }
@@ -651,6 +686,9 @@
       grid-template-columns: minmax(0, 1fr);
       padding: 0;
       overflow: visible;
+    }
+    .pager {
+      display: none;
     }
   }
 </style>
