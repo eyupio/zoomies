@@ -222,7 +222,9 @@ func neverMatching(caches []cacheStep) []Location {
 
 // uniqueEveryRun is whether an expression in the key names the commit or the
 // run. A date computed by an earlier step is not seen: its value is not in
-// the file, and an unknown is not a finding.
+// the file, and an unknown is not a finding. github.run_attempt is not in the
+// list: it is 1 on every new run and rises only on a re-run, so a key that
+// names it and nothing else here matches from one run to the next.
 func uniqueEveryRun(key string) bool {
 	rest := strings.ToLower(key)
 	for {
@@ -231,7 +233,7 @@ func uniqueEveryRun(key string) bool {
 			return false
 		}
 		expr, tail, _ := strings.Cut(after, "}}")
-		for _, name := range []string{"github.sha", "github.run_id", "github.run_number", "github.run_attempt"} {
+		for _, name := range []string{"github.sha", "github.run_id", "github.run_number"} {
 			if strings.Contains(expr, name) {
 				return true
 			}

@@ -206,6 +206,10 @@ jobs:
         with:
           path: ~/.npm
           key: npm-github.sha
+      - uses: actions/cache@`+sha40+`
+        with:
+          path: ~/.npm
+          key: npm-${{ hashFiles('**/package-lock.json') }}-${{ github.run_attempt }}
       - uses: actions/cache/save@`+sha40+`
         with:
           path: dist
