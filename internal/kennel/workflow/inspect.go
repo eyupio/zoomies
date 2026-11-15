@@ -76,6 +76,11 @@ type Facts struct {
 	// SecretOnCommandLine is each step whose run line or args interpolates a
 	// secret.
 	SecretOnCommandLine []Location `json:"secret_on_command_line,omitempty"`
+	// CacheKeyNeverMatches is each actions/cache step whose key names the
+	// commit or the run, with no restore-keys to fall back on and no other
+	// cache step in the file sharing the key: it saves a cache every run
+	// and restores none.
+	CacheKeyNeverMatches []Location `json:"cache_key_never_matches,omitempty"`
 	// RunsOn is each job's literal labels, in memory only.
 	RunsOn []RunsOn `json:"-"`
 }
@@ -110,6 +115,7 @@ func Inspect(data []byte) (Facts, error) {
 	onlyPR := len(events) > 0 && every(events, func(e string) bool { return e == "pull_request" || e == "pull_request_target" })
 	target := contains(events, "pull_request_target")
 	allJobsCancel := true
+	var caches []cacheStep
 	for i := 0; i < len(jobs.Content); i += 2 {
 		index := i / 2
 		job := jobs.Content[i+1]
@@ -158,6 +164,9 @@ func Inspect(data []byte) (Facts, error) {
 				if target && isCheckout(uses.Value) && takesPullRequestHead(field(step, "with")) {
 					out.TargetCheckoutPRHead = append(out.TargetCheckoutPRHead, stepAt)
 				}
+				if c, ok := cacheStepOf(uses.Value, field(step, "with"), stepAt); ok {
+					caches = append(caches, c)
+				}
 			}
 			if secretOnCommandLine(field(step, "run")) || secretOnCommandLine(field(field(step, "with"), "args")) {
 				out.SecretOnCommandLine = append(out.SecretOnCommandLine, stepAt)
@@ -167,7 +176,68 @@ func Inspect(data []byte) (Facts, error) {
 	if onlyPR && !cancels(field(root, "concurrency")) && !allJobsCancel {
 		out.NoConcurrency = &Location{JobIndex: -1, Line: onKey.Line}
 	}
+	out.CacheKeyNeverMatches = neverMatching(caches)
 	return out, nil
+}
+
+// cacheStep is one step of actions/cache or its restore and save halves: its
+// key as written, and whether it is the whole action with nothing to fall
+// back on, which is the only form the check judges.
+type cacheStep struct {
+	at     Location
+	key    string
+	judged bool
+}
+
+func cacheStepOf(uses string, with *yaml.Node, at Location) (cacheStep, bool) {
+	name, _, _ := strings.Cut(strings.ToLower(uses), "@")
+	if name != "actions/cache" && name != "actions/cache/restore" && name != "actions/cache/save" {
+		return cacheStep{}, false
+	}
+	key := field(with, "key")
+	if key == nil || key.Kind != yaml.ScalarNode {
+		return cacheStep{}, false
+	}
+	// The restore and save halves are left alone: saving under the commit and
+	// restoring by prefix is how a cache is made to move forward on purpose.
+	return cacheStep{at: at, key: key.Value, judged: name == "actions/cache" && !declared(field(with, "restore-keys"))}, true
+}
+
+// neverMatching is each judged step whose key is different on every run and
+// is written nowhere else in the file. A key two steps share is one job
+// handing its work to another within a run, which is a use, not a mistake.
+func neverMatching(caches []cacheStep) []Location {
+	shared := map[string]int{}
+	for _, c := range caches {
+		shared[c.key]++
+	}
+	var out []Location
+	for _, c := range caches {
+		if c.judged && shared[c.key] == 1 && uniqueEveryRun(c.key) {
+			out = append(out, c.at)
+		}
+	}
+	return out
+}
+
+// uniqueEveryRun is whether an expression in the key names the commit or the
+// run. A date computed by an earlier step is not seen: its value is not in
+// the file, and an unknown is not a finding.
+func uniqueEveryRun(key string) bool {
+	rest := strings.ToLower(key)
+	for {
+		_, after, ok := strings.Cut(rest, "${{")
+		if !ok {
+			return false
+		}
+		expr, tail, _ := strings.Cut(after, "}}")
+		for _, name := range []string{"github.sha", "github.run_id", "github.run_number", "github.run_attempt"} {
+			if strings.Contains(expr, name) {
+				return true
+			}
+		}
+		rest = tail
+	}
 }
 
 // bounded walks the document once, refusing what the walker will not read:

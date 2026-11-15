@@ -16,6 +16,7 @@ type WorkflowFile struct {
 	PermissionsUnset     []Location `json:"permissions_unset,omitempty"`
 	TargetCheckoutPRHead []Location `json:"target_checkout_pr_head,omitempty"`
 	SecretOnCommandLine  []Location `json:"secret_on_command_line,omitempty"`
+	CacheKeyNeverMatches []Location `json:"cache_key_never_matches,omitempty"`
 	// LabelUnserved is each job whose literal runs-on no pool serves, decided
 	// by the controller, which knows the pools; the labels never come here.
 	LabelUnserved []Location `json:"label_unserved,omitempty"`
@@ -93,6 +94,8 @@ func (f *WorkflowFile) Locations(code Code) []Location {
 		return f.TargetCheckoutPRHead
 	case CodeSecretOnCommandLine:
 		return f.SecretOnCommandLine
+	case CodeCacheKeyNeverMatches:
+		return f.CacheKeyNeverMatches
 	}
 	return nil
 }
@@ -265,6 +268,23 @@ func evalSecretOnCommandLine(s *Snapshot) result {
 			return count(n, "step", "steps") + " in this workflow " + interpolates(n) + " a secret into a run line or a command-line argument, where it can reach the process list and the log."
 		},
 		"Pass the secret through the step's env block and read it from the environment in the command; never interpolate it into run or args.")
+}
+
+func evalCacheKeyNeverMatches(s *Snapshot) result {
+	return perFile(s, CodeCacheKeyNeverMatches, fixed(SeverityInfo),
+		func(f *WorkflowFile) []Location { return f.Locations(CodeCacheKeyNeverMatches) },
+		"A cache key is new on every run",
+		func(n int) string {
+			return count(n, "cache step", "cache steps") + " in this workflow " + keys(n) + " the cache on the commit or the run, with no restore-keys and no other step sharing the key; each run saves a cache that no later run restores."
+		},
+		"Key the cache on what its contents depend on, such as a hash of the lockfile, or keep the key and add restore-keys with a stable prefix so a run restores the newest earlier cache.")
+}
+
+func keys(n int) string {
+	if n == 1 {
+		return "keys"
+	}
+	return "key"
 }
 
 func checksOut(n int) string {

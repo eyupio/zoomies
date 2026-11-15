@@ -58,6 +58,7 @@ const (
 	CodePinsWithoutUpdater        Code = "ci.pins_without_updater"
 	CodeLabelUnserved             Code = "ci.label_unserved"
 	CodeSecretOnCommandLine       Code = "ci.secret_on_command_line"
+	CodeCacheKeyNeverMatches      Code = "ci.cache_key_never_matches"
 	CodeDefaultTokenWrite         Code = "token.default_write"
 	CodeForkApprovalWeak          Code = "exposure.fork_approval_weak"
 	CodePrivateForkSecrets        Code = "exposure.private_fork_secrets"
@@ -314,6 +315,9 @@ var checks = []Check{
 	workflowCheck(CodeSecretOnCommandLine, AreaCI, SeverityWarning, "A secret is interpolated into a run line or a command-line argument, where it reaches the process list and the log.",
 		"Pass the secret through the step's env block and read it from the environment in the command; never interpolate it into run or args.",
 		"Press Recheck after the change reaches the default branch; the finding closes when no run line or args interpolates a secret.", evalSecretOnCommandLine),
+	workflowCheck(CodeCacheKeyNeverMatches, AreaCI, SeverityInfo, "A cache step's key names the commit or the run, with no restore-keys and no other step sharing it, so every run saves a cache and none restores one.",
+		"Key the cache on what its contents depend on, such as a hash of the lockfile, or keep the key and add restore-keys with a stable prefix.",
+		"Press Recheck after the change reaches the default branch; the finding closes when no cache step's key is new on every run with nothing to fall back on.", evalCacheKeyNeverMatches),
 	{
 		Code: CodeRequiredCheckNeverReports, Area: AreaProtection, Severity: SeverityWarning,
 		Detects: "A status check that GitHub Actions should post is required to merge, but no job this fleet saw in the window produced it.",

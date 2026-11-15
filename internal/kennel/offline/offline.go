@@ -104,6 +104,7 @@ func Convert(sha string, f workflow.Facts) kennel.WorkflowFile {
 		PermissionsUnset:     locations(f.PermissionsUnset),
 		TargetCheckoutPRHead: locations(f.TargetCheckoutPRHead),
 		SecretOnCommandLine:  locations(f.SecretOnCommandLine),
+		CacheKeyNeverMatches: locations(f.CacheKeyNeverMatches),
 		Pinned:               f.Pinned,
 	}
 	if f.NoConcurrency != nil {
