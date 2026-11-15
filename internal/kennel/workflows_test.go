@@ -53,6 +53,9 @@ func init() {
 	positives[CodeSecretOnCommandLine] = func() Snapshot {
 		return withWorkflowFile(privateRepo(), WorkflowFile{SHA: shaA, SecretOnCommandLine: []Location{{0, 8}}})
 	}
+	positives[CodeCacheKeyNeverMatches] = func() Snapshot {
+		return withWorkflowFile(privateRepo(), WorkflowFile{SHA: shaA, CacheKeyNeverMatches: []Location{{0, 8}}})
+	}
 }
 
 // Each owed check fires on its positive and not on the same repository with
@@ -72,6 +75,7 @@ func TestTheOwedChecksFireOnTheirPositivesAndNotOnTheirNegatives(t *testing.T) {
 		{CodeWorkflowUnreadable, SeverityWarning, func() Snapshot { return withWorkflowFile(privateRepo(), WorkflowFile{SHA: shaA}) }},
 		{CodeLabelUnserved, SeverityInfo, func() Snapshot { return withWorkflowFile(privateRepo(), WorkflowFile{SHA: shaA}) }},
 		{CodeSecretOnCommandLine, SeverityWarning, func() Snapshot { return withWorkflowFile(privateRepo(), WorkflowFile{SHA: shaA}) }},
+		{CodeCacheKeyNeverMatches, SeverityInfo, func() Snapshot { return withWorkflowFile(privateRepo(), WorkflowFile{SHA: shaA}) }},
 	} {
 		f, ok := finding(Evaluate(positives[tc.code](), Policy{}), tc.code)
 		if !ok || f.Severity != tc.severity {

@@ -43,6 +43,7 @@ func TestTheRegistryIsTheClosedSetOfCodes(t *testing.T) {
 		"ci.pins_without_updater",
 		"ci.label_unserved",
 		"ci.secret_on_command_line",
+		"ci.cache_key_never_matches",
 		"protection.required_check_never_reports",
 	}
 	var got []Code

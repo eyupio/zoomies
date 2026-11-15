@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_from": "99383ec",
+  "generated_from": "92bf6ef",
   "entries": [
     {
       "id": "agent.backend_missing",
@@ -4104,6 +4104,20 @@
       "area": "ci",
       "docs_html": "https://zoomies.sh/kennel-club/#ci-action_not_pinned",
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#ci-action_not_pinned"
+    },
+    {
+      "id": "ci.cache_key_never_matches",
+      "kind": "check",
+      "title": "A cache step's key names the commit or the run, with no restore-keys and no other step sharing it, so every run saves a cache and none restores one.",
+      "category": "cost",
+      "severity": "info",
+      "detection": "static",
+      "detects": "A cache step's key names the commit or the run, with no restore-keys and no other step sharing it, so every run saves a cache and none restores one.",
+      "fix": "Key the cache on what its contents depend on, such as a hash of the lockfile, or keep the key and add restore-keys with a stable prefix.",
+      "verify": "Press Recheck after the change reaches the default branch; the finding closes when no cache step's key is new on every run with nothing to fall back on.",
+      "area": "ci",
+      "docs_html": "https://zoomies.sh/kennel-club/#ci-cache_key_never_matches",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#ci-cache_key_never_matches"
     },
     {
       "id": "ci.label_unserved",

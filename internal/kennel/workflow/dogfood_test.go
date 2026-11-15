@@ -39,6 +39,9 @@ func TestKennelAgreesWithTheRepositorysOwnWorkflows(t *testing.T) {
 		if len(facts.SecretOnCommandLine) != 0 || len(facts.TargetCheckoutPRHead) != 0 {
 			t.Errorf("%s: a secret on a command line or a checkout of a pull request's head: %+v", filepath.Base(path), facts)
 		}
+		if len(facts.CacheKeyNeverMatches) != 0 {
+			t.Errorf("%s: a cache key that is new on every run: %+v", filepath.Base(path), facts.CacheKeyNeverMatches)
+		}
 		loc := pinnedRef.FindIndex(data)
 		if loc == nil {
 			continue

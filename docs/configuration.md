@@ -2317,6 +2317,7 @@ same way as the setup inventory above does.
 | `ci.no_timeout` | Executable job declarations without `timeout-minutes`. Reusable-workflow callers are excluded; a declared expression is not treated as missing. | Warning |
 | `ci.no_concurrency` | Workflows triggered only by pull-request events without cancelling concurrency at workflow level or on every job. Mixed push/PR, release and deployment triggers are excluded. | Info |
 | `ci.action_not_pinned` | External action or reusable-workflow references without full commit pins, and Docker actions without image digests. Local actions are excluded. | Warning; info if only `actions/*` or `github/*` references are affected |
+| `ci.cache_key_never_matches` | `actions/cache` steps whose key names `github.sha`, `github.run_id` or `github.run_number`. A step with `restore-keys`, the separate restore and save actions, and a key another cache step in the file shares are excluded; a date computed by an earlier step is not seen. | Info |
 | `token.permissions_unset` | Job declarations that inherit permissions without a declaration at workflow or job level. An explicit empty permissions map is a declaration. | Warning for public repositories; info otherwise |
 
 These findings report counts across the files successfully inspected, not

@@ -35,8 +35,8 @@ UI under **Kennel Club**. This is its Overview for the demo fleet:
 
 ## What it checks
 
-There are thirty-four checks, in seven areas. Seven of them, in **exposure** and
-**capacity**, run whenever Kennel Club is on; the other twenty-seven are opt-in,
+There are thirty-five checks, in seven areas. Seven of them, in **exposure** and
+**capacity**, run whenever Kennel Club is on; the other twenty-eight are opt-in,
 and [the switches that turn them on](#the-optional-checks) are described after
 them. Each has a stable code, so a waiver, a metric or a `disabled_checks`
 entry keeps meaning the same thing from one release to the next, and the same
@@ -612,6 +612,23 @@ Fix
 Verify
 :   Press Recheck after the change reaches the default branch; the finding closes when no run line or args interpolates a secret.
 
+### `ci.cache_key_never_matches` { #ci-cache_key_never_matches }
+
+Area
+:   ci
+
+Severity
+:   info
+
+Detects
+:   A cache step's key names the commit or the run, with no restore-keys and no other step sharing it, so every run saves a cache and none restores one.
+
+Fix
+:   Key the cache on what its contents depend on, such as a hash of the lockfile, or keep the key and add restore-keys with a stable prefix.
+
+Verify
+:   Press Recheck after the change reaches the default branch; the finding closes when no cache step's key is new on every run with nothing to fall back on.
+
 ### `protection.required_check_never_reports` { #protection-required_check_never_reports }
 
 Area
@@ -647,7 +664,7 @@ change, the pools and runs involved, and where to look. The sentences come from
 Kennel Club and never from the repository, so a pull request title or a branch
 name cannot put words into an operator's page.
 
-The whole registry, all thirty-four, is served by `GET /api/v1/kennel/checks`, so a
+The whole registry, all thirty-five, is served by `GET /api/v1/kennel/checks`, so a
 script can read what is checked without scraping this page.
 
 **One finding can be worse than its usual severity.** On its own,
@@ -665,7 +682,7 @@ what to change:
 
 ### The optional checks
 
-Twenty-seven checks read what is in a repository or how it is set up on GitHub. Each group has a switch of its own
+Twenty-eight checks read what is in a repository or how it is set up on GitHub. Each group has a switch of its own
 and is **off by default**. Until a switch is on, its checks are shown as **Turned
 off** on the Overview, and nothing is read for them.
 
@@ -673,7 +690,7 @@ off** on the Overview, and nothing is read for them.
 | --- | --- | --- | --- | --- |
 | `setup` | 10: a README, a licence, a security policy, a contribution guide, a code of conduct, issue and pull request templates, `CODEOWNERS`, dependency updates and a CI workflow | `kennel.repository_setup` (**Check repository setup**) | The default branch's file names, as one Git tree request for each repository. No file contents. | Informational. It never lowers a repository's standing. |
 | `guidance` | 4: missing instructions, broken references, exact duplication and unreadable files | `kennel.agent_guidance` (**Check agent guidance**) | Bounded instruction files and their local references. | Informational for absence and duplication; warnings for broken or unreadable guidance. |
-| `ci` | 7: `ci.no_timeout`, `ci.no_concurrency`, `ci.action_not_pinned` | `kennel.workflow_checks` (**Check workflow best practices**) | The default branch's workflow files. | A warning, except `ci.no_concurrency`, which is a note, as is `ci.action_not_pinned` when only GitHub's own actions are affected. |
+| `ci` | 8: `ci.no_timeout`, `ci.no_concurrency`, `ci.action_not_pinned` | `kennel.workflow_checks` (**Check workflow best practices**) | The default branch's workflow files. | A warning, except `ci.no_concurrency` and `ci.cache_key_never_matches`, which are notes, as is `ci.action_not_pinned` when only GitHub's own actions are affected. |
 | `token` | 1: `token.permissions_unset` | the same switch | The same files. | A warning for a public repository, a note for a private one. |
 | `token`, `exposure` | 3: `token.default_write`, `exposure.fork_approval_weak`, `exposure.private_fork_secrets` | `kennel.settings_checks` (**Check repository settings**) | The repository's Actions settings, with the App's Administration read permission. | Warnings. A weak approval policy is an error once a fork's code has run here. |
 | `protection` | 1: `protection.required_check_never_reports` | the same switch | The status checks the default branch requires, from classic branch protection and from rulesets, compared with the names of the jobs this fleet was told about. | A warning. |
@@ -886,7 +903,7 @@ Every check names the facts it needs, and a check whose facts cannot be read is
 | **Repository setup files** | The default branch's file names. Read only when `kennel.repository_setup` is on. | *Repository permissions: Contents: Read-only*, needed for private repositories |
 | **Repository settings** | The repository's default workflow token, and its policy for fork pull requests: the approval policy for a public repository, the rules for a private one. Read only when `kennel.settings_checks` is on. | *Repository permissions: Administration: Read-only*, needed for every repository. GitHub offers no narrower permission for these settings. |
 | **Required status checks** | The status checks the default branch requires, from classic branch protection and from the rulesets that apply to it. Only a check pinned to the GitHub Actions app is judged, and its name is kept in Zoomies' database to be compared with the names of the jobs this fleet was told about; the name is never shown, logged or sent to an assistant. Read only when `kennel.settings_checks` is on. | *Repository permissions: Administration: Read-only*, needed for every repository. |
-| **Workflow best practices** | The default branch's workflow files, read for timeouts, concurrency, action pins, token permissions, a `pull_request_target` workflow that checks out the pull request's head, a secret interpolated into a command line, a `runs-on` label no pool of this fleet serves, pins that no updater moves, and a file that could not be read at all. A finding from here names the file, the job and the line. Read only when `kennel.workflow_checks` is on. | *Repository permissions: Contents: Read-only*, needed for private repositories |
+| **Workflow best practices** | The default branch's workflow files, read for timeouts, concurrency, action pins, token permissions, a `pull_request_target` workflow that checks out the pull request's head, a secret interpolated into a command line, a cache key that is new on every run, a `runs-on` label no pool of this fleet serves, pins that no updater moves, and a file that could not be read at all. A finding from here names the file, the job and the line. Read only when `kennel.workflow_checks` is on. | *Repository permissions: Contents: Read-only*, needed for private repositories |
 
 `zoomies kennel check [path]` reads none of this. It reads `.github/workflows`
 from the disk of the machine it runs on, with the same parser and the same

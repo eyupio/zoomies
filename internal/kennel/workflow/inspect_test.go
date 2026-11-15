@@ -173,6 +173,66 @@ jobs:
 	}
 }
 
+// A key that names the commit or the run is new on every run, so the step
+// uploads a cache each time and never restores one: it costs a save and buys
+// nothing. The forms that do move a cache forward on purpose are left alone,
+// because a note about a working cache teaches an operator to ignore the rest.
+func TestACacheKeyThatIsNewEveryRunIsLocatedOnlyWhenNothingCanRestoreIt(t *testing.T) {
+	got := mustInspect(t, `on: push
+jobs:
+  a:
+    runs-on: x
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - uses: actions/cache@`+sha40+`
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ github.sha }}
+      - uses: Actions/Cache@`+sha40+`
+        with:
+          path: out
+          key: out-${{ github.RUN_ID }}-${{ github.run_attempt }}
+      - uses: actions/cache@`+sha40+`
+        with:
+          path: ~/.npm
+          key: npm-${{ github.sha }}-fallback
+          restore-keys: npm-
+      - uses: actions/cache@`+sha40+`
+        with:
+          path: ~/.npm
+          key: npm-${{ hashFiles('**/package-lock.json') }}
+      - uses: actions/cache@`+sha40+`
+        with:
+          path: ~/.npm
+          key: npm-github.sha
+      - uses: actions/cache@`+sha40+`
+        with:
+          path: ~/.npm
+          key: npm-${{ hashFiles('**/package-lock.json') }}-${{ github.run_attempt }}
+      - uses: actions/cache/save@`+sha40+`
+        with:
+          path: dist
+          key: dist-${{ github.run_number }}
+      - uses: actions/cache@`+sha40+`
+        with:
+          path: build
+          key: build-${{ github.sha }}
+  b:
+    runs-on: x
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - uses: actions/cache@`+sha40+`
+        with:
+          path: build
+          key: build-${{ github.sha }}
+`)
+	if !equal(got.CacheKeyNeverMatches, locs(Location{0, 8}, Location{0, 12})) {
+		t.Fatalf("cache key never matches = %v, want lines 8 and 12", got.CacheKeyNeverMatches)
+	}
+}
+
 // Labels are a workflow author's text. They are returned so the controller
 // can test them against what its pools serve, and only when they are
 // literal: an expression or a runner group is not judged.
