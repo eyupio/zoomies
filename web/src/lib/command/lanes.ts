@@ -52,6 +52,12 @@ export interface Lane {
   free: number;
   /** More cells than a lane draws in one tidy row, so the cells wrap. */
   wide: boolean;
+  /**
+   * Nothing holds a slot here, so the lane is one line: its name, its note
+   * and the room it has. A tile's height spent on every idle host pushed the
+   * hosts under them off a wall display nobody scrolls.
+   */
+  compact: boolean;
 }
 
 export const WIDE_FROM = 4;
@@ -193,6 +199,7 @@ export function lanes(
         slots,
         free,
         wide: cells.length > WIDE_FROM,
+        compact: taken === 0,
       };
     })
     .sort(

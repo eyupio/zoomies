@@ -558,6 +558,21 @@ lane, whatever it holds, so a lane's grid keeps its shape when a runner comes or
 goes and only the tile's colour and mark change. `--z-command-rail` (20rem) is
 the rail's width at desktop, which the deck also measures from, since the deck
 is laid beside the rail rather than in its grid so that each scrolls alone.
+`--z-tour-pager` (3.5rem) is the room a toured list (the deck, and a table in
+full-screen focus) keeps clear at its foot, and the length its last lines fade
+over, so the pager that floats there never covers a lane or a row.
+
+A host with nothing running on it is one line in the deck (its name, its note,
+its CPU and the free slots as a chip), so a quiet fleet is a short list and the
+working hosts are the tall ones. A fleet still taller than the deck is toured a
+page at a time, ten seconds a page, since nobody scrolls a wall: a page begins
+at the top of a lane, the foot fades instead of cutting a lane, and a pager
+says which hosts are on show and fills as the page's time runs out. The tour
+holds while the pointer or keyboard focus is on the deck or the pager and while
+its Pause is pressed, and under reduced motion a page is swapped rather than
+slid. The paging is `lib/tour` (`stops.ts` pure, `tour.svelte.ts` the running
+half) and the pager is `TourPager`; a table's focus view uses the same three in
+full screen, see *The list pages*.
 
 ### 1.5 Elevation
 
@@ -1083,6 +1098,14 @@ view" and "Runners, whole page", not as a page load; the keyboard lands on the
 bar's heading going in and on the Focus link coming out. A pasted or reloaded
 focus address keeps the chrome away from the first paint. `Esc` leaves the
 browser's full screen first, then closes the topmost overlay, then leaves focus.
+Focus in full screen is a table on a wall, so there, and only there, the rows
+are toured as the command centre's hosts are: a page of whole rows at a time
+under the held heading row, ten seconds each, the foot fading and a
+`TourPager` over it ("Runners 51 to 68 of 240"); after the last rows of the
+list's page the next page is fetched, and after the last page the first. It
+holds for the pointer, the keyboard's focus and Pause, and for anything in
+hand: a selection, an open row, the column chooser, a drawer or dialog. Out of
+full screen, and on a phone, the table stays still.
 On a phone the bar's controls are `--z-control-touch` tall and the rows flow,
 so the page under the bar scrolls them instead of a frame a few cards tall. The assistant steps aside in full screen, as on the
 command centre, and the component gallery, which has no shell, offers no Focus.

@@ -2,6 +2,10 @@
   One host on the command centre: its name, one word about it, a tile for each
   runner on it and one cell for the slots left.
 
+  A host with no runner on it is one line, the free cell drawn as a chip at
+  its end: an idle fleet is then a short list, and the hosts that are working
+  are the tall ones the eye goes to.
+
   The lane says its own state where the verdict would otherwise have to name
   it, and takes that state's colour as its border, so the sentence at the top
   and the lane it means are the same colour. The cells are keyed by runner, so
@@ -34,6 +38,7 @@
   class="lane"
   data-tone={lane.tone ?? undefined}
   data-state={lane.state}
+  data-compact={lane.compact}
   aria-labelledby="{id}-name"
   data-testid="command-lane"
 >
@@ -76,6 +81,26 @@
   }
   .lane[data-tone='draining'] {
     border-color: var(--z-draining);
+  }
+  /* Wraps rather than squeezes: on a phone the chip takes a line of its own
+     under a long host name. */
+  .lane[data-compact='true'] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--z-space-2) var(--z-space-3);
+  }
+  [data-compact='true'] .head {
+    flex: 1;
+    padding-bottom: 0;
+  }
+  [data-compact='true'] .cells {
+    display: block;
+    flex: none;
+  }
+  [data-compact='true'] .cells :global(.tile.free) {
+    height: auto;
+    padding: var(--z-space-1) var(--z-space-3);
   }
   .head {
     display: flex;
