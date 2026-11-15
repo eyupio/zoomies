@@ -22,6 +22,7 @@ import {
   readThrough,
   closeColumnPanel,
   reload,
+  withoutTheStream,
 } from './support/fixtures';
 
 const focusBar = (page: Page): Locator => page.getByTestId('focus-bar');
@@ -413,5 +414,124 @@ test.describe('what focus keeps, says and does with the keyboard', () => {
       await page.evaluate(() => (window as unknown as { marker?: string }).marker),
       'pressing Focus reloaded the page',
     ).toBe('kept');
+  });
+});
+
+/*
+ * Focus in full screen is a table on a wall, and nobody scrolls a wall: rows
+ * past the foot of the screen, and every page of the list after the first,
+ * were rows nobody saw. There the rows are shown a page at a time and the
+ * list's next page follows the last of them. At a desk the table stays still.
+ */
+test.describe('a table on a wall', () => {
+  const TOTAL = 120;
+
+  /** A long list of runners, served in the pages the grid asks for. */
+  async function manyRunners(page: Page): Promise<void> {
+    await withoutTheStream(page);
+    await page.route('**/api/v1/runners*', async (route) => {
+      const read = await readThrough<{ items?: Record<string, unknown>[] }>(route);
+      if (!read) return;
+      const asked = new URL(route.request().url()).searchParams;
+      const limit = Number(asked.get('limit') ?? 50);
+      const offset = Number(asked.get('offset') ?? 0);
+      const template = read.body.items![0]!;
+      const items = Array.from({ length: Math.max(0, Math.min(limit, TOTAL - offset)) }, (_, i) => {
+        const n = String(offset + i + 1).padStart(3, '0');
+        return { ...template, id: `run_wall${n}`, name: `wall-${n}` };
+      });
+      return route.fulfill({
+        response: read.response,
+        json: { ...read.body, items, total: TOTAL },
+      });
+    });
+  }
+
+  /** The browser says it is full screen, as it would after the bar's button. */
+  async function inFullScreen(page: Page): Promise<void> {
+    await page.addInitScript(() => {
+      Object.defineProperty(Document.prototype, 'fullscreenElement', {
+        get: () => document.documentElement,
+      });
+    });
+  }
+
+  test.beforeEach(async ({ page }) => {
+    test.skip(!!test.info().project.use.isMobile, 'a phone scrolls the page, and is no wall');
+    await page.setViewportSize({ width: 1440, height: 900 });
+    // Swapped rather than slid, so where the rows are after a page is exact.
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.clock.install();
+    await manyRunners(page);
+  });
+
+  test('in full screen the rows turn a page at a time, then the list’s next page, and round again', async ({
+    page,
+  }) => {
+    await inFullScreen(page);
+    await goto(page, '/runners?focus=runners&limit=50', 'Runners');
+    await expect(dataRows(grid(page, 'Runners'))).toHaveCount(50);
+    await page.mouse.move(0, 0);
+
+    const pager = page.getByRole('group', { name: 'Runners on show' });
+    const count = page.getByTestId('tour-pager-count');
+    await expect(pager).toBeVisible();
+    await expect(count).toHaveText(/^Runners 1 to \d+ of 120$/);
+
+    const frame = page.locator('[data-grid-id="runners"] .scroll');
+    const scrollTop = () => frame.evaluate((el) => el.scrollTop);
+    expect(await scrollTop()).toBe(0);
+    await page.clock.runFor(10_500);
+    await expect.poll(scrollTop).toBeGreaterThan(0);
+    // The page begins at the top of a row, directly under the heading row.
+    const gap = await frame.evaluate((el) => {
+      const head = el.querySelector('thead')!.getBoundingClientRect().bottom;
+      const tops = Array.from(el.querySelectorAll('tbody > tr[data-row]'))
+        .map((row) => row.getBoundingClientRect().top - head)
+        .filter((at) => at >= -1);
+      return Math.min(...tops);
+    });
+    expect(gap, 'a row cut by the heading row').toBeLessThanOrEqual(2);
+
+    // After the last rows of this page, the next page of the list, from its top.
+    const turnUntil = async (address: RegExp) => {
+      for (let i = 0; i < 12 && !address.test(page.url()); i += 1) await page.clock.runFor(10_500);
+      await expect(page).toHaveURL(address);
+    };
+    await turnUntil(/offset=50/);
+    await expect(count).toHaveText(/^Runners 51 to \d+ of 120$/);
+    await expect.poll(scrollTop).toBe(0);
+    await turnUntil(/offset=100/);
+    await expect(count).toHaveText(/^Runners 101 to \d+ of 120$/);
+    // And after the last page, the first again.
+    await turnUntil(/^(?!.*offset=)/);
+    await expect(count).toHaveText(/^Runners 1 to \d+ of 120$/);
+  });
+
+  test('a selection holds the rows where they are', async ({ page }) => {
+    await inFullScreen(page);
+    await goto(page, '/runners?focus=runners&limit=50', 'Runners');
+    const rows = dataRows(grid(page, 'Runners'));
+    await expect(rows).toHaveCount(50);
+    await expect(page.getByTestId('tour-pager')).toBeVisible();
+    await rows.first().getByRole('checkbox').check();
+    await page.mouse.move(0, 0);
+    const frame = page.locator('[data-grid-id="runners"] .scroll');
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.clock.runFor(25_000);
+    expect(await frame.evaluate((el) => el.scrollTop)).toBe(0);
+    await expect(page).not.toHaveURL(/offset=/);
+  });
+
+  test('out of full screen the table stays still, with no pager', async ({ page }) => {
+    await goto(page, '/runners?focus=runners&limit=50', 'Runners');
+    await expect(dataRows(grid(page, 'Runners'))).toHaveCount(50);
+    await page.mouse.move(0, 0);
+    await expect(page.getByTestId('tour-pager')).toHaveCount(0);
+    await page.clock.runFor(25_000);
+    expect(
+      await page.locator('[data-grid-id="runners"] .scroll').evaluate((el) => el.scrollTop),
+    ).toBe(0);
+    await expect(page).not.toHaveURL(/offset=/);
   });
 });

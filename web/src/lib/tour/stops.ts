@@ -1,15 +1,16 @@
 /**
- * The deck's tour: where it stops when the hosts do not fit the screen.
+ * A tour: where a list stops when it does not fit the screen it is shown on.
  *
- * A wall display is looked at, not scrolled, so a fleet taller than the deck
- * is shown a page at a time. A page begins at the top of a lane and holds
- * every lane that fits whole, so nothing is read through a cut edge; the next
- * page begins at the first lane the last one could not finish. Pure: the
- * measures are handed in, so the paging is held by a test and no layout is
- * needed to check it.
+ * A wall display is looked at, not scrolled, so a list taller than its frame
+ * (the command centre's hosts, a table's rows in full screen) is shown a page
+ * at a time. A page begins at the top of an item and holds every item that
+ * fits whole, so nothing is read through a cut edge; the next page begins at
+ * the first item the last one could not finish. Pure: the measures are handed
+ * in, so the paging is held by a test and no layout is needed to check it.
  */
+import { formatNumber } from '../format';
 
-/** One lane's place in the deck's content, in pixels from its top. */
+/** One item's place in the list's content, in pixels from its top. */
 export interface Span {
   top: number;
   bottom: number;
@@ -79,10 +80,29 @@ export function shown(
   return first === 0 ? null : { first, last };
 }
 
-/** "Hosts 1 to 4 of 9", or "Host 9 of 9" for a page of one. */
-export function tourLabel(range: { first: number; last: number } | null, total: number): string {
-  if (!range) return `${total} hosts`;
-  return range.first === range.last
-    ? `Host ${range.first} of ${total}`
-    : `Hosts ${range.first} to ${range.last} of ${total}`;
+/** What the list holds, and where this page of it starts in the whole. */
+export interface TourNoun {
+  /** "runners": the list's own word, as its count already says it. */
+  plural: string;
+  /** "Host", for a list that is all there is; a longer list keeps its plural. */
+  singular?: string;
+  /** How many items come before the ones measured, on a list fetched in pages. */
+  from?: number;
+}
+
+const HOSTS: TourNoun = { plural: 'hosts', singular: 'Host' };
+
+/** "Hosts 1 to 4 of 9", "Host 9 of 9", "Runners 51 to 68 of 240". */
+export function tourLabel(
+  range: { first: number; last: number } | null,
+  total: number,
+  noun: TourNoun = HOSTS,
+): string {
+  if (!range) return `${formatNumber(total)} ${noun.plural}`;
+  const many = noun.plural.charAt(0).toUpperCase() + noun.plural.slice(1);
+  const first = formatNumber(range.first + (noun.from ?? 0));
+  const last = formatNumber(range.last + (noun.from ?? 0));
+  return first === last
+    ? `${noun.singular ?? many} ${first} of ${formatNumber(total)}`
+    : `${many} ${first} to ${last} of ${formatNumber(total)}`;
 }

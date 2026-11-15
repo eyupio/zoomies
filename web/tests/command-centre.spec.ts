@@ -967,7 +967,7 @@ test('a host with nothing running is one line, so an idle fleet fits the deck wh
   });
   expect(sizes.cut, 'lanes past the foot of the deck').toBe(0);
   expect(sizes.tallest, 'an idle lane as tall as a working one').toBeLessThan(64);
-  await expect(page.getByTestId('command-pager')).toHaveCount(0);
+  await expect(page.getByTestId('tour-pager')).toHaveCount(0);
 });
 
 /*
@@ -989,7 +989,7 @@ test('a fleet taller than the deck is toured a page at a time, and holds for a h
   await page.mouse.move(0, 0);
 
   const pager = page.getByRole('group', { name: 'Hosts on show' });
-  const count = page.getByTestId('command-pager-count');
+  const count = page.getByTestId('tour-pager-count');
   await expect(pager).toBeVisible();
   await expect(count).toHaveText(/^Hosts 1 to \d+ of 12$/);
   const first = await count.textContent();

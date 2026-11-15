@@ -169,6 +169,12 @@ hold still while the pointer or the keyboard is on them, and for as long as the
 pager's **Pause** is pressed; you can still scroll them by hand. With reduced
 motion asked for, a page is swapped rather than slid.
 
+A table's **Focus** view does the same once it is put in **Full screen**: the
+rows turn a page at a time, then the list's next page, and round to the first
+again, so a Runners or Jobs table left on a wall shows all of itself. It waits
+while you have rows selected, a row open or a drawer or dialog up, and out of
+full screen the table stays still.
+
 ![The command centre in the Classic style: a bar with the wordmark, the clock, Full screen and Exit; a ring of slots in use beside the verdict and three figures; host lanes with a tile for each slot; and a rail of waiting jobs and problems](screenshots/command-dark.webp#only-dark){ .zoomies-shot }
 ![The command centre in the Classic style: a bar with the wordmark, the clock, Full screen and Exit; a ring of slots in use beside the verdict and three figures; host lanes with a tile for each slot; and a rail of waiting jobs and problems](screenshots/command-light.webp#only-light){ .zoomies-shot }
 

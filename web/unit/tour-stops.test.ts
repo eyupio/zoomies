@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { shown, stopAt, stops, tourLabel, type Span } from '../src/lib/command/tour.ts';
+import { shown, stopAt, stops, tourLabel, type Span } from '../src/lib/tour/stops.ts';
 
 /** Lanes of the given heights, a gap of 16 between them, as the deck lays them. */
 function laid(heights: readonly number[]): { spans: Span[]; content: number } {
@@ -66,4 +66,14 @@ test('the label counts hosts, and says one host plainly', () => {
   assert.equal(tourLabel({ first: 1, last: 4 }, 9), 'Hosts 1 to 4 of 9');
   assert.equal(tourLabel({ first: 9, last: 9 }, 9), 'Host 9 of 9');
   assert.equal(tourLabel(null, 9), '9 hosts');
+});
+
+// A table's page of rows is part of a longer list: the label counts from
+// where the page starts, against the whole list, in the list's own noun.
+test('a table says which of all its rows are on show', () => {
+  const runners = { plural: 'runners', from: 50 };
+  assert.equal(tourLabel({ first: 1, last: 18 }, 240, runners), 'Runners 51 to 68 of 240');
+  assert.equal(tourLabel({ first: 3, last: 3 }, 240, runners), 'Runners 53 of 240');
+  assert.equal(tourLabel(null, 240, runners), '240 runners');
+  assert.equal(tourLabel({ first: 1, last: 12 }, 50, { plural: 'jobs' }), 'Jobs 1 to 12 of 50');
 });

@@ -17,8 +17,8 @@
   import Logo from '$lib/components/Logo.svelte';
   import RefreshButton from '$lib/components/RefreshButton.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
+  import TourPager from '$lib/components/TourPager.svelte';
   import AttentionList from '$lib/command/AttentionList.svelte';
-  import DeckPager from '$lib/command/DeckPager.svelte';
   import FinishedList from '$lib/command/FinishedList.svelte';
   import Hero from '$lib/command/Hero.svelte';
   import HostLane from '$lib/command/HostLane.svelte';
@@ -29,7 +29,6 @@
   import { commandJobs } from '$lib/command/jobs.svelte';
   import { FINISHED_WINDOW_MS, waitingSummary } from '$lib/command/jobs-merge';
   import { lanes } from '$lib/command/lanes';
-  import { DeckTour } from '$lib/command/tour.svelte';
   import { completedSinceHref } from '$lib/command/links';
   import { verdict, type VerdictInput } from '$lib/command/verdict';
   import { onClockTick } from '$lib/format';
@@ -42,6 +41,7 @@
   import { feed } from '$lib/state/feed.svelte';
   import { notifications } from '$lib/state/notifications.svelte';
   import { session } from '$lib/state/session.svelte';
+  import { Tour } from '$lib/tour/tour.svelte';
 
   let now = $state(Date.now());
   onMount(() => onClockTick((at) => (now = at)));
@@ -121,7 +121,12 @@
   */
   const deck = $derived(lanes(fleet.hosts, fleet.runners, commandJobs.waiting));
   // The deck a page at a time, for a fleet taller than the screen.
-  const tour = new DeckTour();
+  const tour = new Tour({
+    items: (frame) => Array.from(frame.querySelectorAll<HTMLElement>(':scope > section')),
+    // The deck's padding is the same above and below until the tour adds the
+    // pager's room under it.
+    restingFoot: (style) => parseFloat(style.paddingTop) || 0,
+  });
   const cells = $derived(deck.flatMap((lane) => lane.cells));
   // The free cell stands for every free slot on its host, so slots are
   // counted from the lanes rather than from the cells drawn.
@@ -375,7 +380,7 @@
               <HostLane {lane} />
             {/each}
           </section>
-          <div class="pager"><DeckPager {tour} /></div>
+          <div class="pager"><TourPager {tour} /></div>
         {/if}
         <div class="rail finished">
           <FinishedList
@@ -623,10 +628,10 @@
      reads as a fault, and one that fades reads as more to come. The mask is
      alpha alone, so it is the same in either theme. */
   .deck[data-touring='true'] {
-    padding-bottom: var(--z-command-pager);
+    padding-bottom: var(--z-tour-pager);
     mask-image: linear-gradient(
       to bottom,
-      black calc(100% - var(--z-command-pager)),
+      black calc(100% - var(--z-tour-pager)),
       transparent calc(100% - var(--z-space-2))
     );
   }

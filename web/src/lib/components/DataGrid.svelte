@@ -140,6 +140,9 @@
   import EmptyState from './EmptyState.svelte';
   import ErrorState from './ErrorState.svelte';
   import Pagination from './Pagination.svelte';
+  import TourPager from './TourPager.svelte';
+  import { fullscreen } from '../command/fullscreen.svelte';
+  import { Tour } from '../tour/tour.svelte';
   import Segmented from './Segmented.svelte';
   import Tooltip from './Tooltip.svelte';
   import Skeleton from './Skeleton.svelte';
@@ -1022,6 +1025,37 @@
   let chooserOpen = $state(false);
   let chooser = $state<HTMLDivElement | null>(null);
 
+  /* -- the tour: a wall display nobody scrolls ---------------------------------
+   * Focus in full screen is a table put on a wall, and rows past the foot of a
+   * wall are rows nobody sees. So there, and only there, the rows are shown a
+   * page at a time, and after the last of them the list's next page is
+   * fetched, round to the first again. Focus at a desk stays a still table:
+   * rows that moved under somebody reading or selecting them would be worse
+   * than a scroll. The tour waits for anything an operator has in hand, a
+   * selection, an open row, the column chooser, a drawer or dialog, since
+   * turning the page would take it away or carry on behind it.
+   * ---------------------------------------------------------------------- */
+
+  const touring = $derived(inFocus && fullscreen.active && !viewport.phone);
+  const tour = new Tour({
+    items: (scroller) => Array.from(scroller.querySelectorAll<HTMLElement>('tbody > tr[data-row]')),
+    enabled: () => touring,
+    busy: () =>
+      loading || selected.length > 0 || opened.length > 0 || chooserOpen || layers.size > 0,
+    total: () => total,
+    noun: () => ({ plural: noun, from: offset }),
+    more: () => total > limit,
+    next: () => {
+      if (total <= limit) return false;
+      goTo(offset + limit >= total ? 0 : offset + limit);
+      return true;
+    },
+  });
+  $effect(() => {
+    void touring;
+    tour.refresh();
+  });
+
   $effect(() => {
     if (!chooserOpen) return;
     const layer = layers.push('dropdown', () => {
@@ -1187,7 +1221,7 @@
     </div>
   </div>
 
-  <div class="scroll" bind:this={frame}>
+  <div class="scroll" bind:this={frame} data-touring={tour.active} {@attach tour.attach}>
     <!--
       aria-rowcount is the server's total, not this page's length, so every row
       has to say which of that total it is. Without aria-rowindex a screen
@@ -1471,6 +1505,9 @@
     </EmptyState>
   {/if}
 
+  {#if touring}
+    <div class="tour"><div class="tour-pill"><TourPager {tour} {noun} /></div></div>
+  {/if}
   <Pagination {total} {limit} {offset} {noun} onpage={goTo} onlimit={setLimit} />
   <p class="sr-only" aria-live="polite">
     {loading && !quiet ? 'Loading' : `${total} ${noun}`}
@@ -1605,6 +1642,33 @@
        shrinking to nothing. */
     min-height: min(16rem, 40dvh);
     max-height: none;
+  }
+  /* Toured, the frame keeps the pager's room clear under its last row and
+     lets what is below the page fade out: a row cut by a hard edge reads as a
+     fault, and one that fades reads as more to come. The mask is alpha alone,
+     so it is the same in either theme. */
+  .grid.in-focus .scroll[data-touring='true'] {
+    padding-bottom: var(--z-tour-pager);
+    mask-image: linear-gradient(
+      to bottom,
+      black calc(100% - var(--z-tour-pager)),
+      transparent calc(100% - var(--z-space-2))
+    );
+  }
+  /* No height of its own, so the pagination stays where it was; the pill
+     floats over the frame's faded foot and only it takes the pointer. */
+  .tour {
+    position: relative;
+    height: 0;
+  }
+  .tour-pill {
+    position: absolute;
+    right: 0;
+    bottom: var(--z-space-2);
+    left: 0;
+    display: flex;
+    justify-content: center;
+    pointer-events: none;
   }
   table {
     width: 100%;

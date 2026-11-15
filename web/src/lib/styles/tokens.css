@@ -356,7 +356,7 @@
   /* The rail's width beside the deck. The deck is laid against it from
      outside the rail's grid, so the two scroll apart, and both rules read it. */
   --z-command-rail: 20rem;
-  --z-command-pager: 3.5rem;
+  --z-tour-pager: 3.5rem;
 
   /* The window, which on a phone is not the same thing as 100%. A mobile
      browser answers a page that overflows sideways by laying the whole thing

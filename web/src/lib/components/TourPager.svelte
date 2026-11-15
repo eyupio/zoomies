@@ -1,20 +1,26 @@
 <!--
-  The deck's pager: which hosts are on show, how long until the next page,
-  and the button that holds the page still.
+  A tour's pager: which items are on show, how long until the next page, and
+  the button that holds the page still.
 
-  It is drawn only while the fleet is taller than the deck. The dots are the
+  It is drawn only while the list is being toured. The dots are the
   pages and the one being read fills as its dwell runs out, so the next move
   is expected rather than sudden; past a handful of pages the dots would be a
   row of noise, and one bar says the same thing. The count is plain text, not
-  a live region: a screen reader told every ten seconds which hosts a wall is
-  showing would hear nothing else.
+  a live region: a screen reader told every ten seconds what a wall is showing
+  would hear nothing else.
 -->
 <script lang="ts">
   import { Pause } from '@lucide/svelte';
-  import Button from '$lib/components/Button.svelte';
-  import type { DeckTour } from './tour.svelte';
+  import Button from './Button.svelte';
+  import type { Tour } from '../tour/tour.svelte';
 
-  let { tour }: { tour: DeckTour } = $props();
+  interface Props {
+    tour: Tour;
+    /** What is being toured, as its plural: "hosts", "runners". */
+    noun?: string;
+  }
+  let { tour, noun = 'hosts' }: Props = $props();
+  const named = $derived(noun.charAt(0).toUpperCase() + noun.slice(1));
 
   const DOTS_UP_TO = 8;
   const dots = $derived(tour.stops.length <= DOTS_UP_TO ? tour.stops.map((_, i) => i) : [0]);
@@ -25,8 +31,8 @@
   <div
     class="pager"
     role="group"
-    aria-label="Hosts on show"
-    data-testid="command-pager"
+    aria-label="{named} on show"
+    data-testid="tour-pager"
     data-held={tour.held}
     {@attach tour.engage}
   >
@@ -36,13 +42,13 @@
       icon={Pause}
       pressed={tour.paused}
       help={tour.paused
-        ? 'Let the hosts turn again.'
-        : 'Hold these hosts still. They also hold while the pointer or the keyboard is on them.'}
+        ? `Let the ${noun} turn again.`
+        : `Hold these ${noun} still. They also hold while the pointer or the keyboard is on them.`}
       onclick={tour.toggle}
     >
       Pause
     </Button>
-    <span class="count" data-testid="command-pager-count">{tour.label}</span>
+    <span class="count" data-testid="tour-pager-count">{tour.label}</span>
     <span class="dots" class:bar={dots.length === 1} aria-hidden="true">
       {#each dots as dot (dot)}
         <span class="dot" class:current={dot === current}>
