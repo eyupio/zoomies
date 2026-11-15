@@ -433,6 +433,9 @@ settings page reports rather than refusing the edit.
 | `agent.registry_auth` | `ZOOMIES_REGISTRY_AUTH` | next restart | Registry credentials: A base64 X-Registry-Auth value the container backends send when they pull. Without it a pool on a private registry cannot use pinned-only pulls at all. |
 | `agent.runner_download_url` | `ZOOMIES_AGENT_RUNNER_DOWNLOAD_URL` | next restart | Runner download mirror: Where the process backend fetches runner archives from, for hosts that mirror releases internally. The path below it is the same. |
 | `agent.runner_sha256` | `ZOOMIES_AGENT_RUNNER_SHA256` | next restart | Runner archive digest: The expected digest of the actions/runner archive the process backend downloads. Zoomies ships the digest for the release it pins; supply one when you pin another. |
+| `agent.disk.warn_free_percent` | `ZOOMIES_AGENT_DISK_WARN_FREE_PERCENT` | next restart | Warn below this percentage of free disk space; default 10. |
+| `agent.disk.warn_free_gib` | `ZOOMIES_AGENT_DISK_WARN_FREE_GIB` | next restart | Warn below this many GiB of free disk space; default 10. |
+| `agent.disk.stop_free_gib` | `ZOOMIES_AGENT_DISK_STOP_FREE_GIB` | next restart | Pause new runners below this reserve in GiB; 0 disables the pause. Running jobs finish. |
 | `agent.work_dir` | `ZOOMIES_WORK_DIR` | next restart | Working directory: Where runner working directories and the agent's own credentials live. |
 
 ### `assistant`
@@ -2904,3 +2907,21 @@ and open a draft pull request. This needs Contents write and Pull requests write
 without Workflows write. The preview shows current and proposed contents and
 rejects changes made after review. Merge the proposal, then press **Recheck**.
 See [Agent guidance](kennel-club.md#agent-guidance) for the repair limits.
+
+### Agent disk reserve
+
+```yaml
+agent:
+  disk:
+    warn_free_percent: 10
+    warn_free_gib: 10
+    stop_free_gib: 0
+```
+
+Warnings keep the previous defaults. The optional admission reserve is measured
+on the filesystem holding `agent.work_dir`, before accepting a runner and again
+after waiting for a startup slot. Below it, creates are refused; running jobs and
+cleanup continue. Admission resumes at or above the threshold. A failed disk
+measurement pauses admission when a reserve is enabled. Zero disables it.
+Doctor's disk warnings remain Linux-only; admission works on macOS, Linux and
+Windows. GiB means 1,073,741,824 bytes. Changes require an agent restart.

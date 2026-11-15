@@ -42,7 +42,7 @@ func baseChecks() []Check {
 		}},
 		{ID: "work.filesystem", Title: "Work directory filesystem", Tier: Safe, Rationale: "Local ext4 or XFS with noatime avoids extra metadata writes.", Detect: mountCheck(false)},
 		{ID: "docker.filesystem", Title: "Docker root filesystem", Tier: Safe, Rationale: "Docker layers benefit from local ext4 or XFS with noatime.", Detect: mountCheck(true)},
-		{ID: "disk.space", Title: "Work directory free space", Tier: Safe, Rationale: "Keep at least 10% and 10 GiB free for new builds.", Detect: diskCheck(false)},
+		{ID: "disk.space", Title: "Work directory free space", Tier: Safe, Rationale: "Keep the configured disk reserve free for new builds.", Detect: diskCheck(false)},
 		{ID: "disk.inodes", Title: "Work directory free inodes", Tier: Safe, Rationale: "Many small build files can exhaust inodes before disk space.", Detect: diskCheck(true)},
 		{ID: "cpu.governor", Title: "CPU frequency governor", Tier: Aggressive, Rationale: "Performance mode reduces frequency scaling delays at the cost of power.", Detect: detectGovernor, Plan: planGovernor},
 		sysctl("memory.swappiness", "Swappiness", "vm.swappiness", 10, Aggressive, "Less swapping can improve build latency when RAM is sufficient."),
@@ -382,9 +382,14 @@ func mountCheck(docker bool) func(context.Context, *Engine) Result {
 func diskCheck(inodes bool) func(context.Context, *Engine) Result {
 	return func(ctx context.Context, e *Engine) Result {
 		a := "-Pk"
-		rec := "at least 10% and 10 GiB free"
+		percent, gib := 10.0, 10.0
+		if e.Disk != nil {
+			percent, gib = e.Disk.WarnFreePercent, e.Disk.WarnFreeGiB
+		}
+		rec := fmt.Sprintf("at least %g%% and %g GiB free", percent, gib)
 		if inodes {
 			a = "-Pi"
+			percent = 10
 			rec = "at least 10% free inodes"
 		}
 		v, err := command(ctx, e, "df", a, "--", e.WorkDir)
@@ -404,7 +409,7 @@ func diskCheck(inodes bool) func(context.Context, *Engine) Result {
 			return Result{Status: Skip, Reason: "filesystem does not report a usable capacity"}
 		}
 		s := OK
-		if free*100/total < 10 || (!inodes && free < 10*1024*1024) {
+		if float64(free)*100/float64(total) < percent || (!inodes && float64(free) < gib*1024*1024) {
 			s = Warn
 		}
 		// df -P reports 1 KiB blocks, which nobody reads at a glance; the status

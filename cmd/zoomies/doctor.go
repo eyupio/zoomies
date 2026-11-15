@@ -40,6 +40,7 @@ func localDoctor(path string) (*hosttune.Engine, error) {
 		return nil, err
 	}
 	o := hosttune.LocalOptions(cfg.Agent.WorkDir)
+	o.Disk = &hosttune.DiskThresholds{WarnFreePercent: cfg.Agent.Disk.WarnFreePercent, WarnFreeGiB: cfg.Agent.Disk.WarnFreeGiB}
 	o.DockerHost = cfg.Agent.DockerHost
 	if path == "" {
 		if b, err := o.System.ReadFile(filepath.Join(config.SharedDir(), "host-health", "report.json")); err == nil {
@@ -460,6 +461,7 @@ func afterHostSetup(ctx context.Context, e *env, fresh, tune, noTune, interactiv
 // permission to change the OS remain separate even at an interactive terminal.
 func upgradeDoctor(ctx context.Context, e *env, cfg *config.Config, noAnimation bool) {
 	options := hosttune.LocalOptions(cfg.Agent.WorkDir)
+	options.Disk = &hosttune.DiskThresholds{WarnFreePercent: cfg.Agent.Disk.WarnFreePercent, WarnFreeGiB: cfg.Agent.Disk.WarnFreeGiB}
 	options.DockerHost = cfg.Agent.DockerHost
 	if b, err := options.System.ReadFile(filepath.Join(config.SharedDir(), "host-health", "report.json")); err == nil {
 		var r hosttune.Report

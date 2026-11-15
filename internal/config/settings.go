@@ -410,6 +410,18 @@ var registry = buildRegistry([]Setting{
 		RestartReason: "the host row is claimed under this name when the agent enrols",
 	},
 	{
+		Key: "agent.disk.warn_free_percent", Label: "Free disk warning percentage", Env: "ZOOMIES_AGENT_DISK_WARN_FREE_PERCENT", Kind: KindFloat, Scope: ScopeInstance,
+		Summary: "Warn below this percentage of free work-directory disk. Defaults to 10; 0 disables the percentage warning.", RestartReason: "the agent disk policy is loaded at startup",
+	},
+	{
+		Key: "agent.disk.warn_free_gib", Label: "Free disk warning reserve", Env: "ZOOMIES_AGENT_DISK_WARN_FREE_GIB", Kind: KindFloat, Scope: ScopeInstance,
+		Summary: "Warn below this many GiB of free work-directory disk. Defaults to 10; 0 disables this warning.", RestartReason: "the agent disk policy is loaded at startup",
+	},
+	{
+		Key: "agent.disk.stop_free_gib", Label: "Free disk admission reserve", Env: "ZOOMIES_AGENT_DISK_STOP_FREE_GIB", Kind: KindFloat, Scope: ScopeInstance,
+		Summary: "Pause new runners below this many GiB of free work-directory disk. Running jobs finish; admission resumes when free space recovers. Defaults to 0, disabled.", RestartReason: "the agent disk policy is loaded at startup",
+	},
+	{
 		Key: "agent.capacity", Label: "Runners per host", Env: "ZOOMIES_AGENT_CAPACITY", Kind: KindInt, Scope: ScopeInstance,
 		Summary:       "How many runners this host will hold at once when it first enrols. It defaults to one per two cores, which leaves the machine room to breathe. Afterwards the host's own row holds it: change it on the host's card, or with `zoomies hosts edit --capacity`.",
 		RestartReason: "the agent reports its capacity when it first enrols, and the host's row holds it from then on",

@@ -139,6 +139,9 @@ type HostDoctor interface {
 
 // Options configures an Agent.
 type Options struct {
+	// StopFreeGiB pauses new runner admission below this reserve; zero disables it.
+	StopFreeGiB float64
+	diskSpace   func(string) (int64, int64, bool)
 	// Doctor is enabled by production wiring; tests inject a fake or leave it nil.
 	// Production passes a *hosttune.Monitor, whose methods are all safe on a
 	// nil receiver, because a typed nil inside an interface is not a nil
@@ -1058,7 +1061,7 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 	hctx, cancel := context.WithTimeout(ctx, reportTimeout)
 	defer cancel()
 
-	infos := a.refreshBackends(ctx)
+	infos := a.diskBackends(a.refreshBackends(ctx))
 	runners := a.Runners()
 	m := a.machine()
 	cpus, memoryMB := hostSize(infos, m)
@@ -1375,6 +1378,9 @@ func incompatibleSentence(resp *HeartbeatResponse) string {
 // may. Incompatibility is named first: it is the one of the two an operator
 // did not choose, and the one whose fix is a version rather than a decision.
 func (a *Agent) refuseNewWork() string {
+	if why := a.diskRefusal(); why != "" {
+		return why
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	switch {
