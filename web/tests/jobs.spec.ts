@@ -547,7 +547,7 @@ test('opening a failed job names the step and tells the story', async ({ page })
   await expect(timeline).toContainText('started on runner');
 });
 
-test('a rerun asks before it starts every failed job in the run', async ({ page }) => {
+test('a rerun asks before it runs the job again', async ({ page }) => {
   await goto(page, '/jobs?failed=true', 'Jobs');
   const rows = dataRows(jobs(page));
   await expect(rows.first()).toBeVisible();
@@ -556,9 +556,11 @@ test('a rerun asks before it starts every failed job in the run', async ({ page 
 
   const drawer = page.getByRole('dialog');
   await drawer.getByRole('button', { name: 'Run it again' }).click();
-  const confirm = page.getByRole('dialog', { name: 'Run the failed jobs again' });
+  // The seeded job has a GitHub job ID, so this is GitHub's job-level re-run:
+  // the job and whatever needs it, not every failure in the run.
+  const confirm = page.getByRole('dialog', { name: 'Run this job again' });
   await expect(confirm).toBeVisible();
-  await expect(confirm).toContainText('starts every failed job in the run again');
+  await expect(confirm).toContainText('together with any job that needs it');
   await confirm.getByRole('button', { name: 'Cancel' }).click();
   await expect(confirm).toBeHidden();
   // Nothing was asked of GitHub; the drawer is still where the operator was.
