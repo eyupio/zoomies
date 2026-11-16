@@ -194,7 +194,13 @@ func (LocalSystem) WriteFile(p string, b []byte, m fs.FileMode) error {
 	return d.Sync()
 }
 
+type DiskThresholds struct {
+	WarnFreePercent float64
+	WarnFreeGiB     float64
+}
+
 type Options struct {
+	Disk           *DiskThresholds
 	System         System
 	OS             string
 	UID            int

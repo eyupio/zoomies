@@ -1,6 +1,11 @@
 package agent
 
-import "math"
+import (
+	"fmt"
+	"github.com/eyupio/zoomies/internal/backend"
+	"math"
+	"slices"
+)
 
 // diskFromStatfs turns a filesystem's raw block counts into bytes, and refuses
 // figures that cannot describe one.
@@ -26,4 +31,37 @@ func diskFromStatfs(blocks, bavail uint64, bsize int64) (total, avail int64, ok 
 		return 0, 0, false
 	}
 	return total, avail, true
+}
+
+func (a *Agent) diskRefusal() string {
+	if a.opts.StopFreeGiB <= 0 {
+		return ""
+	}
+	measure := a.opts.diskSpace
+	if measure == nil {
+		measure = diskSpace
+	}
+	_, free, ok := measure(a.opts.WorkDir)
+	if !ok {
+		return "cannot measure work directory free disk; new runners paused"
+	}
+	if float64(free) < a.opts.StopFreeGiB*(1<<30) {
+		return fmt.Sprintf("work directory has %.1f GiB free, below %.1f GiB; new runners paused", float64(free)/(1<<30), a.opts.StopFreeGiB)
+	}
+	return ""
+}
+
+// Advertise the admission pause without changing the operator's cordon or
+// cached runtime probes. An older controller already understands availability.
+func (a *Agent) diskBackends(infos []backend.Info) []backend.Info {
+	why := a.diskRefusal()
+	if why == "" {
+		return infos
+	}
+	paused := slices.Clone(infos)
+	for i := range paused {
+		paused[i].Available = false
+		paused[i].Detail = why
+	}
+	return paused
 }

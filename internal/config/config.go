@@ -736,7 +736,14 @@ type GitHub struct {
 }
 
 // Agent configures the runner-executing half of the system.
+type AgentDisk struct {
+	WarnFreePercent float64 `yaml:"warn_free_percent"`
+	WarnFreeGiB     float64 `yaml:"warn_free_gib"`
+	StopFreeGiB     float64 `yaml:"stop_free_gib"`
+}
+
 type Agent struct {
+	Disk AgentDisk `yaml:"disk"`
 	// Embedded runs an agent inside the controller process, so the single-VM
 	// case needs exactly one process.
 	Embedded bool   `yaml:"embedded"`
@@ -1279,6 +1286,7 @@ func Default() *Config {
 			RunnerImage:               DefaultRunnerImage,
 		},
 		Agent: Agent{
+			Disk:              AgentDisk{WarnFreePercent: 10, WarnFreeGiB: 10},
 			Embedded:          true,
 			Capacity:          defaultCapacity(),
 			Backend:           "docker",

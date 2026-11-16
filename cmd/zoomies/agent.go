@@ -146,9 +146,11 @@ func runAgentDaemon(ctx context.Context, e *env, args []string) error {
 	defer transport.Close()
 
 	health := hosttune.LocalOptions(cfg.Agent.WorkDir)
+	health.Disk = &hosttune.DiskThresholds{WarnFreePercent: cfg.Agent.Disk.WarnFreePercent, WarnFreeGiB: cfg.Agent.Disk.WarnFreeGiB}
 	health.DockerHost = cfg.Agent.DockerHost
 	health.HostReportPath = filepath.Join(config.SharedDir(), "host-health", "report.json")
 	a, err := agent.New(agent.Options{
+		StopFreeGiB:        cfg.Agent.Disk.StopFreeGiB,
 		Doctor:             hosttune.NewMonitor(hosttune.New(health)),
 		Name:               cfg.Agent.Name,
 		WorkDir:            cfg.Agent.WorkDir,
