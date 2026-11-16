@@ -995,7 +995,12 @@ jobs:
     # below unpacks them into a private prefix instead of installing them
     # system-wide when sudo is not available.
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
-    timeout-minutes: 90 # the longest successful run seen was 46 minutes
+    # The phone leg was cancelled at the old 90 minute limit twice running on one
+    # pull request, still passing tests and with none failing, and the desktop
+    # leg took 65 minutes beside it on a busy fleet. A limit that a healthy run
+    # can reach turns a slow runner into a red gate, so it now sits well above
+    # the slowest leg seen and not at it.
+    timeout-minutes: 150 # the longest successful run seen was 65 minutes
     # The suite drives the real binary, which `ui` builds and uploads, so a Go
     # change can break it as surely as a web one. Only the binary is shared: the
     # toolchain stays here because the connect project boots its fake GitHub with
