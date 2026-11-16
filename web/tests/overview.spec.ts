@@ -680,6 +680,31 @@ test("the job panels are this fleet's work, and say so when they are not", async
   );
 });
 
+test('a phone keeps refresh, arrange and the scope on one row', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 800 });
+  await reload(page, 'Overview');
+
+  const header = page.locator('header').filter({ has: page.getByRole('heading', { level: 1 }) });
+  const refresh = header.getByRole('button', { name: 'Refresh' });
+  const arrange = header.getByRole('button', { name: 'Arrange' });
+  const scope = header.getByRole('combobox', { name: 'Overview scope' });
+
+  const boxes = await Promise.all([
+    refresh.boundingBox(),
+    arrange.boundingBox(),
+    scope.boundingBox(),
+  ]);
+  expect(boxes.every(Boolean)).toBe(true);
+  const centres = boxes.map((box) => box!.y + box!.height / 2);
+  expect(
+    Math.max(...centres) - Math.min(...centres),
+    'the three controls share one line instead of pushing the band down',
+  ).toBeLessThan(6);
+
+  // The tagline costs the first live figure its place above the fold.
+  await expect(header.locator('.subtitle')).toBeHidden();
+});
+
 test('the subtitle names the window the figures actually cover', async ({ page }) => {
   // The page used to promise that "trends and waits cover the last hour". The
   // waits and the outcomes are computed over the controller's stats window, a

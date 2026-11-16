@@ -570,6 +570,9 @@ test('the Overview band shows the week by the hour, and an hour of it opens Hist
   const card = band.getByTestId('fleet-punch-card');
   await expect(card).toBeVisible();
   await expect(card).toContainText('The last 7 days, by the hour');
+  // The scale is visible, not only in each square's tooltip.
+  await expect(card.locator('.legend')).toContainText('Fewer');
+  await expect(card.locator('.legend')).toContainText('More');
   const grid = card.getByRole('grid');
   await expect(grid.getByRole('gridcell')).toHaveCount(7 * 24);
   // Hours that have not come yet are drawn, so a row is a day, but say so. In

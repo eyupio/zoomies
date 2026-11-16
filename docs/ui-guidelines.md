@@ -1027,8 +1027,8 @@ takes them away rather than let them disagree with the rows. Everything that
 is context rather than the list (the Runners page's scope line, lifecycle and
 last day's activity) is folded under the card in one *Fleet context*
 disclosure, as the Overview folds its History, and a wide column the mock
-leaves out (Age and CPU on Runners, Labels on Queue, the Backend, Platform,
-Idle timeout, Lifetime and Docker settings on Pools) is hidden by default and
+leaves out (Age and CPU on Runners, Labels on Jobs and Queue, the Backend,
+Platform, Idle timeout, Lifetime and Docker settings on Pools) is hidden by default and
 a click away in Columns, with a saved layout winning as it always has. The
 Pools chips are Enabled and Disabled, counted from the fleet's pools, one in
 force at a time as the `status` parameter always was; the size-class panel
@@ -1045,11 +1045,15 @@ view as the All chip, each with its hint in the shared tooltip; Running and
 Queued carry the band's figures while nothing else narrows the rows, and a
 filter no view describes (two states at once, an outcome facet) leaves every
 chip unpressed, All included, as the row of buttons did. On a phone the row
-is one line that scrolls, because the page's rule is records first. Jobs
-keeps its Labels column: for a job no pool claims, the labels in the row are
-why. Workflows draws the same chips over its runs with no counts at all,
+is one line that scrolls, because the page's rule is records first. Jobs keeps
+Labels a click away in Columns rather than on by default: for a job no pool
+claims the labels in the row are why, and the Unmatched state and the drawer
+say so without a column of every job's labels narrowing the ones an operator
+reads. Workflows draws the same chips over its runs with no counts at all,
 because the band's figures count jobs and its rows are runs, so no figure the
-page has would be true of them. The
+page has would be true of them. A run's queue wait, which is its first job's
+wait, is also a click away rather than a default: the band already says how
+many jobs are waiting, and the per-job figure is on Jobs. The
 Queue's chips are the four provisioning statuses, counted from the list's own
 counts, with Ready, Run now and Paused pressed by default and Removed a press
 away; the job filters it shares with the Jobs page (`JobFilters`: the search,

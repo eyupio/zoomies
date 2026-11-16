@@ -18,7 +18,7 @@
     resetUserTwoStep,
     updateUser,
   } from '$lib/api/client';
-  import type { Role, User } from '$lib/api/types';
+  import { atLeast, type Role, type User } from '$lib/api/types';
   import { MIN_PASSWORD_LENGTH } from '$lib/passwords';
   import { ROLE_OPTIONS, roleLabel } from '$lib/roles';
   import { accountStatus } from '$lib/status';
@@ -77,7 +77,10 @@
     return () => controller.abort();
   });
 
-  const admins = $derived(users.filter((u) => u.role === 'admin' && !u.disabled).length);
+  // The server counts platform as an administrator for this invariant: it
+  // outranks admin, so an instance held only by a platform account is still
+  // administered.
+  const admins = $derived(users.filter((u) => !u.disabled && atLeast(u.role, 'admin')).length);
 
   /**
    * The server's sentence for the last-administrator rule.
@@ -534,8 +537,9 @@
   {#if !loading && !error && !(session.authDisabled && admins === 0)}
     <p class="admins">
       {admins === 1
-        ? 'One enabled administrator. Zoomies refuses any change that would leave none.'
-        : `${admins} enabled administrators. Zoomies refuses any change that would leave none.`}
+        ? 'One enabled account can administer this instance.'
+        : `${admins} enabled accounts can administer this instance.`}
+      Zoomies refuses any change that would leave none.
     </p>
   {/if}
   <dl class="roles">

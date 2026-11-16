@@ -3,7 +3,7 @@
   at its maximum is obvious without reading any numbers.
 -->
 <script lang="ts">
-  import { formatNumber, formatPercent } from '../format';
+  import { formatNumber } from '../format';
 
   interface Props {
     busy: number;
@@ -89,7 +89,6 @@
 
 {#snippet figures()}
   <strong>{formatNumber(busy)}</strong> of {formatNumber(live)} busy
-  {#if live > 0}<span class="muted">· {formatPercent(busy / live)}</span>{/if}
   {#if atCeiling}<span class="ceiling">· at the ceiling</span>{/if}
 {/snippet}
 

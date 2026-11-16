@@ -540,7 +540,7 @@
         priority: 'wide',
         sortable: true,
         align: 'end',
-        width: '6rem',
+        width: '7.5rem',
         value: (row) => formatNumber(row.queued_jobs ?? 0),
         cell: queuedCell,
       },
@@ -586,7 +586,7 @@
         overflows: true,
         hideable: false,
         align: 'end',
-        width: '5rem',
+        width: '6rem',
         value: () => '',
         cell: actionsCell,
       });

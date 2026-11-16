@@ -445,7 +445,8 @@
       },
       {
         id: 'job',
-        header: 'Current job',
+        header: 'Job',
+        help: 'The job this runner is running now.',
         value: (row) => readableJobText(row.current_job?.job_name),
         cell: jobCell,
       },
@@ -462,7 +463,8 @@
       },
       {
         id: 'jobs',
-        header: 'Jobs handled',
+        header: 'Jobs',
+        help: 'How many jobs this runner has taken.',
         priority: 'wide',
         sortable: true,
         align: 'end',
@@ -504,7 +506,7 @@
         overflows: true,
         hideable: false,
         align: 'end',
-        width: '5rem',
+        width: '6rem',
         value: () => '',
         cell: actionsCell,
       });
