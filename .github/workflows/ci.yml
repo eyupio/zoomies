@@ -752,7 +752,11 @@ jobs:
     name: Windows
     runs-on: windows-latest
     needs: [changes]
-    if: github.event.action != 'closed' && (needs.changes.outputs.go == 'true' || needs.changes.outputs.installer == 'true')
+    # A UI change reaches this leg as well: the bundle it builds is embedded in
+    # the binary that is built and vetted on Windows, and the images rebuild for
+    # web/package.json and web/package-lock.json, so the platform the binary is
+    # also shipped for is tested against the same tree.
+    if: github.event.action != 'closed' && (needs.changes.outputs.go == 'true' || needs.changes.outputs.web == 'true' || needs.changes.outputs.installer == 'true')
     timeout-minutes: 60
     defaults:
       run:
