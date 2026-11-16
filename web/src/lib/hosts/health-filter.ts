@@ -5,13 +5,13 @@
  * is in the app shell (the feed imports from it), so anything added there spends
  * shell bytes that only this page would use.
  *
- * The pill on each card is the one authority on a host's health, and the filter
- * asks it. `healthBucket` calls `healthSummary` exactly as the card does, so the
- * count on the "Need attention" tile, the chip and the pills can never disagree.
- * Three things follow from that, and each is said where it shows:
+ * Disk admission comes from the controller's host problem, as the card's red
+ * status does. It takes precedence even when no OS report has arrived.
+ * Otherwise healthBucket asks healthSummary, exactly as the card does, so
+ * the Need attention tile, chip and cards agree. For OS reports:
  *
  *  - The three buckets are exclusive and do not add up to All. A host with a
- *    clean report, a partial report or "Checks unavailable" is in none of them,
+ *    clean report, a partial report or "Checks unavailable" and no disk block is in none of them,
  *    because its pill says nothing is wrong and nothing is missing.
  *  - A host whose agent is not connected is "Report stale" even with a fresh
  *    report, because its pill reads "Last known report". A stale host that is
@@ -32,8 +32,7 @@ export const HEALTH_FILTERS = [
   {
     value: 'attention',
     label: 'Need attention',
-    title:
-      'Disk blocking placement, OS settings below the recommendation, or a reboot pending.',
+    title: 'Disk blocking placement, OS settings below the recommendation, or a reboot pending.',
     note: 'disk blocking placement, OS settings below the recommendation, or a reboot pending.',
   },
   {
@@ -55,7 +54,7 @@ export type HealthFilter = (typeof HEALTH_FILTERS)[number]['value'];
 export type HealthBucket = Exclude<HealthFilter, 'all'>;
 export type HealthCounts = Record<HealthFilter, number>;
 
-/** What the pill reads, and nothing else of the host. */
+/** The host identity and OS report the card reads. */
 type Judged = Pick<Host, 'doctor' | 'healthy'> & { id?: string; cordoned?: boolean };
 
 /**

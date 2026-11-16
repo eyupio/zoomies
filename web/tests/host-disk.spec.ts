@@ -39,7 +39,10 @@ test('a disk-blocked host is red in its collapsed row and recovers without a cor
   const card = page.getByRole('article', { name: 'disk-admission-test' });
   await expect(card.getByText('Disk blocked', { exact: true })).toBeVisible();
   await expect(card.getByTestId('host-disk-blocked')).toContainText('One runner needs 10 GiB');
-  await expect(card.getByRole('button', { name: /Details/ })).toHaveAttribute('aria-expanded', 'false');
+  await expect(card.getByRole('button', { name: /Details/ })).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  );
   blocked = false;
   await reload(page, 'Hosts');
   await expect(page.getByRole('heading', { name: 'No host needs attention' })).toBeVisible();
