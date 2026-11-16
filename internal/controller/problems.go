@@ -186,6 +186,7 @@ var problemAudience = map[string]Audience{
 	"host.runtime_recovering":           AudienceFleet,
 	"host.scratch_unmeasured":           AudienceFleet,
 	"host.throttled":                    AudienceFleet,
+	"host.low_disk":                     AudienceFleet,
 	"host.unhealthy":                    AudienceFleet,
 	"host.os_health":                    AudienceFleet,
 	"host.health_stale":                 AudienceFleet,
@@ -448,6 +449,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	})
 
 	gather("hosts", c.hostProblems)
+	gather("host disk admission", c.hostDiskProblems)
 	gather("installations", c.installationProblems)
 	gather("the encryption key", c.keyProblems)
 	gather("host and machine versions", c.hostSkewProblems)

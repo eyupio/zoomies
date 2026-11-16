@@ -1785,6 +1785,7 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 	}
 	var unhealthy, cordoned, incompatible, backend, platform, selector, profile, tooSmall, full int
 	var shortCPU, shortMemory, lowDisk, held, warming, throttled, committed int
+	var lowDiskHosts []string
 	// candidates are the hosts that could run this pool whatever they are doing
 	// at the moment. Of those, waiting counts the ones that only need a job to
 	// finish (out of slots, or short of memory or CPU that runners of ours
@@ -1853,6 +1854,7 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 			// host with a few GB free is short of disk, and freeing space on
 			// it does make room, unlike a machine that is too small.
 			lowDisk++
+			lowDiskHosts = append(lowDiskHosts, naming.ForSentence(h.Name))
 		case !HostFits(h, p):
 			// The machine itself is too small for one runner of this pool, so
 			// nothing finishing on it will ever make room. That is a different
@@ -1874,8 +1876,9 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 			// already run in.
 			left, alloc, want := hs.leftFor(h, p), hs.alloc[h.ID], MinimumReserve(p, h)
 			switch {
-			case alloc.DiskKnown && (alloc.DiskMB <= 0 || left.DiskMB < want.DiskMB):
+			case !diskFits(left, want, alloc):
 				lowDisk++
+				lowDiskHosts = append(lowDiskHosts, naming.ForSentence(h.Name))
 			case alloc.MemoryKnown && left.MemoryMB < want.MemoryMB:
 				shortMemory++
 				if hs.ours[h.ID] {
@@ -1925,7 +1928,7 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 	add(tooSmall, "too small for this pool's limits")
 	add(shortMemory, "short of memory")
 	add(shortCPU, "short of CPU")
-	add(lowDisk, "low on disk")
+	add(lowDisk, "low on disk ("+strings.Join(lowDiskHosts, ", ")+")")
 	add(held, "holding new starts while host pressure clears")
 	add(warming, "starting one runner at a time while CPU is busy")
 	add(throttled, "throttled after sustained pressure")

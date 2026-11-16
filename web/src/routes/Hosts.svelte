@@ -140,9 +140,9 @@
   // the same tick rather than a pill saying one thing and a chip another.
   let now = $state(Date.now());
   $effect(() => onClockTick((t) => (now = t)));
-  const counts = $derived(healthCounts(hosts, now));
+  const counts = $derived(healthCounts(hosts, now, fleet.problems));
   const filter = $derived(healthFilterFrom(router.param('health')));
-  const shown = $derived(hostsFor(hosts, filter, now));
+  const shown = $derived(hostsFor(hosts, filter, now, fleet.problems));
 
   // Replaces the history entry and neither scrolls nor moves focus: choosing a
   // chip is not going somewhere. The default is the absence of the parameter,

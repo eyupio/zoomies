@@ -22,9 +22,10 @@
  *    the problems list for a few minutes. The pill is what the card shows, and
  *    the count follows the card.
  */
-import type { Host } from '$lib/api/types';
+import type { Host, Problem } from '$lib/api/types';
 import { pluralise } from '../format';
 import { healthSummary } from './health';
+import { diskProblemFor } from './disk';
 
 export const HEALTH_FILTERS = [
   { value: 'all', label: 'All', title: 'Every host.', note: '' },
@@ -32,8 +33,8 @@ export const HEALTH_FILTERS = [
     value: 'attention',
     label: 'Need attention',
     title:
-      'OS settings below the recommendation, or a reboot pending. The same hosts whose health pill says warnings, errors or a reboot.',
-    note: 'OS settings below the recommendation, or a reboot pending.',
+      'Disk blocking placement, OS settings below the recommendation, or a reboot pending.',
+    note: 'disk blocking placement, OS settings below the recommendation, or a reboot pending.',
   },
   {
     value: 'stale',
@@ -55,7 +56,7 @@ export type HealthBucket = Exclude<HealthFilter, 'all'>;
 export type HealthCounts = Record<HealthFilter, number>;
 
 /** What the pill reads, and nothing else of the host. */
-type Judged = Pick<Host, 'doctor' | 'healthy'>;
+type Judged = Pick<Host, 'doctor' | 'healthy'> & { id?: string; cordoned?: boolean };
 
 /**
  * The filter a query value names. Exact matches only: an address somebody
@@ -70,7 +71,12 @@ export function healthFilterFrom(raw: string): HealthFilter {
  * The one bucket a host is in, or null when its pill has nothing to say about
  * it: Health OK, Partial report and Checks unavailable.
  */
-export function healthBucket(host: Judged, now: number): HealthBucket | null {
+export function healthBucket(
+  host: Judged,
+  now: number,
+  problems: readonly Problem[] = [],
+): HealthBucket | null {
+  if (diskProblemFor(host, problems)) return 'attention';
   // "Health unavailable": no report, or one that arrived without the
   // controller's count of it. Asked first, because healthSummary also calls a
   // missing report stale and would put it in the wrong bucket.
@@ -81,10 +87,14 @@ export function healthBucket(host: Judged, now: number): HealthBucket | null {
   return tone === 'danger' || tone === 'pending' ? 'attention' : null;
 }
 
-export function healthCounts(hosts: readonly Judged[], now: number): HealthCounts {
+export function healthCounts(
+  hosts: readonly Judged[],
+  now: number,
+  problems: readonly Problem[] = [],
+): HealthCounts {
   const counts: HealthCounts = { all: hosts.length, attention: 0, stale: 0, 'no-report': 0 };
   for (const host of hosts) {
-    const bucket = healthBucket(host, now);
+    const bucket = healthBucket(host, now, problems);
     if (bucket) counts[bucket] += 1;
   }
   return counts;
@@ -95,9 +105,10 @@ export function hostsFor<T extends Judged>(
   hosts: readonly T[],
   filter: HealthFilter,
   now: number,
+  problems: readonly Problem[] = [],
 ): readonly T[] {
   if (filter === 'all') return hosts;
-  return hosts.filter((host) => healthBucket(host, now) === filter);
+  return hosts.filter((host) => healthBucket(host, now, problems) === filter);
 }
 
 /** The line under the chips while a filter is on, or nothing for All. Written for a screen reader as much as for the eye. */
@@ -116,7 +127,7 @@ export function filterSentence(filter: HealthFilter, shown: number, total: numbe
 export function attentionDetail(counts: HealthCounts): string {
   const silent = counts.stale + counts['no-report'];
   if (counts.attention === 0 && silent > 0) return `${silent} without a current OS report`;
-  return 'OS settings below the recommendation, or a reboot pending';
+  return 'Disk blocking placement, OS settings below the recommendation, or a reboot pending';
 }
 
 /** What the page says when a filter matches nothing. */
@@ -130,7 +141,7 @@ export function emptyCopy(
     return {
       title: 'No host needs attention',
       description:
-        'Every host with a current report is within what Zoomies recommends, and none is waiting for a reboot.' +
+        'No host has disk blocking placement. Every host with a current report is within what Zoomies recommends, and none is waiting for a reboot.' +
         (silent > 0
           ? ` ${pluralise(silent, 'host')} ${has(silent)} no current report, so nothing is known about ${silent === 1 ? 'it' : 'them'} yet.`
           : ''),

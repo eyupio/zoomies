@@ -285,6 +285,7 @@ var publicSentences = map[string]string{
 	"host.runtime_recovering":                       "A machine's container runtime is recovering, so it is taking no new jobs for now.",
 	"host.scratch_unmeasured":                       "A machine cannot tell how full its in-memory folders get, so a job that fills one fails without saying why.",
 	"host.throttled":                                "A machine is busy enough that it is taking new jobs more slowly.",
+	"host.low_disk":                                 "A machine has spare slots but too little disk for new runners of one or more pools.",
 	"host.unhealthy":                                "A machine has stopped checking in, so fewer jobs can run at once.",
 	"host.version_behind":                           "A machine is running an older agent than the controller.",
 	"installation.unhealthy":                        "The fleet has lost a permission it needs on GitHub, so jobs from some repositories cannot start.",

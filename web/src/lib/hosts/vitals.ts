@@ -11,7 +11,7 @@
  *
  * Route-only, like health-card.ts: the card is the only caller.
  */
-import type { Host, HostSample } from '$lib/api/types';
+import type { Host, HostSample, Problem } from '$lib/api/types';
 import { NO_VALUE, formatMegabytes, formatNumber } from '$lib/format';
 import { PRESSURE, liveSample, metricValue } from '$lib/insights/hostSeries';
 import { throttled } from '$lib/status';
@@ -210,7 +210,7 @@ function summaryOf(item: Omit<Vital, 'summary'>, reason: string, note: string): 
   return note ? `${sentence} ${note}` : sentence;
 }
 
-export function hostVitals(host: Host, now: number): Vitals {
+export function hostVitals(host: Host, now: number, diskProblem?: Problem): Vitals {
   // A host that has stopped sending heartbeats shows nothing as current. The
   // disk figure is whatever the agent last said, and beside "No heartbeat since
   // twenty minutes ago" it would read as now.
@@ -218,7 +218,8 @@ export function hostVitals(host: Host, now: number): Vitals {
   const sample = liveSample(host, now);
   const items = KEYS.map((key): Vital => {
     const percent = silent ? null : metricValue(sample, key);
-    const tight = percent !== null && pressed(key, host, sample);
+    const diskBlocked = key === 'disk' && Boolean(diskProblem);
+    const tight = percent !== null && (diskBlocked || pressed(key, host, sample));
     const item = {
       key,
       label: LABEL[key],
@@ -229,7 +230,13 @@ export function hostVitals(host: Host, now: number): Vitals {
     };
     return {
       ...item,
-      summary: summaryOf(item, reasonOf(key, host, silent), noteOf(key, host, sample, tight)),
+      summary: summaryOf(
+        item,
+        reasonOf(key, host, silent),
+        diskBlocked
+          ? diskProblem?.detail || 'Disk prevents placement.'
+          : noteOf(key, host, sample, tight),
+      ),
     };
   });
   const measured = items.some((item) => item.percent !== null);
