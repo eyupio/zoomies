@@ -415,12 +415,17 @@ async function keepPool(
 }
 
 test.describe('pools the controller keeps', () => {
-  test('with both switches off the page says so in a sentence and shows no panel', async ({
-    page,
-  }) => {
+  test('with both switches off the page says so in one line that opens', async ({ page }) => {
     await goto(page, '/pools', 'Pools');
-    await expect(page.getByTestId('auto-pools-off')).toContainText('Automatic pools are off');
-    await expect(page.getByTestId('auto-pools-off')).toContainText('scheduler.auto_pools');
+    const off = page.getByTestId('auto-pools-off');
+    await expect(off).toContainText('Automatic pools are off');
+    await expect(off).toContainText('scheduler.auto_pools');
+    // The explanation is behind the line, so the pools begin where they used
+    // to be three sentences further down.
+    await expect(off.locator('p')).toBeHidden();
+    await off.locator('summary').click();
+    await expect(off.locator('p')).toBeVisible();
+    await expect(off).toContainText('Zoomies can keep a pool for each size of host');
     await expect(page.getByTestId('auto-pools-panel')).toHaveCount(0);
     // Nothing on the grid says "Automatic" for a pool an operator made.
     await expect(dataRows(grid(page, 'Pools')).first()).toBeVisible();

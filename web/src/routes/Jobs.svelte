@@ -543,12 +543,23 @@
 
   // The sortable ids are the column names the store understands: queued_at,
   // started_at, completed_at, repo, workflow, state, duration and queue_wait.
+  // How a job failed is only a column where the question is a failure; on
+  // Running, Queued and Finished it was a column of dashes between the state
+  // and the repository, and one of the ones that squeezed every heading.
+  const failedAtColumn: GridColumn<Job> = {
+    id: 'failed_at',
+    header: 'Failed at',
+    priority: 'wide',
+    width: '6.75rem',
+    value: failureSummary,
+    cell: failedAtCell,
+  };
   const baseColumns = $derived<GridColumn<Job>[]>([
     {
       id: 'state',
       header: 'State',
       sortable: true,
-      width: '9.5rem',
+      width: '7rem',
       hideable: false,
       value: (job) => {
         const queue = queueStatus(job);
@@ -557,28 +568,37 @@
       },
       cell: stateCell,
     },
+    ...(filters.failed || filters.attention ? [failedAtColumn] : []),
     {
-      id: 'failed_at',
-      header: 'Failed at',
-      priority: 'wide',
-      value: failureSummary,
-      cell: failedAtCell,
+      id: 'repo',
+      header: 'Repository',
+      sortable: true,
+      width: '8rem',
+      value: (job) => job.repo ?? '',
     },
-    { id: 'repo', header: 'Repository', sortable: true, value: (job) => job.repo ?? '' },
-    { id: 'workflow', header: 'Workflow', sortable: true, value: (job) => job.workflow ?? '' },
+    {
+      id: 'workflow',
+      header: 'Workflow',
+      sortable: true,
+      width: '7.5rem',
+      value: (job) => job.workflow ?? '',
+    },
     {
       id: 'job_name',
       header: 'Job',
+      width: '6rem',
       value: (job) => readableJobText(job.job_name),
       cell: jobNameCell,
     },
     {
-      // Shown by default although the mock's table has no labels column: for a
-      // job no pool claims, the labels in the row are why, and the list is the
-      // one place that says so beside the word Unmatched.
+      // Labels are how an unmatched row is diagnosed, but every other row pays
+      // for them in heading width. The Unmatched state and the drawer say the
+      // same thing, so the column is a click away in Columns rather than a
+      // default.
       id: 'labels',
       header: 'Labels',
       priority: 'wide',
+      hiddenByDefault: true,
       value: (job) => (job.labels ?? []).join(' '),
       cell: labelsCell,
     },
@@ -586,6 +606,7 @@
       id: 'pool',
       header: 'Pool',
       priority: 'wide',
+      width: '6rem',
       value: (job) => job.pool_name ?? '',
       cell: poolCell,
     },
@@ -602,9 +623,13 @@
       value: (job) => classCell(job) || NO_VALUE,
     },
     {
+      // Where the job ran is in the drawer and on the runner's own page; the
+      // list answers what ran, and the column was one of the ones that made
+      // every heading on the page an ellipsis.
       id: 'runner',
       header: 'Runner',
       priority: 'wide',
+      hiddenByDefault: true,
       value: (job) => job.runner_name ?? '',
       cell: runnerCell,
     },
@@ -620,7 +645,7 @@
       header: 'Queue wait',
       sortable: true,
       align: 'end',
-      width: '8rem',
+      width: '8.25rem',
       value: (job) => formatDuration(job.queue_wait_ms),
       cell: queueWaitCell,
     },
@@ -629,7 +654,7 @@
       header: 'Duration',
       sortable: true,
       align: 'end',
-      width: '8rem',
+      width: '7rem',
       value: (job) => formatDuration(job.duration_ms),
       cell: durationCell,
     },
@@ -637,11 +662,11 @@
       id: 'queued_at',
       header: 'Queued',
       sortable: true,
-      width: '9rem',
+      width: '7rem',
       value: (job) => job.queued_at ?? '',
       cell: queuedCell,
     },
-    { id: 'link', header: 'Run', priority: 'wide', width: '5.5rem', align: 'end', cell: linkCell },
+    { id: 'link', header: 'Run', priority: 'wide', width: '5rem', align: 'end', cell: linkCell },
   ]);
   const preferred = ['job_name', 'repo', 'state', 'queue_wait', 'duration'];
   const shownColumns = $derived(

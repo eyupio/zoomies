@@ -208,3 +208,31 @@ func TestTheExplanationCatchesARunningJobOnASilentHost(t *testing.T) {
 		t.Errorf("host_id = %q, want the host the operator has to go and look at", got.HostID)
 	}
 }
+
+// Every finished job shows this sentence in the drawer, so the conclusion has
+// to be a verb rather than the id GitHub sent. "This job ran and failure." was
+// the most common one of all.
+func TestACompletedJobsSummaryReadsAsEnglish(t *testing.T) {
+	cases := map[string]string{
+		"success":         "This job ran and succeeded.",
+		"failure":         "This job ran and failed.",
+		"timed_out":       "This job ran and timed out.",
+		"cancelled":       "This job ran and was cancelled.",
+		"skipped":         "This job ran and was skipped.",
+		"startup_failure": "This job ran and failed to start.",
+		"action_required": "This job ran and needs action.",
+		"neutral":         "This job ran and ended neutrally.",
+		"stale":           "This job ran and went stale.",
+		"":                "This job finished without a conclusion.",
+		"something_new":   "This job finished with the conclusion something_new.",
+	}
+
+	for conclusion, want := range cases {
+		job := &store.Job{State: store.JobCompleted, Conclusion: conclusion}
+		var got JobExplanation
+		(&Controller{}).explainCompleted(job, &got)
+		if got.Summary != want {
+			t.Errorf("conclusion %q: summary = %q, want %q", conclusion, got.Summary, want)
+		}
+	}
+}

@@ -131,6 +131,7 @@
   const acknowledged = $derived(job?.acknowledged_at != null);
   let rerunning = $state(false);
   let acking = $state(false);
+  let rerunOpen = $state(false);
   let cancelOpen = $state(false);
   let forceCancel = $state(false);
 
@@ -168,8 +169,8 @@
     }
   }
 
-  async function rerun(): Promise<void> {
-    if (!job?.id || rerunning) return;
+  async function rerun(): Promise<boolean> {
+    if (!job?.id || rerunning) return false;
     rerunning = true;
     try {
       await rerunJobWorkflow(job.id);
@@ -177,8 +178,10 @@
         'Re-run requested',
         'GitHub is running this job again, together with any job that needs it. They arrive as a new run attempt.',
       );
+      return true;
     } catch (cause) {
       toasts.fromError(cause, 'GitHub did not accept the re-run');
+      return false;
     } finally {
       rerunning = false;
     }
@@ -228,7 +231,7 @@
         <JobWhy
           {job}
           mode={failed ? 'failed' : 'waiting'}
-          onRerun={canRerun ? rerun : null}
+          onRerun={canRerun ? () => (rerunOpen = true) : null}
           {rerunning}
         />
       {/if}
@@ -526,6 +529,26 @@
     description="Use this only if GitHub leaves an ordinary cancellation stuck. It bypasses conditions that would otherwise keep the run alive."
   />
 </ConfirmDialog>
+
+<!--
+  The same confirmation the cancel above gets, for the same reason: a rerun
+  starts every failed job in the run, not the one this drawer is about, and it
+  spends this fleet's capacity doing it.
+-->
+<ConfirmDialog
+  bind:open={rerunOpen}
+  title="Run the failed jobs again"
+  description="GitHub has no job-level re-run. This starts every failed job in the run again as a new run attempt."
+  consequences={[
+    `Run ${job?.run_number ? '#' + job.run_number : (job?.github_run_id ?? '')} in ${job?.repo ?? 'GitHub'} will be re-run.`,
+    'The runners it starts come from the same pools, so it spends capacity like a new run.',
+  ]}
+  confirmLabel="Run again"
+  tone="default"
+  busy={rerunning}
+  onconfirm={rerun}
+  oncancel={() => (rerunOpen = false)}
+/>
 
 <style>
   .stack {

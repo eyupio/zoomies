@@ -280,7 +280,6 @@ test('the unmatched filter finds the job no pool claims and explains it', async 
   await expect(row).toContainText('Unmatched');
   // The seeded job asks for labels no pool answers, so nothing claims it.
   await expect(row).toContainText('Unclaimed');
-  await expect(row).toContainText('cuda12');
 
   // And the explanation, which is the part an operator cannot infer.
   const note = page.getByRole('note');
@@ -291,6 +290,11 @@ test('the unmatched filter finds the job no pool claims and explains it', async 
   await expect(note).toContainText('typo in');
   await expect(note).toContainText('another runner provider');
   await expect(note.getByRole('link', { name: 'Check the pools and their labels' })).toBeVisible();
+
+  // The labels that went unanswered are in the drawer, one click away, rather
+  // than a column every job on the list pays for.
+  await row.click();
+  await expect(page.getByRole('dialog')).toContainText('cuda12');
 });
 
 /*
@@ -472,7 +476,10 @@ test('other runners are hidden by default and one switch brings them back', asyn
   await openFilters(page);
   await expect(dataRows(jobs(page)).first()).toBeVisible();
   await everyStatus(page);
-  await expect(jobs(page).getByText('blacksmith-4vcpu-ubuntu-2404')).toHaveCount(0);
+  // The default row count is the fleet's own work; the vendor's job is not in
+  // it. Labels and runner are columns a click away, so the count is what says
+  // the row is absent.
+  await expect(rowCount(page)).toContainText(`of ${FIXTURE.managedJobs} jobs`);
 
   await page.getByRole('switch', { name: 'Include other runners' }).click();
 
@@ -485,15 +492,15 @@ test('other runners are hidden by default and one switch brings them back', asyn
   // Including the one still queued, which is what the switch being off used to
   // fail to hide: GitHub reports a vendor's job the moment it is queued, and
   // "nothing here has run it" is true of it for a few seconds.
-  const vendorQueued = dataRows(jobs(page)).filter({ hasText: 'blacksmith-4vcpu-ubuntu-2404' });
-  await expect(vendorQueued.filter({ hasText: 'Queued' })).toHaveCount(1);
-  await expect(vendorQueued.filter({ hasText: 'Queued' })).toContainText('Hosted elsewhere');
+  const vendorQueued = dataRows(jobs(page))
+    .filter({ hasText: 'Hosted elsewhere' })
+    .filter({ hasText: 'Queued' });
+  await expect(vendorQueued).toHaveCount(1);
 
   // A queued job nothing claims is listed whichever runners are shown: nothing
   // ran it, so it is this fleet's problem to see. The row is how it is seen --
   // the explanation above the grid waits for the filter.
   await goto(page, '/jobs?state=queued', 'Jobs');
-  await expect(jobs(page).getByText('cuda12')).toBeVisible();
   await expect(jobs(page)).toContainText('Unmatched');
 });
 
@@ -538,6 +545,24 @@ test('opening a failed job names the step and tells the story', async ({ page })
   await expect(entries.first()).toContainText('via webhook');
   await expect(entries.last()).toContainText(/failed at step \d+/);
   await expect(timeline).toContainText('started on runner');
+});
+
+test('a rerun asks before it starts every failed job in the run', async ({ page }) => {
+  await goto(page, '/jobs?failed=true', 'Jobs');
+  const rows = dataRows(jobs(page));
+  await expect(rows.first()).toBeVisible();
+  const row = rows.filter({ hasText: 'Failure' }).filter({ hasNotText: 'Runner lost' }).first();
+  await row.click();
+
+  const drawer = page.getByRole('dialog');
+  await drawer.getByRole('button', { name: 'Run it again' }).click();
+  const confirm = page.getByRole('dialog', { name: 'Run the failed jobs again' });
+  await expect(confirm).toBeVisible();
+  await expect(confirm).toContainText('starts every failed job in the run again');
+  await confirm.getByRole('button', { name: 'Cancel' }).click();
+  await expect(confirm).toBeHidden();
+  // Nothing was asked of GitHub; the drawer is still where the operator was.
+  await expect(drawer).toBeVisible();
 });
 
 test("a job whose runner died under it is called the fleet's failure", async ({ page }) => {

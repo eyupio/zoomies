@@ -199,9 +199,14 @@ test('a failed first fetch offers a retry instead of presenting current figures'
     }),
   );
   await goto(page, '/', 'Overview');
-  await expect(
-    page.getByRole('alert').getByText('The fleet could not be loaded', { exact: true }),
-  ).toBeVisible();
+  const alert = page.getByRole('alert');
+  await expect(alert.getByText('The fleet could not be loaded', { exact: true })).toBeVisible();
+  // The server's sentence says the same thing as the title, so it is dropped
+  // rather than printed twice; what replaces it says what to do.
+  await expect(alert.getByText('The fleet could not be read.', { exact: true })).toHaveCount(0);
+  await expect(alert.locator('.body')).toHaveText(
+    'The controller did not answer with the fleet. Check that it is running and reachable, then try again.',
+  );
   await expect(page.getByRole('button', { name: 'Try again', exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: /^Queued jobs/ })).toHaveCount(0);
 });

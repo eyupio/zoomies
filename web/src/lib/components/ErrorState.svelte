@@ -55,6 +55,19 @@
           ? sentence(error.message)
           : `The cause was not reported. ${supportHint()}`),
   );
+
+  // A title and a body that say the same sentence read as two failures. Keep
+  // the server's words when they add something and drop them when they do not.
+  const restates = $derived(
+    body
+      .trim()
+      .replace(/[.!?]+$/, '')
+      .toLowerCase() ===
+      heading
+        .trim()
+        .replace(/[.!?]+$/, '')
+        .toLowerCase(),
+  );
 </script>
 
 <div class="error {className}" class:compact role="alert">
@@ -63,7 +76,7 @@
   </span>
   <div class="text">
     <p class="title">{heading}</p>
-    <p class="body">{body}</p>
+    {#if !restates}<p class="body">{body}</p>{/if}
     {#if apiError?.detail}<p class="detail">{apiError.detail}</p>{/if}
   </div>
   {#if onretry}

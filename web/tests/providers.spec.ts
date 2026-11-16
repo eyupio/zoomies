@@ -171,6 +171,16 @@ test('a failed check opens on the detail and the fix, not only the title', async
   await expect(card).toContainText('use a bridge that exists on every node');
 });
 
+test('the provider wizard does not promise a step count the automatic flow folds away', async ({
+  page,
+}) => {
+  await goto(page, '/providers/new', 'Add a provider');
+  // Automatic setup folds Machine into Capacity, so the default flow has four
+  // steps. The subtitle used to say "Five steps" over them.
+  await expect(page.locator('ol.steps li')).toHaveCount(4);
+  await expect(page.locator('.subtitle')).not.toContainText(/\b(?:four|five)\s+steps?\b/i);
+});
+
 test("the wizard is rendered from the driver's schema, with the driver's own defaults filled in", async ({
   page,
 }) => {

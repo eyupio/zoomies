@@ -247,7 +247,7 @@ test('every column is still there when the rows become cards', async ({ page }) 
     .locator('td')
     .evaluateAll((cells) => cells.map((cell) => cell.getAttribute('data-label')));
   // Memory is a wide column, dropped on a narrow desktop and back in full here.
-  for (const heading of ['Status', 'Name', 'Pool', 'Host', 'Current job', 'Memory']) {
+  for (const heading of ['Status', 'Name', 'Pool', 'Host', 'Job', 'Memory']) {
     expect(labels, `a card names its ${heading}`).toContain(heading);
   }
 
@@ -255,8 +255,8 @@ test('every column is still there when the rows become cards', async ({ page }) 
   // sort, and the tick that takes every row on the page.
   await expect(runners.getByRole('checkbox', { name: /^Select every/ })).toBeVisible();
   await runners
-    .getByRole('columnheader', { name: 'Jobs handled' })
-    .getByRole('button', { name: 'Jobs handled', exact: true })
+    .getByRole('columnheader', { name: 'Jobs', exact: true })
+    .getByRole('button', { name: 'Jobs', exact: true })
     .click();
   await expect(page).toHaveURL(/sort=jobs/);
 });
@@ -444,4 +444,38 @@ test('a grid asked for a page past the end steps back to the last page with rows
 test('a grid with nothing to show still says so on its first page', async ({ page }) => {
   await goto(page, '/jobs?state=in_progress&since=2020-01-01&until=2020-01-02', 'Jobs');
   await expect(page.getByText('Nothing is running right now')).toBeVisible();
+});
+
+/*
+ * A column heading cut to two or three letters is not a column name.
+ *
+ * The grid divides the frame it is given and truncates what does not fit, which
+ * is right for a cell but wrong for a heading: "REP…" and "QUE…" ask the reader
+ * to hover every column to learn what the list already knows. The reference
+ * desktop is the width the screenshots and most operators use, so at 1440 every
+ * heading on every list is expected to be readable without the tooltip.
+ */
+test('every grid heading is readable at the reference desktop', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+
+  const views = [
+    ...GRIDS,
+    // The failed view carries the extra "Failed at" column, so it is the
+    // widest arrangement the Jobs grid asks the frame for.
+    { path: '/jobs?failed=true', heading: 'Jobs', label: 'Jobs' },
+  ];
+
+  for (const { path, heading, label } of views) {
+    await goto(page, path, heading);
+    await waitForRows(grid(page, label));
+
+    const cut = await grid(page, label).evaluate((table) =>
+      [...table.querySelectorAll('thead th .heading-label')]
+        .filter((el): el is HTMLElement => el instanceof HTMLElement)
+        .filter((el) => el.scrollWidth > el.clientWidth + 1)
+        .map((el) => el.textContent?.trim() ?? '?'),
+    );
+
+    expect(cut, `${heading} at ${path} has headings the reader cannot read`).toEqual([]);
+  }
 });
