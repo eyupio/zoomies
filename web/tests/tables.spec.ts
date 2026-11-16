@@ -456,6 +456,9 @@ test('a grid with nothing to show still says so on its first page', async ({ pag
  * heading on every list is expected to be readable without the tooltip.
  */
 test('every grid heading is readable at the reference desktop', async ({ page }) => {
+  // A phone project keeps a coarse pointer, and the touch-sized heading grip
+  // is wider than the desktop one this check is about.
+  test.skip(Boolean(test.info().project.use.isMobile), 'the reference desktop is not a phone');
   await page.setViewportSize({ width: 1440, height: 900 });
 
   const views = [
