@@ -91,20 +91,25 @@
     gap: var(--z-space-2) var(--z-space-3);
   }
   [data-compact='true'] .head {
-    flex: 1;
     padding-bottom: 0;
   }
   [data-compact='true'] .cells {
     display: block;
     flex: none;
+    margin-inline-start: auto;
   }
   [data-compact='true'] .cells :global(.tile.free) {
     height: auto;
     padding: var(--z-space-1) var(--z-space-3);
   }
+  /* The header is only as wide as what it holds, not the lane: the tooltip
+     centres on this box, so a full-width one put the card in the middle of the
+     page, far from the name the pointer is on. */
   .head {
     display: flex;
     align-items: center;
+    justify-self: start;
+    max-width: 100%;
     gap: var(--z-space-3);
     min-width: 0;
     padding-bottom: var(--z-space-1);
@@ -132,7 +137,7 @@
   }
   .note {
     display: inline-flex;
-    flex: 1;
+    flex: 0 1 auto;
     align-items: center;
     gap: var(--z-space-1);
     min-width: 0;
