@@ -16,7 +16,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/eyupio/zoomies/internal/registrymirror"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -620,20 +619,20 @@ func (r *Registry) CacheStats() []CacheStats {
 	return out
 }
 
-// RegistryMirrorStats reports what this host's registry mirror has done and
-// holds, or nil when no backend has started one, which a heartbeat leaves out.
-// A host has one mirror: only the Docker backend runs sidecars, so only its
-// mirror is ever started, and the first one that has is the one reported.
-func (r *Registry) RegistryMirrorStats() *registrymirror.Stats {
+// RegistryMirrorReport reports what this host's registry mirror has done, holds
+// and has wrong with it, or nil when no backend has one on, which a heartbeat
+// leaves out. A host has one mirror: only the Docker backend runs sidecars, so
+// only its mirror is ever on, and the first one that reports is the one sent.
+func (r *Registry) RegistryMirrorReport() *RegistryMirrorReport {
 	if r == nil {
 		return nil
 	}
 	kinds := r.Kinds()
 	sort.Slice(kinds, func(i, j int) bool { return kinds[i] < kinds[j] })
 	for _, k := range kinds {
-		if ms, ok := r.backends[k].(RegistryMirrorStatser); ok {
-			if st := ms.RegistryMirrorStats(); st != nil {
-				return st
+		if rp, ok := r.backends[k].(RegistryMirrorReporter); ok {
+			if rep := rp.RegistryMirrorReport(); rep != nil {
+				return rep
 			}
 		}
 	}

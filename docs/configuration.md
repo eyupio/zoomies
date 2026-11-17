@@ -1998,8 +1998,9 @@ from Docker Hub, on this host's disk, and serves the next pull from there.
   is ever kept. A private image is pulled as it is today.
 * **It listens on the host's own address on the network the sidecars use** (the
   default bridge's gateway unless `agent.network` or a pool names another) and on
-  nothing else, so a machine on the host's network cannot reach it. Any job on
-  the host can read what it holds, which is public and content addressed.
+  nothing else, so a machine on the host's network cannot reach it, on a port
+  chosen each time it starts. Any job on the host can read what it holds, which
+  is public and content addressed.
 * **Only the default sidecar image uses it.** The sidecar's command gains
   `--registry-mirror`, and when the agent has a proxy configured the mirror's
   address is added to `NO_PROXY` and `no_proxy`. A pool whose sidecar runs a
@@ -2009,7 +2010,10 @@ from Docker Hub, on this host's disk, and serves the next pull from there.
 * **It can only slow a pull down, never fail a job.** If the mirror cannot start,
   or stops, or cannot reach Docker Hub, the sidecar pulls from Docker Hub as it
   does without the mirror, and the agent says why in its log once for each
-  reason.
+  reason. The Problems panel says so too, as `host.registry_mirror_degraded`, but
+  only where a pool would have used the mirror there; and `pool.registry_mirror_unused`
+  says when the mirror is on and a pool's own sidecar image means it is not used
+  for it.
 * **It does not touch the host's own Docker daemon**, and so pools that use the
   host's socket do not use it. Whether it reaches `docker buildx` builders has not
   been tested.

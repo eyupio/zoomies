@@ -54,10 +54,15 @@ type Stats struct {
 	Hits           int64 `json:"hits"`
 	Misses         int64 `json:"misses"`
 	UpstreamErrors int64 `json:"upstream_errors"`
-	Evictions      int64 `json:"evictions"`
-	BytesServed    int64 `json:"bytes_served"`
-	BytesFetched   int64 `json:"bytes_fetched"`
-	BytesStored    int64 `json:"bytes_stored"`
+	// UpstreamFailingSeconds is how long the registry has failed the mirror
+	// without a break: zero while the last thing it was asked came back, and
+	// otherwise the time since the first failure of the run. A gauge, not a
+	// counter, so a reader does not take differences of it.
+	UpstreamFailingSeconds int64 `json:"upstream_failing_seconds"`
+	Evictions              int64 `json:"evictions"`
+	BytesServed            int64 `json:"bytes_served"`
+	BytesFetched           int64 `json:"bytes_fetched"`
+	BytesStored            int64 `json:"bytes_stored"`
 }
 
 // Mirror serves the read subset of the registry HTTP API.
@@ -76,7 +81,12 @@ type Mirror struct {
 	flights  map[string]*flight
 
 	requests, hits, misses, upstreamErrors atomic.Int64
-	bytesServed, bytesFetched              atomic.Int64
+
+	// healthMu guards failingSince: when the unbroken run of upstream failures
+	// that has not yet ended began, and the zero time while there is none.
+	healthMu                  sync.Mutex
+	failingSince              time.Time
+	bytesServed, bytesFetched atomic.Int64
 }
 
 // New checks the configuration and prepares the store.
@@ -170,7 +180,11 @@ func (m *Mirror) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // registry's doing rather than the caller's.
 func (m *Mirror) fail(w http.ResponseWriter, e *apiError) {
 	if e.status == http.StatusTooManyRequests || e.status >= 500 {
-		m.upstreamErrors.Add(1)
+		m.upstreamError()
+	} else {
+		// Everything else that reaches here is the registry's own answer: it
+		// said no, and that is an answer.
+		m.upstreamAnswered()
 	}
 	e.write(w)
 }
@@ -178,14 +192,15 @@ func (m *Mirror) fail(w http.ResponseWriter, e *apiError) {
 // Stats reports what the mirror has done.
 func (m *Mirror) Stats() Stats {
 	return Stats{
-		Requests:       m.requests.Load(),
-		Hits:           m.hits.Load(),
-		Misses:         m.misses.Load(),
-		UpstreamErrors: m.upstreamErrors.Load(),
-		Evictions:      m.store.evicted(),
-		BytesServed:    m.bytesServed.Load(),
-		BytesFetched:   m.bytesFetched.Load(),
-		BytesStored:    m.store.stored(),
+		Requests:               m.requests.Load(),
+		Hits:                   m.hits.Load(),
+		Misses:                 m.misses.Load(),
+		UpstreamErrors:         m.upstreamErrors.Load(),
+		UpstreamFailingSeconds: m.failingSeconds(),
+		Evictions:              m.store.evicted(),
+		BytesServed:            m.bytesServed.Load(),
+		BytesFetched:           m.bytesFetched.Load(),
+		BytesStored:            m.store.stored(),
 	}
 }
 

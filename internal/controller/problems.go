@@ -183,6 +183,8 @@ var problemAudience = map[string]Audience{
 	"host.overprovisioned":              AudienceFleet,
 	"host.resources_unknown":            AudienceFleet,
 	"host.shared_folder_unmounted":      AudienceFleet,
+	"host.registry_mirror_degraded":     AudienceFleet,
+	"pool.registry_mirror_unused":       AudienceFleet,
 	"host.runtime_recovering":           AudienceFleet,
 	"host.scratch_unmeasured":           AudienceFleet,
 	"host.throttled":                    AudienceFleet,
@@ -449,6 +451,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	})
 
 	gather("hosts", c.hostProblems)
+	gather("registry mirrors", c.registryMirrorProblems)
 	gather("host disk admission", c.hostDiskProblems)
 	gather("installations", c.installationProblems)
 	gather("the encryption key", c.keyProblems)

@@ -12,7 +12,6 @@ import (
 
 	"github.com/eyupio/zoomies/internal/backend"
 	"github.com/eyupio/zoomies/internal/hosttune"
-	"github.com/eyupio/zoomies/internal/registrymirror"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -215,14 +214,14 @@ type HeartbeatRequest struct {
 	// service and from an agent too old to send it, which the controller reads
 	// alike; an older controller ignores it, so ProtocolVersion does not move.
 	Caches []backend.CacheStats `json:"caches,omitempty"`
-	// RegistryMirror is what this host's registry mirror has done and holds:
-	// cumulative for this agent process, so a reader takes differences and reads
-	// a fall as a restart, plus the bytes held now. It is telemetry and nothing
-	// acts on it yet. Absent when the host runs no mirror, while the mirror has
-	// not been started, and from an agent too old to send it, which the
-	// controller reads alike; an older controller ignores it, so ProtocolVersion
-	// does not move.
-	RegistryMirror *registrymirror.Stats `json:"registry_mirror,omitempty"`
+	// RegistryMirror is what this host's registry mirror has done, holds and has
+	// wrong with it: figures cumulative for this agent process, so a reader takes
+	// differences and reads a fall as a restart, the bytes held now, and a problem
+	// in one of a fixed set of words. Present whenever the mirror is on, even
+	// before a sidecar has used it; absent when it is off and from an agent too old
+	// to send it, which the controller reads alike. An older controller ignores
+	// it, so ProtocolVersion does not move.
+	RegistryMirror *backend.RegistryMirrorReport `json:"registry_mirror,omitempty"`
 }
 
 // UpdateStuck is what an agent found when the update helper on its host was not

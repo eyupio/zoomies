@@ -137,15 +137,20 @@ func TestARegistryMirrorReportRoundTripsOnAHeartbeatAndAnOldOneStillDecodes(t *t
 		t.Errorf("an agent that predates the block decoded to %+v", old.RegistryMirror)
 	}
 
-	in := HeartbeatRequest{ProtocolVersion: ProtocolVersion, RegistryMirror: &registrymirror.Stats{
-		Requests: 7, Hits: 5, Misses: 2, UpstreamErrors: 1, Evictions: 3, BytesServed: 700, BytesFetched: 200, BytesStored: 1 << 20,
+	in := HeartbeatRequest{ProtocolVersion: ProtocolVersion, RegistryMirror: &backend.RegistryMirrorReport{
+		Stats: registrymirror.Stats{
+			Requests: 7, Hits: 5, Misses: 2, UpstreamErrors: 1, UpstreamFailingSeconds: 40, Evictions: 3, BytesServed: 700, BytesFetched: 200, BytesStored: 1 << 20,
+		},
+		Problem: backend.MirrorProblemUpstream, HostImageCustom: true,
 	}}
 	raw, err = json.Marshal(in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), `"registry_mirror":{"requests":7,`) {
-		t.Errorf("the block is not under its own key: %s", raw)
+	// The figures sit beside the problem, in the block, as the cache's sit beside
+	// its pool: one flat object an older reader can skip as a whole.
+	if !strings.Contains(string(raw), `"registry_mirror":{"requests":7,`) || !strings.Contains(string(raw), `"problem":"upstream"`) || !strings.Contains(string(raw), `"host_image_custom":true`) {
+		t.Errorf("the block is not one flat object under its own key: %s", raw)
 	}
 	var out HeartbeatRequest
 	if err := json.Unmarshal(raw, &out); err != nil {

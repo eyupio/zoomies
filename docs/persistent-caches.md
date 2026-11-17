@@ -138,6 +138,48 @@ experimental setting
 The registry and local recipes below are still how an image build is kept warm
 everywhere else, or a workflow that restores through an action.
 
+## Keeping the images a docker-in-docker job pulls
+
+A pool with `docker_mode: dind` gets a fresh Docker daemon for every runner, and
+its storage starts empty, so every job pulls again the images it names, and Docker
+Hub limits anonymous pulls by the address they come from. A host can keep those
+images instead: turn on `agent.registry_mirror.enabled` and the agent keeps the
+public Docker Hub images its sidecars pull on the host's own disk and serves the
+next pull from there. [How it works, what it holds and how to size
+it](configuration.md#agentregistry_mirrorenabled-and-agentregistry_mirrormax_bytes-keep-what-the-sidecars-pull)
+are in the configuration reference. What it does and does not cover:
+
+* **Public Docker Hub images only.** `docker pull alpine`, `FROM node:22` and a
+  service container from Docker Hub go through it. Images on `ghcr.io`, `quay.io`,
+  a cloud registry or a private Docker Hub repository do not, because a daemon's
+  `registry-mirrors` setting covers Docker Hub alone, and the mirror never holds a
+  credential, so nothing private is ever kept.
+* **The default sidecar image only.** A pool that runs a sidecar image of its own,
+  from `agent.dind_image` or the pool's `dind_image`, is where you keep your own
+  `daemon.json`, and a mirror named in two places stops the daemon starting. So
+  that pool is left exactly as you made it, and the advice to [bake a mirror into
+  your own sidecar image](configuration.md#agentdind_image-your-own-docker-in-docker-sidecar)
+  stays the right one for it. Zoomies tells you with `pool.registry_mirror_unused`
+  when the mirror is on and a pool will not use it.
+* **Not the host's own Docker daemon.** A pool that uses the host's Docker socket
+  pulls through that daemon, which the mirror does not touch. The mirror's port is
+  chosen each time it starts, so it changes when the agent restarts, and an address
+  written into `/etc/docker/daemon.json` would go stale. For those pools, run a
+  pull-through cache of your own and point the daemon's `registry-mirrors` at it.
+* **Not tested with Buildx builders.** A `docker-container` builder runs its own
+  BuildKit, which may not read the daemon's mirror.
+
+A mirror only ever slows a pull down: if it cannot start, stops or cannot reach
+Docker Hub, the sidecar pulls from Docker Hub as it did before and no job fails.
+`host.registry_mirror_degraded` says when that is happening on a host that has a
+pool that would have used it, and what to do. The mirror's figures (requests, hits,
+bytes served and kept, and upstream errors) reach the controller on every
+heartbeat, and nothing shows them yet.
+
+It has not been measured on a real fleet, so this page makes no claim about how
+much time it saves. Measure it the way [Verify the benefit](#verify-the-benefit)
+says: the same job cold and warm, on a host with the mirror on and off.
+
 ## Using the pool cache from a workflow
 
 Zoomies mounts the cache and nothing more: it does not know which package

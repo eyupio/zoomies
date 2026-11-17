@@ -283,7 +283,9 @@ slice 4 earns "tested".
    checks) and their problem-code rows, a section in
    [persistent-caches.md](../../docs/persistent-caches.md) that sits beside the
    advice to bake a mirror into a sidecar image of your own, which stays right
-   for a custom image, and the documented operator step for the host daemon.
+   for a custom image, and the documented operator step for the host daemon. The
+   host card line, with the API field behind it, moved to a UI slice of its own at
+   the owner's request (17 November 2026).
 4. **A real host.** A second DinD job's pull is served from the mirror; the
    mirror stopped mid-pull falls back; a stalled one is survived; buildx and
    the unproven items above are answered; and the saving is measured, with the
@@ -528,3 +530,101 @@ and `go vet` for Windows and macOS.
 
 Decision 1, writing the protocol rather than running the upstream registry image,
 is still open. If the owner prefers the other, slices 1 and 2 are not wanted.
+
+## Slice 3, as built
+
+Built on 17 November 2026, on top of slices 1 and 2 (merged in #1517): the
+controller learns what is wrong with a host's mirror and says so, and the docs say
+what the mirror is and is not. It adds 33 tests, and nothing in it has run against
+a real fleet. The host card line is not in it: the owner chose a UI slice of its own
+for that, with the API field, the Settings display of `max_bytes` and the
+screenshots. Slice 4 is unchanged.
+
+**What it does.** The agent sends its mirror's state in every heartbeat while the
+mirror is on, even before a sidecar has used it, and says what is wrong with it in
+one of six words: the agent in a container, no shared folder, the mirror's own
+folder, the host's address on a sidecar network, the listener, and the registry. It
+also says whether the host's own sidecar image is custom. The controller keeps the
+latest report for each host in memory, as it does the cache figures, forgets a host
+that stops sending one, and raises two findings from it.
+`host.registry_mirror_degraded` is a warning, raised only where it costs something:
+an enabled docker-in-docker pool that would have been given the mirror and could run
+on that host. `pool.registry_mirror_unused` is information, raised when a mirror is
+on at a host that could run the pool and none of those hosts would give the pool the
+mirror, because of a sidecar image the operator chose.
+
+**Where it departs from the design above, and why.**
+
+1. The controller cannot read a standalone agent's settings, which are on its own
+   host, so the signal comes from the agent and not from the controller's setting
+   or from the figures. The owner chose this on 17 November 2026 over reading the
+   figures alone, which cannot tell a mirror that is off from one that is on and
+   unused, and cannot see a folder or a listener. The block's presence means the
+   mirror is on, so there is no separate flag for it.
+2. The design named three ways the mirror could be degraded. The code names six,
+   because the three reasons it cannot be offered in the first place (a container,
+   no shared folder, no gateway) are as true of a host as the three that happen
+   later. The words are the agent's and every sentence is the controller's, because
+   what an agent sends is not trusted to be shown as it arrives. A word the
+   controller has never heard gets a general sentence and is never echoed.
+3. "A sustained time" is five minutes of unbroken failure, timed in the mirror and
+   carried as `upstream_failing_seconds`, a gauge, among its figures. A run begins
+   at the first failure (a rate limit, a server error, an unreachable registry, a
+   transfer that stalls or breaks, a manifest or blob that does not hash to its
+   digest) and ends at the next answer. An answer is a body that arrived whole and
+   was what was asked for, a HEAD the registry answered, or a "no". The first
+   version ended a run when a body reached its end, which is before it is checked,
+   so one corrupt manifest or blob wiped out a run of failures and, for a blob of
+   unknown length, was not counted as a failure at all. Codex found it on the review
+   of this pull request. The slice 1 counter already counted a request the client
+   abandoned as an upstream failure, so a client that cancelled every request for five minutes with
+   nothing succeeding between would raise this finding wrongly. That is a known
+   limit and not a handled case.
+4. `pool.registry_mirror_unused` is left off the public status page. It tells an
+   operator that an image they chose means the mirror is not used for a pool, which
+   no job notices. `host.registry_mirror_degraded` has a public sentence, as
+   `host.shared_folder_unmounted` does, because a broken mirror means jobs start
+   slower.
+5. The design said the docs would say what to add to the host daemon's
+   `daemon.json` and where the address is. They do not, because the mirror's port is
+   chosen each time it starts and an address written there would go stale at every
+   agent restart. The docs say instead that the host's own daemon is not served and
+   why, and point a host-socket pool at a pull-through cache of its own. A stable
+   port would be a new setting, and whether to have one is open.
+6. The figures reach the controller and are shown nowhere: no metrics series and no
+   card. That is the UI slice, and the metrics are a decision for it.
+7. Whether a pool is given the mirror is one rule, `backend.SidecarImageIsDefault`,
+   which the backend applies to the image it really runs and the controller applies
+   to what it knows: the pool's own image wins over the host's, a name is trimmed,
+   and a pool that names the default image itself runs the default and is given the
+   mirror, even on a host whose own image is custom. A test holds the controller's
+   use of it to the backend's real `sidecarImage` for every combination. The first
+   version treated any image a pool named as the operator's own, so it told
+   operators the mirror went unused for pools that were using it and hid a broken
+   mirror from them. Codex found that, and that a blob of unknown length that is not
+   kept was not checked against its digest although every chunk had been hashed.
+
+**What was shown.** Thirty-three tests, run under the race detector: the mirror
+timing a run of failures and each way it ends, the agent's report and each problem
+word, the problem ending when what caused it works again (a network, a folder, a
+listener that stopped), the controller keeping and forgetting a host's report, both
+findings and the rules for when each is raised, every word having its sentence, and
+a hostile word not being shown. Forty-seven behaviours were then broken one at a
+time and a test failed each time. The first run left six: one mutation that did not
+match its text, one that did not compile, and four real weaknesses, where a rule was
+only holding because of something else in the test's set-up. Each now has a test.
+`make test-short` passes over all 61 packages, `go vet` for Windows and macOS, and
+the catalogue was regenerated with `make generate`.
+
+**What it does not show, and is still open.**
+
+* A real fleet. No host has run the mirror, so neither finding has been raised by a
+  real heartbeat, and the five minutes is a judgement and not a measurement.
+* The agent and the controller are tested against each other only through the wire
+  format and a heartbeat call in a test, not as two processes.
+* The UI: the card line, the API field, and `max_bytes` shown as a size.
+* `staticcheck` could not be run in the session's environment, so CI's pinned
+  release is its first run on this slice.
+
+Decision 1, writing the protocol rather than running the upstream registry image,
+is still open. If the owner prefers the other, slices 1 to 3 are not wanted.

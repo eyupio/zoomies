@@ -120,6 +120,7 @@ func (m *Mirror) resolveTag(r *http.Request, rt route, accept string) (tagEntry,
 	if !validDigest(digest) {
 		return tagEntry{}, unavailable(errors.New("the registry gave no digest for the tag"))
 	}
+	m.upstreamAnswered()
 	e := tagEntry{digest: digest, contentType: resp.Header.Get("Content-Type"), size: resp.ContentLength, checked: now}
 	m.remember(key, e, now)
 	return e, nil
@@ -177,6 +178,9 @@ func (m *Mirror) fetchManifest(r *http.Request, name, digest, accept string) ([]
 		m.cfg.Log.Warn("registry mirror refused a manifest that did not match its digest", "digest", digest, "got", got)
 		return nil, "", unavailable(errors.New("the manifest does not hash to its digest"))
 	}
+	// Whole and what was asked for: that is the registry having answered, and
+	// reaching the end of a body is not, because a corrupt one reaches its end too.
+	m.upstreamAnswered()
 	contentType := resp.Header.Get("Content-Type")
 	if !m.store.cacheable(int64(len(body))) {
 		return body, contentType, nil // served, and not kept: it is too large to

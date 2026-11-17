@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,12 +30,72 @@ func registryMirrorBytes(set int64) int64 {
 	return set
 }
 
-// RegistryMirrorStatser is implemented by a backend that runs a registry mirror.
+// The words an agent uses to say what is wrong with its registry mirror. They
+// are a fixed set, and the controller has a sentence for each, because what an
+// agent sends is not trusted to be shown as it arrives.
+const (
+	// MirrorProblemContainer: the agent runs in a container, and the mirror
+	// listens on the host's side of the sidecars' network, where it is not.
+	MirrorProblemContainer = "container"
+	// MirrorProblemSharedFolder: the host has no shared folder to keep it in.
+	MirrorProblemSharedFolder = "shared_folder"
+	// MirrorProblemFolder: the mirror's own folder could not be made or written.
+	MirrorProblemFolder = "folder"
+	// MirrorProblemGateway: the host's address on a sidecar network was not found.
+	MirrorProblemGateway = "gateway"
+	// MirrorProblemListener: the mirror could not listen, or stopped listening.
+	MirrorProblemListener = "listener"
+	// MirrorProblemUpstream: the registry has failed the mirror, without a break,
+	// for longer than mirrorUpstreamGrace.
+	MirrorProblemUpstream = "upstream"
+)
+
+// mirrorUpstreamGrace is how long the registry must have failed the mirror
+// without a break before the agent says so. A single failure is a blip, and the
+// heartbeat is every thirty seconds, so five minutes is a fault.
+const mirrorUpstreamGrace = 5 * time.Minute
+
+// RegistryMirrorReport is what an agent says about its host's registry mirror in
+// its heartbeat: what the mirror has done (cumulative for this agent process, so
+// a reader takes differences and reads a fall as a restart), what it holds now,
+// and, in one of the words above, what is wrong with it.
+//
+// It is sent whenever the mirror is on, even before a sidecar has used it, so an
+// operator who has just turned it on sees that it took. A host with the mirror
+// off sends no block at all, which is also what an agent that predates it sends.
+type RegistryMirrorReport struct {
+	registrymirror.Stats
+	// Problem is empty when nothing is wrong.
+	Problem string `json:"problem,omitempty"`
+	// HostImageCustom says this host's own sidecar image, from agent.dind_image,
+	// is not the default, so no pool that follows the host's image is given the
+	// mirror. A pool's own image is the controller's to know.
+	HostImageCustom bool `json:"host_image_custom,omitempty"`
+}
+
+// RegistryMirrorReporter is implemented by a backend that runs a registry mirror.
 // It is optional, like the other capabilities in this package, so a backend with
-// nothing to report is simply absent from the heartbeat. It returns nil until the
-// mirror has been started.
-type RegistryMirrorStatser interface {
-	RegistryMirrorStats() *registrymirror.Stats
+// nothing to report is simply absent from the heartbeat. It returns nil while the
+// mirror is off.
+type RegistryMirrorReporter interface {
+	RegistryMirrorReport() *RegistryMirrorReport
+}
+
+// SidecarImageIsDefault is whether a docker-in-docker sidecar for a pool that names
+// poolImage, on a host whose own image is custom or not, runs the default image,
+// which is the one a registry mirror is offered to. A pool's own image wins over
+// the host's, so a pool that names the default itself is given the mirror even on
+// a host that has an image of its own, and a pool that names nothing follows the
+// host.
+//
+// It exists so that the controller, which knows only what an agent reports and
+// what a pool says, applies the same rule the backend does with the image it
+// really runs; a test holds the two to each other.
+func SidecarImageIsDefault(poolImage string, hostImageCustom bool) bool {
+	if image := strings.TrimSpace(poolImage); image != "" {
+		return image == DefaultDinDImage
+	}
+	return !hostImageCustom
 }
 
 // registryMirrorOptions is everything a host's mirror is told.
@@ -56,6 +117,10 @@ type registryMirrorOptions struct {
 	// Docker Hub. They exist so a test never reaches Docker Hub; empty is Docker
 	// Hub, which is the only registry a daemon's registry-mirrors covers.
 	Upstream, TokenURL, Service string
+	// HostImageCustom is whether this host's own sidecar image is not the default.
+	HostImageCustom bool
+	// Now is the mirror's clock; nil is time.Now. It exists for a test.
+	Now func() time.Time
 }
 
 // registryMirror runs a host's registry mirror and says where a docker-in-docker
@@ -90,6 +155,12 @@ type registryMirror struct {
 	// running is the listeners, by the address they are on.
 	running map[string]*runningRegistryMirror
 	warned  map[string]bool
+	// problems is what is wrong now, by where it was found, so that a problem
+	// ends when the thing that caused it works again and one network that works
+	// does not hide another that does not. A source is a network (its gateway or
+	// its listener could not be had), the mirror's own folder, or a listener that
+	// stopped on its own.
+	problems map[string]string
 }
 
 type runningRegistryMirror struct {
@@ -99,7 +170,7 @@ type runningRegistryMirror struct {
 }
 
 func newRegistryMirror(opts registryMirrorOptions) *registryMirror {
-	return &registryMirror{opts: opts, running: map[string]*runningRegistryMirror{}, warned: map[string]bool{}}
+	return &registryMirror{opts: opts, running: map[string]*runningRegistryMirror{}, warned: map[string]bool{}, problems: map[string]string{}}
 }
 
 // urlFor returns the address, as a sidecar on this network reaches it, of the
@@ -129,13 +200,17 @@ func (m *registryMirror) urlFor(ctx context.Context, network string) string {
 	}
 	host, err := m.opts.Gateway(ctx, network)
 	if err != nil {
-		m.warnOnce("gateway", err)
+		m.mu.Lock()
+		m.problems[networkSource(network)] = MirrorProblemGateway
+		m.warnOnceLocked("gateway", err)
+		m.mu.Unlock()
 		return ""
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if r, ok := m.running[host]; ok {
+		delete(m.problems, networkSource(network))
 		return r.url
 	}
 	if m.closed {
@@ -146,16 +221,19 @@ func (m *registryMirror) urlFor(ctx context.Context, network string) string {
 			Dir:      filepath.Join(m.opts.SharedDir, "registry-mirror"),
 			MaxBytes: registryMirrorBytes(m.opts.MaxBytes),
 			Upstream: m.opts.Upstream, TokenURL: m.opts.TokenURL, Service: m.opts.Service,
-			Log: m.opts.Log.With("registry_mirror", "docker hub"),
+			Log: m.opts.Log.With("registry_mirror", "docker hub"), Now: m.opts.Now,
 		})
 		if err != nil {
+			m.problems[folderSource] = MirrorProblemFolder
 			m.warnOnceLocked("start", err)
 			return ""
 		}
 		m.mirror = mirror
 	}
+	delete(m.problems, folderSource)
 	ln, err := net.Listen("tcp", net.JoinHostPort(host, "0"))
 	if err != nil {
+		m.problems[networkSource(network)] = MirrorProblemListener
 		m.warnOnceLocked("listen", fmt.Errorf("listening on %s: %w", host, err))
 		return ""
 	}
@@ -171,6 +249,8 @@ func (m *registryMirror) urlFor(ctx context.Context, network string) string {
 		url: "http://" + ln.Addr().String(),
 	}
 	m.running[host] = r
+	delete(m.problems, networkSource(network))
+	delete(m.problems, listenerSource(host))
 	m.opts.Log.Info("started a registry mirror for this host's docker-in-docker sidecars",
 		"address", ln.Addr().String(), "limit_bytes", registryMirrorBytes(m.opts.MaxBytes))
 	go func() {
@@ -179,6 +259,7 @@ func (m *registryMirror) urlFor(ctx context.Context, network string) string {
 			m.mu.Lock()
 			if m.running[host] == r {
 				delete(m.running, host)
+				m.problems[listenerSource(host)] = MirrorProblemListener
 			}
 			m.mu.Unlock()
 		}
@@ -200,6 +281,58 @@ func (m *registryMirror) stats() *registrymirror.Stats {
 	}
 	st := mirror.Stats()
 	return &st
+}
+
+// networkSource, folderSource and listenerSource name where a problem was found.
+func networkSource(network string) string { return "network:" + network }
+func listenerSource(host string) string   { return "listener:" + host }
+
+const folderSource = "folder"
+
+// report is what the agent says about the mirror in its heartbeat, or nil while
+// the mirror is off.
+//
+// Two problems are true of the host before any job asks, so they are said at
+// once: the agent in a container, and no shared folder. The rest are found by
+// trying, and are said until the thing that failed works again. The registry
+// failing the mirror is said only once it has done so, without a break, for
+// mirrorUpstreamGrace.
+func (m *registryMirror) report() *RegistryMirrorReport {
+	if m == nil || !m.opts.Enabled {
+		return nil
+	}
+	rep := &RegistryMirrorReport{HostImageCustom: m.opts.HostImageCustom}
+	m.mu.Lock()
+	mirror := m.mirror
+	dynamic := m.firstProblemLocked()
+	m.mu.Unlock()
+	if mirror != nil {
+		rep.Stats = mirror.Stats()
+	}
+	switch {
+	case runningInContainer():
+		rep.Problem = MirrorProblemContainer
+	case m.opts.SharedDir == "":
+		rep.Problem = MirrorProblemSharedFolder
+	case dynamic != "":
+		rep.Problem = dynamic
+	case rep.UpstreamFailingSeconds >= int64(mirrorUpstreamGrace/time.Second):
+		rep.Problem = MirrorProblemUpstream
+	}
+	return rep
+}
+
+// firstProblemLocked is the most basic of the problems found by trying: the
+// mirror's own folder, then an address, then a listener.
+func (m *registryMirror) firstProblemLocked() string {
+	for _, word := range []string{MirrorProblemFolder, MirrorProblemGateway, MirrorProblemListener} {
+		for _, found := range m.problems {
+			if found == word {
+				return word
+			}
+		}
+	}
+	return ""
 }
 
 func (m *registryMirror) warnOnce(reason string, err error) {
