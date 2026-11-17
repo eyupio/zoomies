@@ -1,9 +1,11 @@
 # A registry mirror on every host (ZF-246)
 
-**Status:** design, for review. No code is written and none starts until the
-owner has answered the four decisions at the end. This is the dated design
-[ROADMAP.md](../../ROADMAP.md) section 8 says comes before any code, and it
-stops here.
+**Status:** design, and slice 1 built (see "Slice 1, as built" at the end).
+Slices 2 to 4 are not started. This is the dated design
+[ROADMAP.md](../../ROADMAP.md) section 8 says comes before any code. Slice 1 was
+started on the recommended answers to the four decisions below, at the request of
+the person running the session; the owner has not separately answered them, and a
+different answer to the first changes what slice 1 was.
 
 **Written:** 17 November 2026 against `9af2f87`. It follows
 [the Codemany plan](2026-11-17-codemany-follow-ups.md), Task 6, and
@@ -276,8 +278,9 @@ slice 4 earns "tested".
    sidecar flag and `NO_PROXY` for the default image only, creation never
    failing, and the heartbeat figures. Tests build the sidecar's configuration
    and assert on it, as the existing DinD tests do.
-3. **Findings, docs and the host card line.** The three codes, the
-   configuration and problem-code rows, a section in
+3. **Findings, docs and the host card line.** The codes that are left
+   (`agent.registry_mirror.max_bytes` came in slice 2, with the setting it
+   checks) and their problem-code rows, a section in
    [persistent-caches.md](../../docs/persistent-caches.md) that sits beside the
    advice to bake a mirror into a sidecar image of your own, which stays right
    for a custom image, and the documented operator step for the host daemon.
@@ -324,3 +327,204 @@ daemon's `registry-mirrors` covers, and the mirror never carries a credential.
 * Registries other than Docker Hub: `registry-mirrors` does not cover them.
 * The host's own daemon, serving stale tags, and a mirror shared between hosts.
 * Any speed claim. Slice 4 measures; this design does not.
+
+## Slice 1, as built
+
+Built on 17 November 2026: `internal/registrymirror`, standard library only, with
+53 tests at 90 per cent statement coverage under the race detector, the purity
+test, and one opt-in test against a real `dockerd`. It is not wired into the
+agent, and nothing imports it yet. Slices 2 to 4 are unchanged.
+
+**What it does.** The read subset of the registry API: the ping, manifests by tag
+or digest, blobs by digest, `HEAD` for each, and ranges. Upstream is anonymous.
+What it keeps is content addressed, hashed before it becomes visible, bounded
+by `MaxBytes`, evicted least recently used and never while being read, and
+counted again after a restart. The public surface a later slice uses is
+`New(Config)`, `(*Mirror).ServeHTTP` and `(*Mirror).Stats()`, whose figures are
+the ones the heartbeat will carry.
+
+**Where it departs from the design above, and why.**
+
+1. A blob of known length is checked and kept before its last chunk is sent to
+   the client. The design said the client verifies; this means a corrupt blob is
+   never delivered whole, because the client gets a short body and falls back.
+   For a blob of unknown length that is not possible and the client's own check
+   is the only one.
+2. An upstream `401` or `403` is answered `404 NAME_UNKNOWN`, not relayed. The
+   design said the mirror answers `404` only when upstream did. Docker Hub
+   answers an anonymous caller's request for a private repository and for an
+   absent one with the same `401`, so to the mirror they are the same thing, and
+   a `401` would send `dockerd` off to authenticate against it.
+3. What is remembered about a tag is keyed by what the client accepts, as the
+   design said, and is bounded at 10,000 answers, oldest first. The design said
+   only that it should be bounded.
+4. The redirect guard checks a name and every address it resolves to before the
+   request, and requires HTTPS. It does not check at connect time. A proxy makes
+   the address connected to the proxy's, and the names come from the registry and
+   not from the job. A name that resolves differently the second time is not
+   caught, and that is stated in the code.
+5. A download that will be kept is finished when the client that asked for it
+   goes away, because the next job is owed the blob. One that will not be kept
+   (too large) stops with the client.
+6. The idle timeout is armed when a transfer starts, not at its first byte.
+   The code did that from the start, but when the starting wait was mutated to an
+   hour no test noticed, because the stall tests sent half a body first and the
+   timer was reset by it. A registry that sends its headers and then nothing now
+   has a test.
+7. What is kept is held to one admission rule in the store itself: an object over
+   a quarter of the bound is not kept, whether it is a blob or a manifest. The
+   first version applied it to blobs in the code that streams them and forgot it
+   for manifests, so a manifest larger than the bound would have been kept, and
+   evicted everything else to make room for it. Code review found it.
+8. When the last reader of an object is done the store is brought back within its
+   bound at once. The first version evicted only when something was committed, so
+   a store whose every object was being read stayed over its bound after the
+   readers left, until the next commit. Code review found it.
+9. The whole of a token exchange, headers and body, is bounded by the idle
+   timeout. The first version bounded the wait for headers only, and a token
+   service that sent its headers and then stalled would have held a fetch, and
+   every request waiting on it, open for good. Code review found it.
+10. The store builds an object's path only from something that is a sha256
+    digest, rebuilt from a fixed alphabet, and treats as an object only what is
+    named as one in the place it would be put. Every digest it was handed had
+    been checked on the way in, so no request could reach a hostile path, and
+    CodeQL's six high-severity alerts for this were false positives in effect. But
+    tracing them found two real weaknesses in the same code: `path()` panicked on
+    an empty or short digest, and a stray file with a short name in the folder
+    was counted as an object and then crashed eviction. Both are fixed, and the
+    store no longer relies on its callers having checked.
+11. What is remembered about tokens is bounded, like what is remembered about
+    tags. A token is kept for the repository it was issued for, the repository is
+    named by whoever sends the request, and a registry issues a token even for a
+    repository that does not exist, so neither the tag cache nor the store limited
+    it. The first version had no bound at all and never removed an expired token.
+    Codex found it on the second review. Expired tokens are now dropped whenever
+    one is added, and the cache is held to 4,096 entries, nearest expiry first.
+
+**What was shown.** A real `dockerd` (Docker 29.9.2, the same throwaway setup as
+the spike) pulled a hand-built one-layer image through the mirror from a fake
+registry, the image was removed, and the second pull asked the registry for no
+further blob: it was served from the mirror's disk. The same test fails if disk
+serving is broken. Twenty-seven behaviours were then broken one at a time (serving
+from disk, the digest check, the eviction rule, shared fetches, the token not
+reaching the content network, ranges, tag lifetime, the size rule, refusing
+write methods, anonymous upstream, the `404` rule, the idle timeout, the redirect
+guard, startup cleanup, name validation, the tag bound, the manifest check,
+the `Retry-After` relay, the path check, what a start counts, the admission rule,
+the eviction on release, the token bound, and the token cache's size and expiry), and a test failed each time. The first run left two
+alive: the stall before the first byte, which now has a test, and an early return
+that was redundant and was removed.
+
+**What it does not show, and is still open.**
+
+* Docker Hub itself. The registry in the test is a fake with a second server for
+  the redirect. A real blob redirect to Docker Hub's content network has not been
+  exercised, and slice 4 is where it is.
+* What `dockerd` does with a mirror that accepts a connection and then stalls, or
+  with a `404` from a mirror. The mirror gives up on a stalled upstream within the
+  idle timeout, which is tested, but `dockerd`'s own patience is not.
+* A token the registry rejects early is not retried: the repository answers
+  `404` until the token's own expiry, and `dockerd` falls back. A rotated token
+  is not expected, and it is a known limit and not a handled case.
+* Failures of the disk itself (a full or unwritable folder): the code stops
+  keeping and carries on streaming, and no test fills a disk.
+* Buildx builders, the containerd image store, the proxy case and the sidecar's
+  reachability, all as listed above, are slice 2 and 4 questions.
+* The package compiles and vets for Windows and macOS. Its tests were run on
+  Linux only, and `staticcheck` could not be run in the session's environment (it
+  failed inside the standard library), so CI's pinned release is its first run.
+
+## Slice 2, as built
+
+Built on 17 November 2026, on top of slice 1: the agent runs the mirror, behind a
+setting that is off by default. It adds 30 tests, and nothing in it has run
+against a real daemon or a real fleet. Slices 3 and 4 are unchanged, apart from
+the one code that moved, below.
+
+**What it does.** `agent.registry_mirror.enabled` and
+`agent.registry_mirror.max_bytes` (zero is 10 GiB, otherwise at least 1 GiB)
+reach the container backends when they are built, so a change applies when the
+agent restarts. With the mirror on, the Docker backend runs one mirror for the
+host, under `registry-mirror/` in the shared folder, and listens on the host's
+address on each network a sidecar is attached to and on nothing else. A
+docker-in-docker sidecar on the default image is started with
+`--registry-mirror=http://<gateway>:<port>`, and when it goes through a proxy
+the gateway address is added to `NO_PROXY` and `no_proxy`. The agent's heartbeat
+carries the mirror's figures under `registry_mirror`. Every reason a mirror
+cannot be offered (off, the agent in a container, no shared folder, no gateway,
+a folder or listener that fails) is a sidecar that pulls from Docker Hub as it
+did before, said once in the log, and never a failed create.
+
+**Where it departs from the design above, and why.**
+
+1. `agent.registry_mirror.max_bytes` and its problem code arrived with the
+   setting, in this slice, not in slice 3. The check belongs with the setting, and
+   `internal/docs` fails on a code that is raised and not documented. Slice 3 has
+   the other two codes.
+2. The heartbeat carries one object, not one per pool, because there is one
+   mirror for the host. `registrymirror.Stats` gained JSON names (snake case) as
+   the contract with a controller that is upgraded separately; a test holds them.
+   The controller decodes the block and does nothing with it, so slice 3 stores it
+   where it is first read. The block is absent until a sidecar has first asked for
+   the mirror, so "the mirror is on and has served nothing" is a fact about the
+   setting, not about the figures.
+3. "The default sidecar image" is the effective image string being
+   `DefaultDinDImage`, whether it came from the host or the pool. An operator who
+   names `docker:27-dind` themselves is given the mirror, and any other string
+   never is.
+4. The proxy exemption is added only when the sidecar's environment has a
+   non-empty proxy variable, so a host with no proxy, or a pool that switched it
+   off with an empty value, is not given an exemption it does not need. Each
+   spelling is written once, replacing what was there, because the daemon keeps
+   the last of a repeated name. A host already listed is not listed again, and the
+   address carries no port, which matches any.
+5. The port is chosen by the system each time a listener starts, as the cache
+   service's is, so it changes when the agent restarts. A sidecar started before
+   the restart keeps the old address and pulls from Docker Hub, which `dockerd`
+   does when a mirror refuses a connection (the spike showed that), but this
+   slice does not test it.
+6. The mirror is made when the first default-image sidecar asks, so a host with it
+   on and no such sidecar has no folder, no listener and no figures.
+7. The Settings page shows `max_bytes` as a bare number, because the UI works out
+   a size from a key's suffix (`_mb`, `_gb`) and has none for `_bytes`. That is a
+   small follow-up in `web/src/lib/settings/settings.ts` and is not done here.
+8. `docs/security.md` said the agent never opens a port. The cache service already
+   made that untrue, and the mirror would have made it worse, so the page now says
+   the agent can run a service for the runners on its own host and adds a row for
+   the mirror's folder. Nothing was said about the cache service's listener before,
+   and that line now covers both.
+9. The Podman backend embeds the Docker one and carries the same field, and never
+   offers a mirror, because it does not run docker-in-docker sidecars.
+
+**What was shown.** Thirty tests, run under the race detector: the settings
+(default, file, environment and the size rule), the mirror host (offered only when
+asked for, one for the host across networks, every way it cannot be offered, the
+reason said once, the figures surviving a listener that stopped, closing), the
+sidecar built by the pure builder and by a real `Create` against a fake daemon
+(the flag, the default image only at both levels, no flag with the mirror off or
+unstartable, the proxy cases), and the heartbeat and its wire format. Thirty-eight
+behaviours were then broken one at a time and a test failed each time. The first
+run left three: one mutation that did not compile, and two real survivors. A
+listener that fails on its own was never exercised, because the test closed the
+server cleanly, and the operator's size reaching the mirror was only checked for
+the default. Each now has a test. `make test-short` passes over all 61 packages,
+and `go vet` for Windows and macOS.
+
+**What it does not show, and is still open.**
+
+* A real sidecar reaching the gateway address. A host firewall that drops traffic
+  from a container to the host's own address would stop it, and the cache service
+  has the same exposure; slice 4 is where this is tried.
+* `Create` against a real daemon, and a sidecar's `dockerd` started with the flag.
+  The slice 1 test started a daemon with `--registry-mirror` by hand; nothing has
+  yet started one through the backend.
+* A proxy that is real. The exemption is checked as text in the sidecar's
+  environment.
+* Whether a pull falls back when the mirror's port has changed under a running
+  sidecar, as in departure 5.
+* Buildx builders, the containerd image store and Docker Hub itself, as before.
+* `staticcheck`, which could not be run in the session's environment, so CI is its
+  first run on this slice, as it was for slice 1.
+
+Decision 1, writing the protocol rather than running the upstream registry image,
+is still open. If the owner prefers the other, slices 1 and 2 are not wanted.

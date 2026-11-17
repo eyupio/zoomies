@@ -475,6 +475,16 @@ var registry = buildRegistry([]Setting{
 		RestartReason: "the agent is told its cache target when it starts",
 	},
 	{
+		Key: "agent.registry_mirror.enabled", Label: "Registry mirror", Env: "ZOOMIES_AGENT_REGISTRY_MIRROR_ENABLED", Kind: KindBool, Scope: ScopeInstance,
+		Summary:       "Keep the Docker Hub images this host's docker-in-docker sidecars pull, so the next job's pull is served from the host's disk. Public images only; a sidecar that uses a custom image is left alone. Off by default.",
+		RestartReason: "the backend is built with it",
+	},
+	{
+		Key: "agent.registry_mirror.max_bytes", Label: "Registry mirror size", Env: "ZOOMIES_AGENT_REGISTRY_MIRROR_MAX_BYTES", Kind: KindInt, Scope: ScopeInstance,
+		Summary:       "The most the registry mirror keeps on a host's disk, in bytes, least recently used first. 0 is the default of 10 GiB; otherwise at least 1 GiB (1073741824).",
+		RestartReason: "the backend is built with it",
+	},
+	{
 		Key: "agent.registry_auth", Label: "Registry credentials", Env: "ZOOMIES_REGISTRY_AUTH", Kind: KindString, Scope: ScopeInstance, Secret: true,
 		Summary:       "A base64 X-Registry-Auth value the container backends send when they pull. Without it a pool on a private registry cannot use pinned-only pulls at all.",
 		RestartReason: "the backend is built with it",
