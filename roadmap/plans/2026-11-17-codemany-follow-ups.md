@@ -4,7 +4,7 @@
 
 **Goal:** Turn a review of Codemany's public documentation into the small set of changes it justifies: the comparison page (done), the pointers that send macOS readers to it, a design note and a competitor-list entry that need no decision, and three pieces of work that wait for the owner.
 
-**Architecture:** Documentation and planning changes only until the owner decides. Nothing in this plan is authorised delivery work: it is an analysis and a handoff, in the sense of [ROADMAP.md](../../ROADMAP.md) and [roadmap/README.md](../README.md), and Tasks 5 to 7, each marked as gated on a decision, do not start until ROADMAP.md says they may.
+**Architecture:** Documentation and planning changes only until the owner puts work in `ROADMAP.md`. Nothing in this plan is authorised delivery work: it is an analysis and a handoff, in the sense of [ROADMAP.md](../../ROADMAP.md) and [roadmap/README.md](../README.md). The three decisions are taken, and Tasks 5b, 6 and 7, each marked as gated on a ROADMAP.md line, do not start until the owner adds it.
 
 **Tech Stack:** Markdown, MkDocs (`mkdocs build --strict`), Go tests in `internal/docs`.
 
@@ -16,18 +16,19 @@
 
 - [x] `docs/alternatives/codemany.md`, the comparison page, wired into `mkdocs.yml` and `docs/alternatives/index.md` (both tables, the macOS question under "How to choose", and the page description).
 - [x] Task 2, the macOS pointers, in `docs/hosted-runner-services.md`, `docs/should-i-self-host.md` and `docs/home-lab.md`. `docs/faq.md` was read and left alone: its answer links onward only for Windows qualification and the image catalogue.
-
 - [x] Task 3, the dated note on candidate 4 in `roadmap/candidates-from-hosted-services.md`.
 - [x] Task 4, `codemany.com` in the weekly search check's `competitors`.
+- [x] The three decisions were put to the person running the session on 17 November 2026 and taken; see "Decisions taken".
+- [x] Task 5, [decision 0020](../decisions/0020-macos-runners-are-processes-on-a-mac.md), written and indexed. It is **proposed, for the owner to ratify**.
 
-**Next unfinished step:** the owner's three decisions. Every task that needed none is done; Tasks 5 to 7 wait on them, and Task 8 is due three months after 17 November 2026. Update this section, and tick the boxes below, in every pull request that works from this plan.
+**Next unfinished step:** the owner puts three lines in `ROADMAP.md` (the text is under "For the owner's ROADMAP.md", below). Until they do, Tasks 5b, 6 and 7 do not start. Task 8 is due three months after 17 November 2026. Update this section, and tick the boxes below, in every pull request that works from this plan.
 
 ## Global Constraints
 
 - British spelling, no em dashes, no spaced `--`, comments say why, commit messages are sentence-case imperative sentences with no prefix.
 - A comparison says where the other product is better, plainly, and is dated. It is a comparison of documentation, not a benchmark.
 - Do not publish a claim of faster execution, stronger isolation or unique capability without evidence ([competitive-review-2026-09.md](../competitive-review-2026-09.md), "Positioning and evidence").
-- Do not claim macOS is supported. The support matrix says "Nothing planned" for macOS runners and a test holds the docs to it.
+- Do not claim macOS runners until a job has run on a real Mac. [Decision 0020](../decisions/0020-macos-runners-are-processes-on-a-mac.md) chose the shape; the support matrix still says "Nothing planned" and the eight pages that say there is no macOS runner image stay as they are until the evidence exists.
 - Nothing here edits `ROADMAP.md`: new or changed delivery work belongs there first, and only the owner puts it there.
 
 ## What the review found
@@ -38,7 +39,7 @@ The two overlap less than the shared goal suggests. Codemany is an app for a few
 
 | Finding | Already tracked? | Where it goes |
 | --- | --- | --- |
-| macOS runners are Codemany's main draw, and Zoomies has none | Not planned: [support-and-measurement.md](../support-and-measurement.md) says "Nothing planned" | Decision 1, Task 5 |
+| macOS runners are Codemany's main draw, and Zoomies has none | Not planned: [support-and-measurement.md](../support-and-measurement.md) says "Nothing planned". Now [decision 0020](../decisions/0020-macos-runners-are-processes-on-a-mac.md), proposed | Decision 1, Tasks 5 and 5b |
 | Codemany ships a virtual machine or an LXD container per job on Linux, opt-in | Yes: [candidate 4](../candidates-from-hosted-services.md) (VM per job), ZF-216's surviving half and decision 28's spike, all demand-gated | Task 3 adds one design option and the evidence |
 | Codemany ships mirrors on Linux: Go, npm, Docker Hub pull-through and git | Partly: ZF-212's pool-cache recipes cover Go and npm downloads, ZF-245 covers `actions/cache`, and the registry mirror is proposed as ZF-246 | Decision 2, Task 6 |
 | Codemany's headline benchmark compares owned, warm hardware with GitHub's 2-core runner | Not applicable: the rule against unevidenced speed claims already holds | Decision 3, Task 7 |
@@ -53,13 +54,22 @@ The first review in the conversation that produced this plan listed "cold caches
 - Whether Codemany works without a GitHub App or webhook, and how it learns of queued jobs, is not documented on the pages read. The comparison page makes no claim about it.
 - Whether a Zoomies controller can run usefully with no address GitHub can reach, on polling alone, is documented only as a degraded fallback ([quickstart.md](../../docs/quickstart.md), [configuration.md](../../docs/configuration.md)). Codemany's lighter onboarding makes that question worth an answer; it is not answered here.
 
-## Decisions for the owner
+## Decisions taken
 
-Each has a recommendation. None is taken by writing it here.
+Put to the person running the session on 17 November 2026, one at a time, each with a recommendation. They are taken for the working session; none is authorised delivery work until the owner puts it in `ROADMAP.md`.
 
-1. **macOS runners.** (a) Out of scope for now; keep the hybrid advice and point to Codemany, runscaler and the hosted services. (b) A one-day spike on an Apple silicon host, in the shape of decision 28's Proxmox spike: can an agent start a macOS virtual machine, register a just-in-time runner, run one job and destroy it. (c) Commit to a backend. **Recommended: (a).** Apple limits a Mac to two concurrent macOS virtual machines, so capacity grows by buying Macs, which suits a per-machine desktop app better than a fleet scheduler; and the project's own rule is to claim only what a test has run on. Revisit (b) when someone with Apple silicon asks for it.
-2. **Cache follow-ups.** (a) Authorise ZF-246, the per-host registry mirror, as proposed. (b) Also add Go, npm and git mirrors. **Recommended: (a) only.** ZF-212's recipes already keep Go and npm downloads between runners, and a package mirror would add a second path to the same saving. Measure before adding one.
-3. **A performance story.** (a) None. (b) Publish Zoomies' own measures, queue wait and runner startup, which the job history already records, with the method. (c) A like-for-like comparison with GitHub-hosted runners. **Recommended: (b).** A comparison with a shared 2-core virtual machine measures the hardware you own more than the controller, which is the criticism this plan's page makes of Codemany's; if (c) is wanted anyway, Task 7 gives the protocol.
+1. **macOS runners: build a backend, as a process on a Mac first.** The recommendation was to leave macOS out for now, because Apple caps a Mac at two concurrent macOS virtual machines and the project claims only what a test has run on. The choice went the other way, and it was narrowed to the cheap shape in the same way [decision 0003](../decisions/0003-windows-runners-are-processes-on-a-host.md) did for Windows: actions/runner's `osx` release as a process through the `process` backend, which the code already maps `darwin` to, with no isolation, flagged beta, and a virtual machine per job only if a user asks. Recorded as [decision 0020](../decisions/0020-macos-runners-are-processes-on-a-mac.md).
+2. **Cache follow-ups: ZF-246 only.** As recommended. The per-host registry mirror is authorised in principle; Go, npm and git mirrors are not added, because ZF-212's recipes and ZF-245's cache service already cover those downloads. Measure before adding one.
+3. **Performance story: Zoomies' own measures.** As recommended. Publish queue wait and runner startup, which the fleet already records, with the method and the evidence. No multiplier against GitHub-hosted runners and no like-for-like comparison.
+
+### For the owner's ROADMAP.md
+
+Nothing below is in `ROADMAP.md`. It is drafted so that the owner can paste it, assign the numbers and change what they want. A decision record is not authority to start; this is.
+
+* **Section 4 (decisions):** decision 0020 above, ratified or reversed. If ratified, `roadmap/decisions/README.md` changes its status from "proposed" to "accepted, at the owner's instruction".
+* **A new package, "macOS agent on the `process` backend":** the first slice only, as Task 5b below. Size S to M. Depends on an Apple silicon Mac the owner provides. Gate: a real join and one job, written into `roadmap/validation/`.
+* **ZF-246, the per-host registry mirror:** authorised, as sketched in [candidates-from-hosted-services.md](../candidates-from-hosted-services.md) section 1, layer 2, with the four bounds in Task 6. Size M.
+* **Section 13 (change record):** one line, dated, naming this plan.
 
 ## Tasks
 
@@ -98,31 +108,43 @@ Done. No decision needed. `weekly-seo/config.yml` lists the domains compared in 
 - [x] **Step 2:** Leave the new page out of `index_sample`. That list is held steady week to week so "N of M indexed" can be compared; the page joins it only when the owner wants it counted, with a line in the change log.
 - [x] **Step 3:** `go test -count=1 ./internal/docs/`. Expected: pass.
 
-### Task 5 (gated on decision 1): record it
+### Task 5: Record the macOS decision
 
-**Files:** create `roadmap/decisions/0020-<what-was-decided>.md` and add its line to `roadmap/decisions/README.md`. The number is the next free one at the time; check the directory.
+Done. [Decision 0020](../decisions/0020-macos-runners-are-processes-on-a-mac.md) is written, in the five parts the decisions README requires, and indexed there. Its status is "proposed, for the owner to ratify". `ROADMAP.md` is not edited.
 
-- [ ] **Step 1:** Write the record with the five parts the README requires, in the owner's words if they gave them. If the owner chose (a), the Consequences say that `docs/alternatives/index.md` and `docs/hosted-runner-services.md` keep "Zoomies has no macOS runner image", and that nothing in `internal/backend` changes.
-- [ ] **Step 2:** If the owner chose (b), write the spike as `roadmap/plans/<date>-macos-vm-spike.md` in the shape of decision 28's, one day, with a stop condition that nothing is merged into `internal/backend`. Do not start it before an Apple silicon host is available.
-- [ ] **Step 3:** Do not edit `ROADMAP.md`. Say in the pull request that the owner adds the line.
+- [x] **Step 1:** Write the record. *Outcome:* it names the two shapes weighed, what the code already does on `darwin` (read, not run), what is not known, and what it costs. It keeps "Zoomies has no macOS runner image" on all eight pages that say it, until a job has run on a Mac.
+- [x] **Step 2:** Add its row to `roadmap/decisions/README.md`.
+- [x] **Step 3:** Do not edit `ROADMAP.md`; the text for the owner is under "For the owner's ROADMAP.md".
 
-### Task 6 (gated on decision 2): the registry mirror
+### Task 5b (gated on the owner's ROADMAP.md line): prove a Mac joins and runs a job
 
-Only once ROADMAP.md lists ZF-246 as authorised. The design is already sketched in [candidates-from-hosted-services.md](../candidates-from-hosted-services.md) section 1, layer 2: a read-only, per-host pull-through mirror that the agent owns, with `agent.registry_mirror.enabled` and `agent.registry_mirror.max_bytes` and their `ZOOMIES_AGENT_REGISTRY_MIRROR_*` overrides. Codemany's version is a useful bound on scope: it holds public Docker Hub images only, refuses pushes, never caches private images and falls back to a direct pull when it is down. Take those four as requirements, and write the failure rule the cache service already has: a broken mirror slows a pull and never fails a job.
+Only once `ROADMAP.md` carries the package and the owner has an Apple silicon Mac to give it. The first slice is proof, not a feature, and it is the cheapest thing that can say whether decision 0020 holds.
+
+- [ ] **Step 1:** Write tests that pin what the `process` backend does on `darwin`: `runnerAsset("darwin", "arm64", v)` names the `osx-arm64` archive, a 32-bit `darwin` build is refused, and the preflight reaches the same answers off Linux that it does on Linux. Put them beside `process_test.go`, table-driven, and watch each fail with the change it guards removed.
+- [ ] **Step 2:** Find out whether the installer writes a launchd unit for an agent, not only for a controller (`internal/installer`, `service_*.go`). If it does not, that is the one piece of real code in this slice; write it the way the systemd and Windows units are written, behind the same tests.
+- [ ] **Step 3:** On the Mac: `zoomies agent join`, create a pool selected by `os=darwin`, run a workflow with one job that prints `uname -m` and `sw_vers`, and confirm the work directory is removed and the registration is single-use. Write what happened, including every failure, into `roadmap/validation/`, dated, with the commands.
+- [ ] **Step 4:** Add the macOS agent row to [support-and-measurement.md](../support-and-measurement.md), in the form the Windows row has: shape and runtime stated separately, built and unit-tested on one side and "never yet run" or "run once on <date>" on the other. Do not move any docs page off "no macOS runner image" until Step 3 has evidence.
+- [ ] **Step 5:** Only then change the eight pages that say it (`docs/index.md`, `docs/home-lab.md`, `docs/should-i-self-host.md`, `docs/hosted-runner-services.md`, `docs/costs.md`, `docs/github-actions-alternatives.md`, `docs/alternatives/index.md` and the comparison page), and the security page's wording for a macOS pool. Say "beta" and say that a job runs as the agent's user.
+
+STOP if: the agent does not start on `darwin` for a reason other than the launchd unit; the runner's `osx` release needs something the backend does not provide (a signing or quarantine step, for instance); or the job can reach another user's files by a path the docs do not already warn about. Report it, and do not widen the slice.
+
+### Task 6 (authorised in principle; gated on a ROADMAP.md line): the registry mirror
+
+Decision 2 authorises ZF-246 only. Start when `ROADMAP.md` lists it. The design is sketched in [candidates-from-hosted-services.md](../candidates-from-hosted-services.md) section 1, layer 2: a read-only, per-host pull-through mirror that the agent owns, with `agent.registry_mirror.enabled` and `agent.registry_mirror.max_bytes` and their `ZOOMIES_AGENT_REGISTRY_MIRROR_*` overrides. Codemany's version is a useful bound on scope: it holds public Docker Hub images only, refuses pushes, never caches private images and falls back to a direct pull when it is down. Take those four as requirements, and write the failure rule the cache service already has: a broken mirror slows a pull and never fails a job. Go, npm and git mirrors are out of scope.
 
 - [ ] **Step 1:** Read [cache-service.md](../cache-service.md) and `internal/cacheservice`. The mirror is not part of that package, which is stdlib only and knows nothing about the fleet.
 - [ ] **Step 2:** Write a dated design under `roadmap/plans/` before any code, and stop for review.
 - [ ] **Step 3:** Each setting arrives with a `docs/configuration.md` row and its override; each finding code with a `docs/problem-codes.md` row; `make generate` is run, not hand-edited.
 
-### Task 7 (gated on decision 3): the performance evidence
+### Task 7 (gated on a ROADMAP.md line): publish what the fleet measures
 
-If the owner chose (b), the page reports what the fleet already measures. If they chose (c), use this protocol, which is Codemany's good idea (an open repository, every number linked to its run) with its confound removed.
+Decision 3 chose Zoomies' own measures: queue wait and runner startup, which the product already records and shows (the Overview's startup and registration times, the Usage page's queue wait, and the MCP tool `queue_wait_breakdown`). No like-for-like comparison with GitHub-hosted runners, and no multiplier. The evidence comes before the page.
 
-- [ ] **Step 1:** Fix the hardware first. Compare GitHub's standard 2-core runner with a 2-core virtual machine running a Zoomies container runner, then separately with the best machine you own, and say which is which on the page. The first comparison is about the controller; the second is about owning a fast machine.
-- [ ] **Step 2:** Pin each project to one commit. Start both sides in one run. Count a timing only when both sides finished the build in it, and report the number that failed or was stopped on each side, never leaving them out.
-- [ ] **Step 3:** Time cold and warm builds separately, report the median over a stated window, and publish the raw data beside the page.
-- [ ] **Step 4:** Do not print a single headline multiplier. The existing `make bench` rule applies to anything that changes code for speed: run before and after, once per package, and put the `benchstat` comparison in the commit message.
-- [ ] **Step 5:** Put the evidence in `roadmap/validation/`, not in prose.
+- [ ] **Step 1:** Read [ui.md](../../docs/ui.md) (Overview and Usage) and the store fields behind them, and write down exactly what each figure measures, from which event to which event. A figure the page cannot define in one sentence is left out.
+- [ ] **Step 2:** Take the data from a real fleet, not the demo. This repository's own CI runs on a Zoomies fleet (`zoomies-linux-x64`), so use that over a stated window. Report the number of jobs, the median and the 90th percentile of each figure, and the runner startups that failed. Never leave failures out.
+- [ ] **Step 3:** Put the evidence in `roadmap/validation/`, dated, with the commands or API calls that produced it, before any page exists. The `make bench` rule applies to anything that changes code for speed: run before and after, once per package, with the `benchstat` comparison in the commit message.
+- [ ] **Step 4:** Write the page in `docs/`, with the method in the same place as the numbers. Say what the fleet is (hardware, host count, pool settings), because a startup time is a statement about a fleet.
+- [ ] **Step 5:** Do not compare with GitHub-hosted runners on this page. If the owner later wants that, the protocol is: fix the hardware first (a 2-core virtual machine running a Zoomies container runner beside GitHub's 2-core runner, then separately the best machine you own); pin each project to one commit; start both sides in one run and count a timing only when both finished; time cold and warm builds separately; publish the raw data; and print no single multiplier.
 
 ### Task 8: Keep the page honest
 
@@ -133,7 +155,7 @@ If the owner chose (b), the page reports what the fleet already measures. If the
 
 - A test in `internal/docs` fails on the new page for a reason this plan does not mention: report it, do not loosen the test.
 - `internal/provenance`'s list, which the owner supplies and which is not in the tree, turns out to include Codemany. The comparison pages name their subjects by design, so report it and ask; do not remove the name from the page.
-- Task 5, 6 or 7 is started without the owner's decision, and for Task 6 without a line in ROADMAP.md that authorises it.
+- Task 5b, 6 or 7 is started without a line in `ROADMAP.md` that authorises it. The decisions above say what the session chose; only the owner's line authorises work.
 - A statement about Codemany cannot be traced to a page read on the date given. Remove the statement; do not soften it into a guess.
 
 ## Review Focus
