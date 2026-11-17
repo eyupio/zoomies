@@ -17,7 +17,10 @@
 - [x] `docs/alternatives/codemany.md`, the comparison page, wired into `mkdocs.yml` and `docs/alternatives/index.md` (both tables, the macOS question under "How to choose", and the page description).
 - [x] Task 2, the macOS pointers, in `docs/hosted-runner-services.md`, `docs/should-i-self-host.md` and `docs/home-lab.md`. `docs/faq.md` was read and left alone: its answer links onward only for Windows qualification and the image catalogue.
 
-**Next unfinished step:** Tasks 3 and 4, which need no decision, then the owner's three decisions. Update this section, and tick the boxes below, in every pull request that works from this plan.
+- [x] Task 3, the dated note on candidate 4 in `roadmap/candidates-from-hosted-services.md`.
+- [x] Task 4, `codemany.com` in the weekly search check's `competitors`.
+
+**Next unfinished step:** the owner's three decisions. Every task that needed none is done; Tasks 5 to 7 wait on them, and Task 8 is due three months after 17 November 2026. Update this section, and tick the boxes below, in every pull request that works from this plan.
 
 ## Global Constraints
 
@@ -76,24 +79,24 @@ Done. No decision needed. Each of these already tells a reader "Zoomies has no m
 
 ### Task 3: Add the evidence and one design option to candidate 4
 
-No decision needed. [candidates-from-hosted-services.md](../candidates-from-hosted-services.md) section 4 weighs a micro-virtual-machine backend against a provider used per job. Codemany adds evidence and a third shape.
+Done. No decision needed. [candidates-from-hosted-services.md](../candidates-from-hosted-services.md) section 4 weighs a micro-virtual-machine backend against a provider used per job. Codemany adds evidence and a third shape.
 
 **Files:** modify `roadmap/candidates-from-hosted-services.md`, under its "Checked again" convention: a dated note, not a rewrite of the section.
 
-- [ ] **Step 1:** Add a note dated 17 November 2026 saying that a commercial product in this market ships a virtual machine per job (KVM on Linux) and a container or virtual machine per job through LXD, both opt-in, and reports that they are slower and start with cold caches. Cite its [advanced documentation](https://codemany.com/docs/advanced#isolation).
-- [ ] **Step 2:** Name the third shape: an LXD container or LXD virtual machine per job as a backend that needs LXD on the host and no Firecracker or Kata. Say it is a shape to weigh when the work is picked up, not a proposal.
-- [ ] **Step 3:** Leave the status line, "demand-gated", exactly as it is.
-- [ ] **Step 4:** `go test -count=1 ./internal/docs/`. Expected: pass.
+- [x] **Step 1:** Add a note dated 17 November 2026 saying that a commercial product in this market ships a virtual machine per job (KVM on Linux) and a container or virtual machine per job through LXD, both opt-in, and reports that they are slower and start with cold caches. Cite its [advanced documentation](https://codemany.com/docs/advanced#isolation). *Outcome:* a new "Checked again, 17 November 2026" section after the September one. It reports what Codemany's page says about each mode, and that an LXD container starts in a second or two while the virtual machine is the slower one; "slower" is not said of the container.
+- [x] **Step 2:** Name the third shape: an LXD container or LXD virtual machine per job as a backend that needs LXD on the host and no Firecracker or Kata. Say it is a shape to weigh when the work is picked up, not a proposal. *Outcome:* done, with one addition this step did not ask for: the note says an LXD container shares the host's kernel and an LXD virtual machine does not, so the entry's reason for wanting a virtual machine applies only to the second.
+- [x] **Step 3:** Leave the status line, "demand-gated", exactly as it is. *Outcome:* the entry and the Summary table are untouched.
+- [x] **Step 4:** `go test -count=1 ./internal/docs/`. Expected: pass.
 
 ### Task 4: Watch Codemany in the weekly search check
 
-No decision needed. `weekly-seo/config.yml` lists the domains compared in the AI citation check. It names Cirun and four hosted services and not Codemany, which publishes Markdown versions of its pages and a `llms.txt` for agents and so is likely to be cited.
+Done. No decision needed. `weekly-seo/config.yml` lists the domains compared in the AI citation check. It names Cirun and four hosted services and not Codemany, which publishes Markdown versions of its pages and a `llms.txt` for agents and so is likely to be cited.
 
 **Files:** modify `weekly-seo/config.yml`.
 
-- [ ] **Step 1:** Add `codemany.com` to `competitors`. Do not touch `index_sample`: its comment says to change that list only on purpose.
-- [ ] **Step 2:** Leave the new page out of `index_sample`. That list is held steady week to week so "N of M indexed" can be compared; the page joins it only when the owner wants it counted, with a line in the change log.
-- [ ] **Step 3:** `go test -count=1 ./internal/docs/`. Expected: pass.
+- [x] **Step 1:** Add `codemany.com` to `competitors`. Do not touch `index_sample`: its comment says to change that list only on purpose. *Outcome:* added beside `cirun.io`, with a comment saying why and when. The file still parses and `index_sample` still has its ten entries.
+- [x] **Step 2:** Leave the new page out of `index_sample`. That list is held steady week to week so "N of M indexed" can be compared; the page joins it only when the owner wants it counted, with a line in the change log.
+- [x] **Step 3:** `go test -count=1 ./internal/docs/`. Expected: pass.
 
 ### Task 5 (gated on decision 1): record it
 
