@@ -30,6 +30,7 @@ func (f *wslFake) Getenv(k string) string {
 	}
 	return ""
 }
+func (f *wslFake) Remove(p string) error              { delete(f.files, p); return nil }
 func (f *wslFake) Geteuid() int                       { return 0 }
 func (f *wslFake) MkdirAll(string, os.FileMode) error { return nil }
 func (f *wslFake) Exists(p string) bool               { _, ok := f.files[p]; return ok }

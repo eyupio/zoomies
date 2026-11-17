@@ -43,6 +43,7 @@ type System interface {
 	ReadFile(path string) ([]byte, error)
 	WriteFile(path string, data []byte, perm os.FileMode) error
 	MkdirAll(path string, perm os.FileMode) error
+	Remove(path string) error
 	Exists(path string) bool
 	Geteuid() int
 	// Run executes a command and returns its standard output. Standard error
@@ -60,6 +61,7 @@ func (OS) WriteFile(p string, d []byte, m os.FileMode) error {
 	return os.WriteFile(p, d, m)
 }
 func (OS) MkdirAll(p string, m os.FileMode) error { return os.MkdirAll(p, m) }
+func (OS) Remove(p string) error                  { return os.Remove(p) }
 func (OS) Geteuid() int                           { return os.Geteuid() }
 func (OS) Exists(p string) bool {
 	_, err := os.Stat(p)

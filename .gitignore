@@ -48,3 +48,4 @@ roadmap/validation/e2e/
 
 .venv/
 config.json
+/internal/wsl/launcher/dist/*.exe

@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"runtime"
 
 	"github.com/eyupio/zoomies/internal/wsl"
+	"github.com/eyupio/zoomies/internal/wsl/launcher"
 )
 
 // wslOffer is what an install, a join or an upgrade knows when it asks whether
@@ -48,7 +50,7 @@ func offerWSLSelfManagement(ctx context.Context, o wslOffer) {
 		sys = wsl.OS{}
 	}
 	ui := PaletteFor(o.Out)
-	opts := wsl.Options{Binary: o.Binary, User: o.User, DryRun: true}
+	opts := wsl.Options{Binary: o.Binary, User: o.User, DryRun: true, Launcher: launcher.Exe(runtime.GOARCH)}
 	plan := wsl.Ensure(ctx, sys, opts)
 	pending := plan.Pending()
 	if len(plan.Steps) > 0 && plan.Steps[0].Status == wsl.StatusSkipped {
@@ -89,7 +91,7 @@ func offerWSLSelfManagement(ctx context.Context, o wslOffer) {
 		return
 	}
 
-	rep := wsl.Ensure(ctx, sys, wsl.Options{Binary: o.Binary, User: o.User})
+	rep := wsl.Ensure(ctx, sys, wsl.Options{Binary: o.Binary, User: o.User, Launcher: launcher.Exe(runtime.GOARCH)})
 	for _, s := range rep.Steps {
 		switch s.Status {
 		case wsl.StatusChanged:

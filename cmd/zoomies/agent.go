@@ -18,6 +18,7 @@ import (
 	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/updates/channel"
 	"github.com/eyupio/zoomies/internal/wsl"
+	"github.com/eyupio/zoomies/internal/wsl/launcher"
 )
 
 // runAgent is `zoomies agent`: either the daemon, or its `join` subcommand.
@@ -360,7 +361,7 @@ func wslOptions() wsl.Options {
 	if real, err := filepath.EvalSymlinks(bin); err == nil {
 		bin = real
 	}
-	return wsl.Options{Binary: bin}
+	return wsl.Options{Binary: bin, Launcher: launcher.Exe(runtime.GOARCH)}
 }
 
 // runWSLEnsure is `zoomies agent --wsl-ensure`. Problems are printed as
