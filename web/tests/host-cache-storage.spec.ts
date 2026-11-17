@@ -3,6 +3,7 @@ import { goto, reload } from './support/fixtures';
 
 test('cache storage is visible while the host card is collapsed, and unknown stays unknown', async ({
   page,
+  isMobile,
 }) => {
   await page.route('**/api/v1/events*', (route) => route.abort('connectionfailed'));
   const response = await page.request.get('/api/v1/hosts');
@@ -41,10 +42,18 @@ test('cache storage is visible while the host card is collapsed, and unknown sta
   await expect(storage).toContainText('32 GB');
   await expect(storage).toContainText('Over pool limit');
   await expect(storage).toContainText('still using');
-  await storage.getByRole('button').hover();
-  await expect(page.getByRole('tooltip')).toContainText(
-    'Packages 20 GB, tools 8.0 GB, Actions service 4.0 GB',
+  const trigger = storage.getByRole('button');
+  await expect(trigger).toHaveAccessibleDescription(
+    /Packages 20 GB, tools 8\.0 GB, Actions service 4\.0 GB/,
   );
+  // The shared bubble is presentational; its accessible copy is the trigger's
+  // description. Touch readers get that description without a hover gesture.
+  if (!isMobile) {
+    await trigger.hover();
+    const bubble = storage.locator('.bubble:popover-open');
+    await expect(bubble).toBeVisible();
+    await expect(bubble).toContainText('Packages 20 GB, tools 8.0 GB, Actions service 4.0 GB');
+  }
   known = false;
   await reload(page, 'Hosts');
   await expect(card.getByTestId('host-cache-storage')).toHaveCount(0);
