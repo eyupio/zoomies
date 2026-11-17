@@ -149,6 +149,7 @@ than about what any one setting says.
 | `agent.extra_ca_invalid` | error | `agent.extra_ca_file` | Not an absolute path to a readable PEM file with at least one certificate. Point it at your organisation's root CA in PEM form, or clear it. |
 | `agent.extra_ca` | info | `agent.extra_ca_file` | Container runners on this host trust an extra CA as well as the image's own roots. Right for your proxy's CA; clear it otherwise. |
 | `agent.docker_build_cache_mb` | error | `agent.docker_build_cache_mb` | Must be between 0 and 1048576 MiB; 0 disables automatic Docker builder-cache cleanup. |
+| `agent.registry_mirror.max_bytes` | error | `agent.registry_mirror.max_bytes` | Must be 0 (the default of 10 GiB) or at least 1073741824 bytes (1 GiB); a smaller mirror would evict what it had just fetched. |
 | `agent.bootstrap_cpu_grace_short` | warning | `agent.bootstrap_cpu_grace` | Less than 2m of normal CPU quota before pressure throttling; registration can slow under load. |
 | `runners.docker_wait_short` | warning | `runners.docker_wait` | Less than the recommended 3m for a loaded DinD daemon to become ready. |
 | `agent.bootstrap_cpu_grace` | error | `agent.bootstrap_cpu_grace` | Must be between 0s and 10m; 0s applies pressure throttling immediately. |

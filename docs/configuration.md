@@ -240,6 +240,9 @@ agent:
   bootstrap_cpu_grace: 2m       # ZOOMIES_AGENT_BOOTSTRAP_CPU_GRACE -- 0 applies pressure throttling immediately; maximum 10m
   finished_retention: 0s        # ZOOMIES_AGENT_FINISHED_RETENTION -- 0 removes a finished workload after its report is acknowledged
   docker_build_cache_mb: 0      # ZOOMIES_AGENT_DOCKER_BUILD_CACHE_MB -- target for unused builder cache; 0 prunes nothing
+  registry_mirror:
+    enabled: false              # ZOOMIES_AGENT_REGISTRY_MIRROR_ENABLED: keep the public Docker Hub images dind sidecars pull on this host
+    max_bytes: 0                # ZOOMIES_AGENT_REGISTRY_MIRROR_MAX_BYTES: 0 is 10 GiB, otherwise at least 1073741824
   # Process backend only:
   runner_sha256: ""             # ZOOMIES_AGENT_RUNNER_SHA256 -- digest of the runner archive, when github.runner_version is pinned
   allow_unverified_runner_download: false   # ZOOMIES_AGENT_ALLOW_UNVERIFIED_RUNNER_DOWNLOAD -- warned about
@@ -430,6 +433,8 @@ settings page reports rather than refusing the edit.
 | `agent.labels` | `ZOOMIES_AGENT_LABELS` | next restart | Host labels: Key=value labels describing this host, which a pool can require of the hosts it runs on. |
 | `agent.name` | `ZOOMIES_AGENT_NAME` | next restart | Host name: What this host is called in the fleet. Empty names it after the machine it is on. At most 128 characters, with no backtick or control character: the controller refuses a join that breaks that, before the join token is redeemed. |
 | `agent.network` | `ZOOMIES_AGENT_NETWORK` | next restart | Container network: An existing container network to attach runners to. Empty uses the daemon's default bridge. |
+| `agent.registry_mirror.enabled` | `ZOOMIES_AGENT_REGISTRY_MIRROR_ENABLED` | next restart | Registry mirror: Keep the Docker Hub images this host's docker-in-docker sidecars pull, so the next job's pull is served from the host's disk. Public images only; a sidecar that uses a custom image is left alone. Off by default. |
+| `agent.registry_mirror.max_bytes` | `ZOOMIES_AGENT_REGISTRY_MIRROR_MAX_BYTES` | next restart | Registry mirror size: The most the registry mirror keeps on a host's disk, in bytes, least recently used first. 0 is the default of 10 GiB; otherwise at least 1 GiB (1073741824). |
 | `agent.registry_auth` | `ZOOMIES_REGISTRY_AUTH` | next restart | Registry credentials: A base64 X-Registry-Auth value the container backends send when they pull. Without it a pool on a private registry cannot use pinned-only pulls at all. |
 | `agent.runner_download_url` | `ZOOMIES_AGENT_RUNNER_DOWNLOAD_URL` | next restart | Runner download mirror: Where the process backend fetches runner archives from, for hosts that mirror releases internally. The path below it is the same. |
 | `agent.runner_sha256` | `ZOOMIES_AGENT_RUNNER_SHA256` | next restart | Runner archive digest: The expected digest of the actions/runner archive the process backend downloads. Zoomies ships the digest for the release it pins; supply one when you pin another. |
@@ -1973,6 +1978,52 @@ so a private job image needs a `docker login` in the workflow, or credentials in
 the sidecar image's own `/root/.docker/config.json`. Prewarming prepares the
 host's image only; a pool's own image is pulled when its first runner starts. An agent
 older than the pool field ignores it and runs the host's image.
+
+### `agent.registry_mirror.enabled` and `agent.registry_mirror.max_bytes`: keep what the sidecars pull
+
+```yaml
+agent:
+  registry_mirror:
+    enabled: true
+    max_bytes: 21474836480   # 20 GiB; 0 is the default of 10 GiB
+```
+
+A docker-in-docker sidecar's storage starts empty, so every job pulls again the
+images it names, and Docker Hub limits anonymous pulls by the address they come
+from. With the mirror on, the agent keeps what the sidecars on this host pull
+from Docker Hub, on this host's disk, and serves the next pull from there.
+
+* **Public images only.** The mirror asks Docker Hub anonymously and never holds
+  a credential, so an image that needs one is never fetched and nothing private
+  is ever kept. A private image is pulled as it is today.
+* **It listens on the host's own address on the network the sidecars use** (the
+  default bridge's gateway unless `agent.network` or a pool names another) and on
+  nothing else, so a machine on the host's network cannot reach it. Any job on
+  the host can read what it holds, which is public and content addressed.
+* **Only the default sidecar image uses it.** The sidecar's command gains
+  `--registry-mirror`, and when the agent has a proxy configured the mirror's
+  address is added to `NO_PROXY` and `no_proxy`. A pool whose sidecar runs a
+  custom image, from `agent.dind_image` or the pool's own `dind_image`, is left as
+  it is, because that image is where an operator keeps a `daemon.json` of their
+  own, and a mirror named twice stops the daemon starting.
+* **It can only slow a pull down, never fail a job.** If the mirror cannot start,
+  or stops, or cannot reach Docker Hub, the sidecar pulls from Docker Hub as it
+  does without the mirror, and the agent says why in its log once for each
+  reason.
+* **It does not touch the host's own Docker daemon**, and so pools that use the
+  host's socket do not use it. Whether it reaches `docker buildx` builders has not
+  been tested.
+* **`max_bytes` is a bound, not a target.** The mirror keeps the images used most
+  recently and evicts the least recently used first, never one being read, and
+  does not keep a single layer larger than a quarter of the bound. Zero is
+  10 GiB; any other value is at least 1 GiB (1073741824), and a smaller one is
+  refused when it is saved.
+
+The mirror is off by default and was built without being run on a real fleet, so
+it makes no promise about speed yet. Changing either setting takes effect when
+the agent restarts. It is not offered when the agent itself runs in a container,
+or when the host has no shared folder to keep it in, and the agent says so in its
+log.
 
 ### `agent.extra_ca_file`: behind a proxy that re-signs TLS
 
