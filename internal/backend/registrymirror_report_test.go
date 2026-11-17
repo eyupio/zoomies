@@ -282,3 +282,62 @@ func TestAPodmanBackendNeverReportsAMirror(t *testing.T) {
 		t.Fatalf("a Podman backend reported %+v", got)
 	}
 }
+
+// Two sidecar networks can be the same address, and a network that failed and
+// then finds a listener already running for its address has been served, so its
+// problem ends with the first sidecar that is offered the mirror there.
+func TestAProblemEndsWhenTheNetworkIsServedByAListenerThatIsAlreadyRunning(t *testing.T) {
+	var mu sync.Mutex
+	broken := true
+	m := reportHost(t, t.TempDir(), func(_ context.Context, network string) (string, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if network == "later" && broken {
+			return "", errors.New("no gateway")
+		}
+		return "127.0.0.1", nil
+	}, nil, nil)
+	ctx := context.Background()
+	if m.urlFor(ctx, "first") == "" {
+		t.Fatal("the first network was not offered the mirror")
+	}
+	if m.urlFor(ctx, "later") != "" {
+		t.Fatal("offered with no gateway")
+	}
+	if got := m.report(); got == nil || got.Problem != MirrorProblemGateway {
+		t.Fatalf("report = %+v, want the gateway problem", got)
+	}
+	mu.Lock()
+	broken = false
+	mu.Unlock()
+	if m.urlFor(ctx, "later") == "" {
+		t.Fatal("the network was not offered the listener that already runs")
+	}
+	if got := m.report(); got == nil || got.Problem != "" {
+		t.Fatalf("report = %+v, want the problem to end once the network is served", got)
+	}
+}
+
+func TestAFolderProblemEndsOnceTheFolderCanBeWritten(t *testing.T) {
+	shared := t.TempDir()
+	blocker := filepath.Join(shared, "registry-mirror")
+	if err := os.WriteFile(blocker, []byte("not a folder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := reportHost(t, shared, loopback, nil, nil)
+	if m.urlFor(context.Background(), "") != "" {
+		t.Fatal("offered with no folder to keep anything in")
+	}
+	if got := m.report(); got == nil || got.Problem != MirrorProblemFolder {
+		t.Fatalf("report = %+v, want the folder problem", got)
+	}
+	if err := os.Remove(blocker); err != nil {
+		t.Fatal(err)
+	}
+	if m.urlFor(context.Background(), "") == "" {
+		t.Fatal("not offered once the folder could be made")
+	}
+	if got := m.report(); got == nil || got.Problem != "" {
+		t.Fatalf("report = %+v, want the problem to end once the folder is writable", got)
+	}
+}

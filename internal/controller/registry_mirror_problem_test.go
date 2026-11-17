@@ -250,3 +250,24 @@ func TestAPoolThatRunsNoDockerSidecarIsNeverToldTheMirrorIsUnused(t *testing.T) 
 		t.Fatal("raised for a pool with no sidecar")
 	}
 }
+
+// A host the pool's selector rules out cannot run it, so a mirror there says
+// nothing about it: a broken one costs the pool nothing, and one that is working
+// is no reason to tell the pool it goes without.
+func TestAMirrorOnAHostThatCannotRunAPoolSaysNothingAboutThatPool(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	h.dindPool(inst, "elsewhere", func(p *store.Pool) {
+		p.HostSelector = store.StringMap{"rack": "b"}
+		p.DinDImage = "registry.example.com/ci/dind:27"
+	})
+	host := h.hostWith("rack-a")
+	h.mirrorBeat(host.ID, &backend.RegistryMirrorReport{Problem: backend.MirrorProblemListener})
+	codes := h.problemCodes()
+	if hasCode(codes, "pool.registry_mirror_unused") {
+		t.Fatal("told a pool its mirror goes unused on a host that cannot run it")
+	}
+	if hasCode(codes, "host.registry_mirror_degraded") {
+		t.Fatal("raised for a pool that cannot run on the host")
+	}
+}
