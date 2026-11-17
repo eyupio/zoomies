@@ -99,6 +99,7 @@ func (m *Mirror) headBlob(w http.ResponseWriter, r *http.Request, rt route) {
 		return
 	}
 	defer resp.Body.Close()
+	m.upstreamAnswered() // a HEAD has no body to wait for
 	h := w.Header()
 	h.Set("Content-Type", "application/octet-stream")
 	h.Set("Docker-Content-Digest", rt.ref)
@@ -188,7 +189,7 @@ func (m *Mirror) passRange(w http.ResponseWriter, r *http.Request, rt route) {
 			return
 		}
 		if rerr != nil {
-			m.upstreamErrors.Add(1)
+			m.upstreamError()
 			panic(http.ErrAbortHandler)
 		}
 	}
@@ -284,7 +285,7 @@ func (m *Mirror) fetchAndServe(w http.ResponseWriter, r *http.Request, rt route,
 					if keep != nil {
 						keep.abort()
 					}
-					m.upstreamErrors.Add(1)
+					m.upstreamError()
 					panic(http.ErrAbortHandler)
 				}
 				if keep != nil {
@@ -309,7 +310,7 @@ func (m *Mirror) fetchAndServe(w http.ResponseWriter, r *http.Request, rt route,
 			if keep != nil {
 				keep.abort()
 			}
-			m.upstreamErrors.Add(1)
+			m.upstreamError()
 			// The client has been told the blob is coming. Ending the response
 			// cleanly would tell it the blob is whole, so cut the connection.
 			panic(http.ErrAbortHandler)

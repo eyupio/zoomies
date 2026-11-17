@@ -51,13 +51,13 @@ func TestTheHeartbeatCarriesWhatTheBackendsCacheServicesHaveDone(t *testing.T) {
 // mirroringBackend is a fake backend that also runs a registry mirror.
 type mirroringBackend struct {
 	*fakeBackend
-	stats *registrymirror.Stats
+	report *backend.RegistryMirrorReport
 }
 
-func (m *mirroringBackend) RegistryMirrorStats() *registrymirror.Stats { return m.stats }
+func (m *mirroringBackend) RegistryMirrorReport() *backend.RegistryMirrorReport { return m.report }
 
-// The figures a host's registry mirror keeps reach the controller on the
-// heartbeat as the backend reports them at that beat, and a host that runs no
+// What a host's registry mirror says about itself reaches the controller on the
+// heartbeat as the backend reports it at that beat, and a host that runs no
 // mirror sends a beat with no block, which an older controller reads the same
 // way.
 func TestTheHeartbeatCarriesWhatTheRegistryMirrorHasDone(t *testing.T) {
@@ -75,17 +75,17 @@ func TestTheHeartbeatCarriesWhatTheRegistryMirrorHasDone(t *testing.T) {
 		t.Fatalf("Join: %v", err)
 	}
 	if beat := nextBeat(t, a, tr); beat.RegistryMirror != nil {
-		t.Fatalf("a mirror that has not started reported %+v", beat.RegistryMirror)
+		t.Fatalf("a mirror that is off reported %+v", beat.RegistryMirror)
 	}
-	be.stats = &registrymirror.Stats{Requests: 4, Hits: 3, BytesStored: 2048}
+	be.report = &backend.RegistryMirrorReport{Stats: registrymirror.Stats{Requests: 4, Hits: 3, BytesStored: 2048}, Problem: backend.MirrorProblemFolder}
 	first := nextBeat(t, a, tr)
-	if first.RegistryMirror == nil || first.RegistryMirror.Requests != 4 || first.RegistryMirror.BytesStored != 2048 {
-		t.Fatalf("registry mirror = %+v, want 4 requests and 2048 bytes held", first.RegistryMirror)
+	if first.RegistryMirror == nil || first.RegistryMirror.Requests != 4 || first.RegistryMirror.BytesStored != 2048 || first.RegistryMirror.Problem != backend.MirrorProblemFolder {
+		t.Fatalf("registry mirror = %+v, want 4 requests, 2048 bytes held and the problem it named", first.RegistryMirror)
 	}
 
-	// Read afresh each beat: the counters move between them.
-	be.stats = &registrymirror.Stats{Requests: 11, Hits: 9, BytesStored: 4096}
-	if second := nextBeat(t, a, tr); second.RegistryMirror == nil || second.RegistryMirror.Requests != 11 {
-		t.Errorf("second beat carried %+v, want the figures as they are now", second.RegistryMirror)
+	// Read afresh each beat: the counters move and a problem can end.
+	be.report = &backend.RegistryMirrorReport{Stats: registrymirror.Stats{Requests: 11, Hits: 9, BytesStored: 4096}}
+	if second := nextBeat(t, a, tr); second.RegistryMirror == nil || second.RegistryMirror.Requests != 11 || second.RegistryMirror.Problem != "" {
+		t.Errorf("second beat carried %+v, want the report as it is now", second.RegistryMirror)
 	}
 }

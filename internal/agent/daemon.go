@@ -1085,7 +1085,7 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 		Update:            update,
 		UpdateUnsupported: string(a.updateUnsupported(features, infos)),
 		Caches:            a.opts.Backends.CacheStats(),
-		RegistryMirror:    a.opts.Backends.RegistryMirrorStats(),
+		RegistryMirror:    a.opts.Backends.RegistryMirrorReport(),
 	})
 	if err != nil {
 		a.expireBoosts(ctx)

@@ -120,6 +120,7 @@ func (m *Mirror) resolveTag(r *http.Request, rt route, accept string) (tagEntry,
 	if !validDigest(digest) {
 		return tagEntry{}, unavailable(errors.New("the registry gave no digest for the tag"))
 	}
+	m.upstreamAnswered()
 	e := tagEntry{digest: digest, contentType: resp.Header.Get("Content-Type"), size: resp.ContentLength, checked: now}
 	m.remember(key, e, now)
 	return e, nil

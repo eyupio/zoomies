@@ -24,7 +24,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/eyupio/zoomies/internal/registrymirror"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -492,6 +491,7 @@ func newContainerBackend(opts DockerOptions, fl flavor, detect func() []string, 
 		Enabled: opts.RegistryMirror, MaxBytes: opts.RegistryMirrorMaxBytes,
 		SharedDir: b.sharedDir, SharedProblem: b.sharedProblem,
 		Log: b.log, Gateway: api.NetworkGateway,
+		HostImageCustom: dind != DefaultDinDImage,
 	})
 	return b, nil
 }
@@ -522,9 +522,15 @@ func (b *DockerBackend) registryMirrorFor(ctx context.Context, image, network st
 // CacheStats is what this backend's cache services have done, by pool.
 func (b *DockerBackend) CacheStats() []CacheStats { return b.cacheSvcs.stats() }
 
-// RegistryMirrorStats is what this host's registry mirror has done and holds, or
-// nil while it has not been started.
-func (b *DockerBackend) RegistryMirrorStats() *registrymirror.Stats { return b.regMirror.stats() }
+// RegistryMirrorReport is what this host's registry mirror has done, holds and
+// has wrong with it, or nil while it is off. A backend that cannot run a
+// docker-in-docker sidecar has no mirror to be on, whatever the settings say.
+func (b *DockerBackend) RegistryMirrorReport() *RegistryMirrorReport {
+	if !b.fl.supportsDinD {
+		return nil
+	}
+	return b.regMirror.report()
+}
 
 // Kind identifies the implementation.
 func (b *DockerBackend) Kind() store.BackendKind { return b.fl.kind }
