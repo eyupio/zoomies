@@ -107,3 +107,35 @@ func TestMirrorSeriesAreBoundedByTheHostsTheControllerHasAndNeverNegative(t *tes
 		t.Errorf("%d host(s) still held in memory after the host was deleted", n)
 	}
 }
+
+// A total the agent has counted is a counter and what it holds now is a gauge, and
+// the difference is not cosmetic: a stored size is allowed to fall when the mirror
+// evicts, and a counter that falls reads as an agent restart, so rate() would take
+// every eviction for a restart and drop the host's history with it.
+func TestTheMirrorsTotalsAreCountersAndWhatItHoldsIsAGauge(t *testing.T) {
+	h := newHarness(t)
+	host := h.hostWith("one")
+	h.mirrorBeat(host.ID, &backend.RegistryMirrorReport{Stats: registrymirror.Stats{Hits: 1, BytesStored: 1}})
+
+	families, err := h.c.Registry().Gather()
+	if err != nil {
+		t.Fatalf("gathering metrics: %v", err)
+	}
+	kinds := map[string]string{}
+	for _, f := range families {
+		kinds[f.GetName()] = f.GetType().String()
+	}
+	for series, want := range map[string]string{
+		"zoomies_registry_mirror_lookups_total":            "COUNTER",
+		"zoomies_registry_mirror_served_bytes_total":       "COUNTER",
+		"zoomies_registry_mirror_fetched_bytes_total":      "COUNTER",
+		"zoomies_registry_mirror_upstream_errors_total":    "COUNTER",
+		"zoomies_registry_mirror_evictions_total":          "COUNTER",
+		"zoomies_registry_mirror_stored_bytes":             "GAUGE",
+		"zoomies_registry_mirror_upstream_failing_seconds": "GAUGE",
+	} {
+		if got := kinds[series]; got != want {
+			t.Errorf("%s is a %q, want a %q", series, got, want)
+		}
+	}
+}

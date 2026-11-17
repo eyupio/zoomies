@@ -102,6 +102,7 @@ test('what somebody types into a bytes field is read in binary multiples', () =>
   assert.deepEqual(read('1.5g'), { ok: true, value: 1610612736 });
   assert.deepEqual(read('512m'), { ok: true, value: 536870912 });
   assert.deepEqual(read('2 TB'), { ok: true, value: 2199023255552 });
+  assert.deepEqual(read('1 PB'), { ok: true, value: 1125899906842624 });
   // A bare number is bytes, the unit the field is in, so a pasted figure stays itself.
   assert.deepEqual(read('1073741824'), { ok: true, value: 1073741824 });
   assert.deepEqual(read('4b'), { ok: true, value: 4 });
