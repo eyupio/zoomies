@@ -1145,6 +1145,7 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 		Throttle:           c.throttleDirective(ctx, h),
 		ElasticCPU:         elasticCPU,
 		ElasticMemory:      elasticMemory,
+		CachePolicies:      c.cachePolicies(ctx, h),
 		UpdateHeld:         updateHeld,
 	}, nil
 }

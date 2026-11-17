@@ -362,7 +362,12 @@ type DockerBackend struct {
 	toolCacheMu      sync.Mutex
 	toolCacheProblem string
 	// cacheSvcs runs the pool cache services runners are pointed at.
-	cacheSvcs *cacheServices
+	cacheSvcs     *cacheServices
+	cacheGate     sync.Mutex
+	cachePeers    []*DockerBackend
+	cacheBusy     int
+	cachePolicies []CachePolicy
+	cacheStorage  []CacheStorage
 	// regMirror is the host's registry mirror, which the sidecars that run the
 	// default image are pointed at; nothing when it is off.
 	regMirror *registryMirror
@@ -520,7 +525,26 @@ func (b *DockerBackend) registryMirrorFor(ctx context.Context, image, network st
 }
 
 // CacheStats is what this backend's cache services have done, by pool.
-func (b *DockerBackend) CacheStats() []CacheStats { return b.cacheSvcs.stats() }
+func (b *DockerBackend) CacheStats() []CacheStats {
+	out := b.cacheSvcs.stats()
+	b.cacheGate.Lock()
+	defer b.cacheGate.Unlock()
+	for _, storage := range b.cacheStorage {
+		found := false
+		for i := range out {
+			if out[i].PoolID == storage.PoolID {
+				out[i].Storage = &storage
+				found = true
+				break
+			}
+		}
+		if !found {
+			out = append(out, CacheStats{PoolID: storage.PoolID, Storage: &storage})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].PoolID < out[j].PoolID })
+	return out
+}
 
 // RegistryMirrorReport is what this host's registry mirror has done, holds and
 // has wrong with it, or nil while it is off. A backend that cannot run a
@@ -1416,6 +1440,8 @@ func (b *DockerBackend) Create(ctx context.Context, spec Spec) (Handle, error) {
 }
 
 func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (result CreateResult, createErr error) {
+	endCacheUse := b.beginCacheUse()
+	defer endCacheUse()
 	if err := spec.Validate(); err != nil {
 		return CreateResult{}, err
 	}
@@ -1490,7 +1516,7 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (result
 	b.pruneCacheFor(ctx, spec)
 	// Offered, never required: a host that cannot run the service leaves the
 	// runner on GitHub's cache, as it was before the pool asked for one.
-	opts.CacheServiceURL = b.cacheSvcs.urlFor(ctx, spec, network)
+	opts.CacheServiceURL = b.cacheServiceURL(ctx, spec, network)
 
 	var dindReadyDuration *time.Duration
 	switch spec.DockerMode {
@@ -2245,6 +2271,22 @@ func (b *DockerBackend) Remove(ctx context.Context, h Handle) error {
 // host may drift, not a quota, so carrying one runner's worth of excess costs
 // some disk; deleting a running job's cache costs the job.
 func (b *DockerBackend) pruneCacheFor(ctx context.Context, spec Spec) {
+	// Shared caches can still be mounted on the other daemon after a backend
+	// switch. The coordinated maintenance pass checks both inventories.
+	if len(b.cachePeers) > 1 {
+		return
+	}
+	b.cacheGate.Lock()
+	defer b.cacheGate.Unlock()
+	if b.cacheBusy > 1 {
+		return
+	}
+	for _, p := range b.cachePolicies {
+		if p.PoolID == spec.PoolID {
+			spec.Cache.SizeLimit = p.Cache.SizeLimit
+			break
+		}
+	}
 	// No limit is nothing to enforce, and no reason to ask the daemon.
 	if spec.Cache.SizeLimit <= 0 {
 		return
@@ -2252,6 +2294,13 @@ func (b *DockerBackend) pruneCacheFor(ctx context.Context, spec Spec) {
 	dir, ok := cacheDirectory(spec)
 	if !ok {
 		return
+	}
+	if identity, err := cacheIdentity(spec); err == nil && b.sharedDir != "" {
+		for _, kind := range []string{"tools", "service"} {
+			if pathsOverlap(dir, filepath.Join(b.sharedDir, "cache", kind, identity)) {
+				return
+			}
+		}
 	}
 	switch inUse, err := b.cacheInUse(ctx, dir); {
 	case err != nil:

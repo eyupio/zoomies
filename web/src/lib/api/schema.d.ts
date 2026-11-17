@@ -8696,7 +8696,7 @@ export interface components {
             scope: "pool" | "repository";
             /**
              * Format: int64
-             * @description Maximum bytes, enforced between one runner and the next by evicting whole cache entries, least recently modified first. Only a cache in a host directory can be measured, so a non-zero limit requires `source` to be an absolute host path. Zero is unlimited.
+             * @description Maximum apparent bytes shared by this pool's package cache, retained tool generations and local Actions cache service on each host. Idle maintenance evicts whole package and tool entries, oldest first, independently of new placements. The service receives the remaining budget live. Active jobs, open transfers and filesystem errors may defer enforcement; this is not a filesystem quota. A non-zero limit requires an absolute host source. Zero leaves package and tool data unlimited; the service defaults to 10 GiB.
              */
             size_limit?: number;
             /** @description Optional absolute host directory or safe named-volume prefix. */
@@ -11498,7 +11498,27 @@ export interface components {
             /** @description Identity that explicitly retired the destination record. */
             retired_by?: string;
         };
+        /** @description Apparent bytes in a pool's current cache namespace on this host. An unset measurement time means sizes are unknown. Older namespaces and daemon volumes are excluded. */
+        CacheStorage: {
+            pool_id: string;
+            /** Format: int64 */
+            package_bytes: number;
+            /** Format: int64 */
+            tools_bytes: number;
+            /** Format: int64 */
+            service_bytes: number;
+            /** Format: int64 */
+            total_bytes: number;
+            /** Format: int64 */
+            size_limit: number;
+            /** Format: date-time */
+            measured_at: string;
+            /** @description Why cleanup was deferred or the measurement is incomplete. */
+            deferred?: string;
+        };
         Host: {
+            /** @description Latest agent cache measurements by pool, also carried by host.updated events. Absent from older agents. Check measured_at and deferred before using a size. */
+            cache_storage?: components["schemas"]["CacheStorage"][];
             retired?: boolean;
             /** @enum {string} */
             recovery_state?: "awaiting_recovery" | "verified" | "retired";

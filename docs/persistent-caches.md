@@ -340,3 +340,39 @@ The existing `agent.docker_build_cache_mb` policy acts on the outer daemon and d
 ## Verify the benefit
 
 Measure identical cold and warm jobs on the same host and across hosts. Record dependency download time, image preparation, BuildKit cached steps, queue-to-start time and total job time. Delete the cache and rerun to verify correctness. Compare storage/registry costs with time saved before expanding retention or baking more libraries into the image.
+
+
+## Cache size and the active shared folder
+
+`cache.size_limit` is shared by packages, retained tool generations and the
+Actions cache service for a pool on each host. Idle maintenance runs on the
+agent's reconciliation tick, independently of new runner creation, so disk
+pressure that prevents placement no longer prevents cleanup. It checks both
+the daemon's containers and local starts/tool fills before deleting package
+or tool entries. Service eviction goes through its live budget and index.
+Active jobs can exceed this target; an uninterrupted stream of jobs can defer
+package/tool eviction until the pool is idle. A changed limit reaches the
+agent on its next heartbeat. Controller and agent both need this release for
+background maintenance and host-card measurements.
+
+The Hosts card and host detail show cache bytes, with a package/tools/service
+breakdown in the tooltip, the measurement age and any deferral. These are
+apparent file sizes in each configured namespace, not allocated filesystem
+blocks. An older agent has no measurement, not a zero-sized cache. Incomplete
+measurements and daemon-managed package volumes are labelled partial or unknown.
+Old namespaces left after changing the source or scope are not included.
+
+A folder under `.config` is not necessarily obsolete. A non-root Linux agent
+uses `$XDG_CONFIG_HOME/zoomies` or `$HOME/.config/zoomies` as its state directory
+unless `ZOOMIES_STATE_DIR` overrides it. With `/var/lib/zoomies` as the service
+account's home, its active shared directory can therefore be
+`/var/lib/zoomies/.config/zoomies/shared`. Package caches follow the pool's
+absolute `cache.source`; tools and the service follow that active shared folder.
+Maintenance includes both in the same pool budget even when the paths differ.
+
+Before retiring a second shared folder, inspect the running service's
+`ZOOMIES_STATE_DIR`, `HOME` and `XDG_CONFIG_HOME`, and the daemon's container
+mount sources. Drain jobs and tool fills first. Move data only while the agent
+is stopped, update the service environment and any Compose bind mounts together,
+then verify the next runner's mounts before removing old data. Zoomies does not
+automatically delete or migrate an unidentified folder that could still be in use.
