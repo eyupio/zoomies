@@ -341,3 +341,40 @@ func TestAFolderProblemEndsOnceTheFolderCanBeWritten(t *testing.T) {
 		t.Fatalf("report = %+v, want the problem to end once the folder is writable", got)
 	}
 }
+
+// The controller works out which pools the mirror serves from what an agent
+// reports, and the agent offers it to whatever sidecar image really is the
+// default, so the two have to be the same rule. This holds one to the other for
+// every combination of the host's image and the pool's, which is how they stay
+// the same after somebody changes either.
+func TestTheControllersRuleForWhichSidecarsGetTheMirrorIsTheBackends(t *testing.T) {
+	const custom = "registry.example.com/ci/dind:27"
+	hostImages := map[string]string{"empty": "", "the default": DefaultDinDImage, "its own": custom}
+	poolImages := map[string]string{
+		"empty": "", "padded": "   ", "the default": DefaultDinDImage,
+		"the default, padded": "  " + DefaultDinDImage + "\n", "its own": custom,
+	}
+	for hostName, hostImage := range hostImages {
+		for poolName, poolImage := range poolImages {
+			t.Run("host "+hostName+", pool "+poolName, func(t *testing.T) {
+				b, err := NewDocker(DockerOptions{
+					Host: "tcp://127.0.0.1:1", RegistryMirror: true, SharedDir: t.TempDir(),
+					DinDImage: hostImage, Logger: quietLogger(),
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(b.Close)
+				report := b.RegistryMirrorReport()
+				if report == nil {
+					t.Fatal("no report from a Docker backend with the mirror on")
+				}
+				want := b.sidecarImage(Spec{DinDImage: poolImage}) == DefaultDinDImage
+				if got := SidecarImageIsDefault(poolImage, report.HostImageCustom); got != want {
+					t.Fatalf("SidecarImageIsDefault(%q, host custom %v) = %v, but the backend runs %q and offers the mirror %v",
+						poolImage, report.HostImageCustom, got, b.sidecarImage(Spec{DinDImage: poolImage}), want)
+				}
+			})
+		}
+	}
+}

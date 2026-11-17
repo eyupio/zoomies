@@ -61,11 +61,13 @@ func poolUsesDockerSidecar(p *store.Pool) bool {
 }
 
 // poolGetsMirrorOn is whether a pool's sidecars on a host that reports rep are
-// started with the mirror: only when neither the pool nor the host has chosen an
-// image of its own, because a mirror named beside a daemon.json of the
-// operator's own stops the daemon starting.
+// started with the mirror: only when they run the default image, because a mirror
+// named beside a daemon.json of the operator's own stops the daemon starting. The
+// pool's own image wins over the host's, and one that names the default itself is
+// still the default; the backend decides it by the same rule, held to this one by
+// a test.
 func poolGetsMirrorOn(p *store.Pool, rep backend.RegistryMirrorReport) bool {
-	return poolUsesDockerSidecar(p) && p.DinDImage == "" && !rep.HostImageCustom
+	return poolUsesDockerSidecar(p) && backend.SidecarImageIsDefault(p.DinDImage, rep.HostImageCustom)
 }
 
 // registryMirrorProblems gathers host.registry_mirror_degraded and
@@ -198,7 +200,7 @@ func registryMirrorUnusedProblem(p *store.Pool, hosts []*store.Host, reports map
 	}
 	slices.Sort(onHosts)
 	var why string
-	if p.DinDImage != "" {
+	if strings.TrimSpace(p.DinDImage) != "" {
 		why = "the pool's own dind_image"
 	} else {
 		why = "agent.dind_image on the host"

@@ -322,10 +322,15 @@ func (m *Mirror) fetchAndServe(w http.ResponseWriter, r *http.Request, rt route,
 	}
 	if keep == nil {
 		if resp.ContentLength < 0 {
-			// A blob of unknown length that is not kept cannot be checked here, so
-			// the client's own check is the only one, and the body having arrived
-			// whole is the most the mirror can say.
-			m.upstreamAnswered()
+			// Not kept, because it was too large or could not be written, but every
+			// chunk was hashed as it arrived, so the digest can still be checked.
+			// The client has the blob whole already and checks it for itself.
+			if got := "sha256:" + hex.EncodeToString(sum.Sum(nil)); got != rt.ref {
+				m.cfg.Log.Warn("registry mirror was sent a blob that did not match its digest", "digest", rt.ref, "got", got)
+				m.upstreamError()
+			} else {
+				m.upstreamAnswered()
+			}
 		}
 		return
 	}

@@ -593,6 +593,16 @@ mirror, because of a sidecar image the operator chose.
    port would be a new setting, and whether to have one is open.
 6. The figures reach the controller and are shown nowhere: no metrics series and no
    card. That is the UI slice, and the metrics are a decision for it.
+7. Whether a pool is given the mirror is one rule, `backend.SidecarImageIsDefault`,
+   which the backend applies to the image it really runs and the controller applies
+   to what it knows: the pool's own image wins over the host's, a name is trimmed,
+   and a pool that names the default image itself runs the default and is given the
+   mirror, even on a host whose own image is custom. A test holds the controller's
+   use of it to the backend's real `sidecarImage` for every combination. The first
+   version treated any image a pool named as the operator's own, so it told
+   operators the mirror went unused for pools that were using it and hid a broken
+   mirror from them. Codex found that, and that a blob of unknown length that is not
+   kept was not checked against its digest although every chunk had been hashed.
 
 **What was shown.** Thirty-three tests, run under the race detector: the mirror
 timing a run of failures and each way it ends, the agent's report and each problem

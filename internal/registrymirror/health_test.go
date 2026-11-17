@@ -216,18 +216,32 @@ func TestACorruptManifestDoesNotEndARunOfFailures(t *testing.T) {
 }
 
 func TestACorruptBlobDoesNotEndARunOfFailures(t *testing.T) {
-	for name, chunked := range map[string]bool{
-		"of known length":   false,
-		"of unknown length": true,
+	for _, tc := range []struct {
+		name    string
+		size    int
+		chunked bool
+		max     int64
+	}{
+		{"of known length", 500, false, 0},
+		{"of unknown length", 500, true, 0},
+		// Not kept, so nothing is written, but every chunk is still hashed as it
+		// arrives and the digest is still there to be checked.
+		{"of unknown length, too large to keep", 5000, true, 4000},
+		{"of known length, too large to keep", 5000, false, 4000},
 	} {
-		t.Run(name, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			f := newFakeRegistry(t)
-			f.cdnChunked = chunked
+			f.cdnChunked = tc.chunked
 			clock := newFakeClock()
 			broken := failingManifest(f, http.StatusInternalServerError)
-			digest := f.addBlob(blobOf(500, 'g'))
-			f.badBlob[digest] = blobOf(500, 'X')
-			m, srv := newTestMirror(t, f, func(c *Config) { c.Now = clock.Now })
+			digest := f.addBlob(blobOf(tc.size, 'g'))
+			f.badBlob[digest] = blobOf(tc.size, 'X')
+			m, srv := newTestMirror(t, f, func(c *Config) {
+				c.Now = clock.Now
+				if tc.max > 0 {
+					c.MaxBytes = tc.max
+				}
+			})
 
 			do(t, http.MethodGet, srv.URL+broken, nil)
 			errorsBefore := m.Stats().UpstreamErrors

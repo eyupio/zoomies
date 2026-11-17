@@ -290,3 +290,49 @@ func TestABrokenMirrorOnAHostThatCannotRunAPoolCostsThatPoolNothing(t *testing.T
 		t.Fatal("raised for a pool that cannot run on the host")
 	}
 }
+
+// A pool that names the default sidecar image itself runs the default image, and
+// the pool's image wins over the host's, so it is given the mirror on every host,
+// including one whose own image is custom. An explicit default is not "an image of
+// its own", and treating it as one told operators the mirror went unused for pools
+// that were using it, and hid a broken mirror from them.
+func TestAPoolThatNamesTheDefaultSidecarImageIsGivenTheMirror(t *testing.T) {
+	for name, tc := range map[string]struct {
+		image      string
+		hostCustom bool
+	}{
+		"on a host with the default image":                {backend.DefaultDinDImage, false},
+		"on a host with an image of its own":              {backend.DefaultDinDImage, true},
+		"written with spaces round it":                    {"  " + backend.DefaultDinDImage + " ", false},
+		"written with spaces, on a host with its own one": {"  " + backend.DefaultDinDImage + " ", true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			h.dindPool(h.installation(), "explicit", func(p *store.Pool) { p.DinDImage = tc.image })
+			host := h.hostWith("builder")
+
+			h.mirrorBeat(host.ID, &backend.RegistryMirrorReport{HostImageCustom: tc.hostCustom})
+			if hasCode(h.problemCodes(), "pool.registry_mirror_unused") {
+				t.Fatal("told a pool the mirror goes unused when its sidecar runs the default image")
+			}
+			h.mirrorBeat(host.ID, &backend.RegistryMirrorReport{HostImageCustom: tc.hostCustom, Problem: backend.MirrorProblemListener})
+			if !hasCode(h.problemCodes(), "host.registry_mirror_degraded") {
+				t.Fatal("a broken mirror was hidden from a pool whose sidecar runs the default image")
+			}
+		})
+	}
+}
+
+// A pool image that is only spaces names nothing, so the pool follows the host,
+// and the detail has to blame the host's image and not a pool image it does not
+// have, or the operator is sent to clear a field that is already empty.
+func TestTheDetailBlamesTheHostsImageForAPoolThatNamesNone(t *testing.T) {
+	h := newHarness(t)
+	h.dindPool(h.installation(), "follows-host", func(p *store.Pool) { p.DinDImage = "   " })
+	host := h.hostWith("builder")
+	h.mirrorBeat(host.ID, &backend.RegistryMirrorReport{HostImageCustom: true})
+	got := h.problem(t, "pool.registry_mirror_unused")
+	if !strings.Contains(got.Detail, "agent.dind_image") || strings.Contains(got.Detail, "the pool's own dind_image") {
+		t.Fatalf("detail = %q, want it to blame agent.dind_image on the host", got.Detail)
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -78,6 +79,23 @@ type RegistryMirrorReport struct {
 // mirror is off.
 type RegistryMirrorReporter interface {
 	RegistryMirrorReport() *RegistryMirrorReport
+}
+
+// SidecarImageIsDefault is whether a docker-in-docker sidecar for a pool that names
+// poolImage, on a host whose own image is custom or not, runs the default image,
+// which is the one a registry mirror is offered to. A pool's own image wins over
+// the host's, so a pool that names the default itself is given the mirror even on
+// a host that has an image of its own, and a pool that names nothing follows the
+// host.
+//
+// It exists so that the controller, which knows only what an agent reports and
+// what a pool says, applies the same rule the backend does with the image it
+// really runs; a test holds the two to each other.
+func SidecarImageIsDefault(poolImage string, hostImageCustom bool) bool {
+	if image := strings.TrimSpace(poolImage); image != "" {
+		return image == DefaultDinDImage
+	}
+	return !hostImageCustom
 }
 
 // registryMirrorOptions is everything a host's mirror is told.
