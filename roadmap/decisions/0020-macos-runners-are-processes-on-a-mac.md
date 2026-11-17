@@ -1,13 +1,15 @@
 # 0020: macOS runners are actions/runner processes on an Apple silicon Mac
 
-**Status**: proposed, for the owner to ratify. The shape was chosen in a
-working session on 17 November 2026, from the review recorded in
-[the Codemany follow-up plan](../plans/2026-11-17-codemany-follow-ups.md). It
-is not authorised delivery work until [ROADMAP.md](../../ROADMAP.md) says so,
-and nothing in the docs may claim macOS runners until a job has run on a real
-Mac.
+**Status**: accepted, on 17 November 2026, on the instruction of the person
+running the working session, who chose the shape and then asked for it to be
+put in [ROADMAP.md](../../ROADMAP.md), where it is decision 33 and the work is
+ZF-247. It was not the recommendation, which was to leave macOS out for now.
+The owner has not separately confirmed the shape. Nothing in the docs may
+claim macOS runners until a job has run on a real Mac.
 
-**Date**: 2026-11-17, in a working session with the person running it.
+**Date**: 2026-11-17, in a working session with the person running it, from
+the review recorded in
+[the Codemany follow-up plan](../plans/2026-11-17-codemany-follow-ups.md).
 
 ## Context
 

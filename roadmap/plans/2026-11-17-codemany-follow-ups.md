@@ -4,7 +4,7 @@
 
 **Goal:** Turn a review of Codemany's public documentation into the small set of changes it justifies: the comparison page (done), the pointers that send macOS readers to it, a design note and a competitor-list entry that need no decision, and three pieces of work that wait for the owner.
 
-**Architecture:** Documentation and planning changes only until the owner puts work in `ROADMAP.md`. Nothing in this plan is authorised delivery work: it is an analysis and a handoff, in the sense of [ROADMAP.md](../../ROADMAP.md) and [roadmap/README.md](../README.md). The three decisions are taken, and Tasks 5b, 6 and 7, each marked as gated on a ROADMAP.md line, do not start until the owner adds it.
+**Architecture:** Documentation and planning changes in the pull request that added this file. [ROADMAP.md](../../ROADMAP.md) version 3.15 now carries the three decisions as 33 to 35 and the work as ZF-246, ZF-247 and ZF-248, so Tasks 5b, 6 and 7 are authorised, in the order section 10 gives. The page and the handoff are an analysis in the sense of [roadmap/README.md](../README.md); the delivery is the roadmap's.
 
 **Tech Stack:** Markdown, MkDocs (`mkdocs build --strict`), Go tests in `internal/docs`.
 
@@ -19,9 +19,10 @@
 - [x] Task 3, the dated note on candidate 4 in `roadmap/candidates-from-hosted-services.md`.
 - [x] Task 4, `codemany.com` in the weekly search check's `competitors`.
 - [x] The three decisions were put to the person running the session on 17 November 2026 and taken; see "Decisions taken".
-- [x] Task 5, [decision 0020](../decisions/0020-macos-runners-are-processes-on-a-mac.md), written and indexed. It is **proposed, for the owner to ratify**.
+- [x] Task 5, [decision 0020](../decisions/0020-macos-runners-are-processes-on-a-mac.md), written and indexed.
+- [x] `ROADMAP.md` version 3.15, at the request of the person running the session: decisions 33 to 35, ZF-246 to ZF-248 in section 8, three rows in section 10, one input in section 11, the change record, and three `not_started` rows in [progress.md](../progress.md). Decision 0020 is now accepted on that instruction; the owner has not separately confirmed the shape.
 
-**Next unfinished step:** the owner puts three lines in `ROADMAP.md` (the text is under "For the owner's ROADMAP.md", below). Until they do, Tasks 5b, 6 and 7 do not start. Task 8 is due three months after 17 November 2026. Update this section, and tick the boxes below, in every pull request that works from this plan.
+**Next unfinished step:** Task 6's design (ZF-246, which needs nothing but the repository), Task 7's evidence (ZF-248, which needs read access to this repository's own CI fleet) and Task 5b's tests and launchd unit (ZF-247, which need no Mac); only Task 5b's real join and job needs an Apple silicon Mac. Task 8 is due three months after 17 November 2026. Update this section, and tick the boxes below, in every pull request that works from this plan.
 
 ## Global Constraints
 
@@ -29,7 +30,7 @@
 - A comparison says where the other product is better, plainly, and is dated. It is a comparison of documentation, not a benchmark.
 - Do not publish a claim of faster execution, stronger isolation or unique capability without evidence ([competitive-review-2026-09.md](../competitive-review-2026-09.md), "Positioning and evidence").
 - Do not claim macOS runners until a job has run on a real Mac. [Decision 0020](../decisions/0020-macos-runners-are-processes-on-a-mac.md) chose the shape; the support matrix still says "Nothing planned" and the eight pages that say there is no macOS runner image stay as they are until the evidence exists.
-- Nothing here edits `ROADMAP.md`: new or changed delivery work belongs there first, and only the owner puts it there.
+- New or changed delivery work belongs in `ROADMAP.md` first. Version 3.15 added ZF-246 to ZF-248 at the request of the person running the session; anything beyond them goes there before it goes here.
 
 ## What the review found
 
@@ -39,7 +40,7 @@ The two overlap less than the shared goal suggests. Codemany is an app for a few
 
 | Finding | Already tracked? | Where it goes |
 | --- | --- | --- |
-| macOS runners are Codemany's main draw, and Zoomies has none | Not planned: [support-and-measurement.md](../support-and-measurement.md) says "Nothing planned". Now [decision 0020](../decisions/0020-macos-runners-are-processes-on-a-mac.md), proposed | Decision 1, Tasks 5 and 5b |
+| macOS runners are Codemany's main draw, and Zoomies has none | Not planned: [support-and-measurement.md](../support-and-measurement.md) says "Nothing planned". Now [decision 0020](../decisions/0020-macos-runners-are-processes-on-a-mac.md), accepted | Decision 1, Tasks 5 and 5b |
 | Codemany ships a virtual machine or an LXD container per job on Linux, opt-in | Yes: [candidate 4](../candidates-from-hosted-services.md) (VM per job), ZF-216's surviving half and decision 28's spike, all demand-gated | Task 3 adds one design option and the evidence |
 | Codemany ships mirrors on Linux: Go, npm, Docker Hub pull-through and git | Partly: ZF-212's pool-cache recipes cover Go and npm downloads, ZF-245 covers `actions/cache`, and the registry mirror is proposed as ZF-246 | Decision 2, Task 6 |
 | Codemany's headline benchmark compares owned, warm hardware with GitHub's 2-core runner | Not applicable: the rule against unevidenced speed claims already holds | Decision 3, Task 7 |
@@ -56,20 +57,22 @@ The first review in the conversation that produced this plan listed "cold caches
 
 ## Decisions taken
 
-Put to the person running the session on 17 November 2026, one at a time, each with a recommendation. They are taken for the working session; none is authorised delivery work until the owner puts it in `ROADMAP.md`.
+Put to the person running the session on 17 November 2026, one at a time, each with a recommendation. They were authorised as work by `ROADMAP.md` version 3.15 on the same day, at the request of the person running the session.
 
 1. **macOS runners: build a backend, as a process on a Mac first.** The recommendation was to leave macOS out for now, because Apple caps a Mac at two concurrent macOS virtual machines and the project claims only what a test has run on. The choice went the other way, and it was narrowed to the cheap shape in the same way [decision 0003](../decisions/0003-windows-runners-are-processes-on-a-host.md) did for Windows: actions/runner's `osx` release as a process through the `process` backend, which the code already maps `darwin` to, with no isolation, flagged beta, and a virtual machine per job only if a user asks. Recorded as [decision 0020](../decisions/0020-macos-runners-are-processes-on-a-mac.md).
-2. **Cache follow-ups: ZF-246 only.** As recommended. The per-host registry mirror is authorised in principle; Go, npm and git mirrors are not added, because ZF-212's recipes and ZF-245's cache service already cover those downloads. Measure before adding one.
+2. **Cache follow-ups: ZF-246 only.** As recommended. The per-host registry mirror is authorised; Go, npm and git mirrors are not added, because ZF-212's recipes and ZF-245's cache service already cover those downloads. Measure before adding one.
 3. **Performance story: Zoomies' own measures.** As recommended. Publish queue wait and runner startup, which the fleet already records, with the method and the evidence. No multiplier against GitHub-hosted runners and no like-for-like comparison.
 
-### For the owner's ROADMAP.md
+### What ROADMAP.md now says
 
-Nothing below is in `ROADMAP.md`. It is drafted so that the owner can paste it, assign the numbers and change what they want. A decision record is not authority to start; this is.
+Version 3.15 of [ROADMAP.md](../../ROADMAP.md), 17 November 2026:
 
-* **Section 4 (decisions):** decision 0020 above, ratified or reversed. If ratified, `roadmap/decisions/README.md` changes its status from "proposed" to "accepted, at the owner's instruction".
-* **A new package, "macOS agent on the `process` backend":** the first slice only, as Task 5b below. Size S to M. Depends on an Apple silicon Mac the owner provides. Gate: a real join and one job, written into `roadmap/validation/`.
-* **ZF-246, the per-host registry mirror:** authorised, as sketched in [candidates-from-hosted-services.md](../candidates-from-hosted-services.md) section 1, layer 2, with the four bounds in Task 6. Size M.
-* **Section 13 (change record):** one line, dated, naming this plan.
+* **Section 4, "Taken on 17 November 2026":** decision 33 (macOS runners, as processes on a Mac, against the recommendation), decision 34 (ZF-246 only) and decision 35 (the fleet's own measures).
+* **Section 8:** ZF-246, a registry mirror on every host; ZF-247, a Mac as a runner host on the `process` backend; ZF-248, the fleet's own queue-wait and startup figures, published.
+* **Section 10:** three `later` rows, after ZF-245. **Section 11:** one owner input, an Apple silicon Mac for ZF-247's real run. **Section 13:** the change record.
+* **[progress.md](../progress.md):** three `not_started` rows after ZF-245.
+
+The owner has not separately confirmed decision 33's shape; [decision 0020](../decisions/0020-macos-runners-are-processes-on-a-mac.md) says so in its status line.
 
 ## Tasks
 
@@ -110,15 +113,15 @@ Done. No decision needed. `weekly-seo/config.yml` lists the domains compared in 
 
 ### Task 5: Record the macOS decision
 
-Done. [Decision 0020](../decisions/0020-macos-runners-are-processes-on-a-mac.md) is written, in the five parts the decisions README requires, and indexed there. Its status is "proposed, for the owner to ratify". `ROADMAP.md` is not edited.
+Done. [Decision 0020](../decisions/0020-macos-runners-are-processes-on-a-mac.md) is written, in the five parts the decisions README requires, and indexed there. It was written as "proposed, for the owner to ratify", and is now "accepted, on the instruction of the person running the session", with a note that the owner has not separately confirmed the shape.
 
 - [x] **Step 1:** Write the record. *Outcome:* it names the two shapes weighed, what the code already does on `darwin` (read, not run), what is not known, and what it costs. It keeps "Zoomies has no macOS runner image" on all eight pages that say it, until a job has run on a Mac.
 - [x] **Step 2:** Add its row to `roadmap/decisions/README.md`.
-- [x] **Step 3:** Do not edit `ROADMAP.md`; the text for the owner is under "For the owner's ROADMAP.md".
+- [x] **Step 3:** `ROADMAP.md` was left alone when the record was written, and edited afterwards when the person running the session asked for it; see "What ROADMAP.md now says".
 
-### Task 5b (gated on the owner's ROADMAP.md line): prove a Mac joins and runs a job
+### Task 5b (ZF-247): prove a Mac joins and runs a job
 
-Only once `ROADMAP.md` carries the package and the owner has an Apple silicon Mac to give it. The first slice is proof, not a feature, and it is the cheapest thing that can say whether decision 0020 holds.
+Authorised as ZF-247 in `ROADMAP.md` version 3.15. Steps 1 and 2 need no Mac. Step 3 needs an Apple silicon Mac the owner provides, and steps 4 and 5 wait for it. The first slice is proof, not a feature, and it is the cheapest thing that can say whether decision 0020 holds.
 
 - [ ] **Step 1:** Write tests that pin what the `process` backend does on `darwin`: `runnerAsset("darwin", "arm64", v)` names the `osx-arm64` archive, a 32-bit `darwin` build is refused, and the preflight reaches the same answers off Linux that it does on Linux. Put them beside `process_test.go`, table-driven, and watch each fail with the change it guards removed.
 - [ ] **Step 2:** Find out whether the installer writes a launchd unit for an agent, not only for a controller (`internal/installer`, `service_*.go`). If it does not, that is the one piece of real code in this slice; write it the way the systemd and Windows units are written, behind the same tests.
@@ -128,17 +131,17 @@ Only once `ROADMAP.md` carries the package and the owner has an Apple silicon Ma
 
 STOP if: the agent does not start on `darwin` for a reason other than the launchd unit; the runner's `osx` release needs something the backend does not provide (a signing or quarantine step, for instance); or the job can reach another user's files by a path the docs do not already warn about. Report it, and do not widen the slice.
 
-### Task 6 (authorised in principle; gated on a ROADMAP.md line): the registry mirror
+### Task 6 (ZF-246): the registry mirror
 
-Decision 2 authorises ZF-246 only. Start when `ROADMAP.md` lists it. The design is sketched in [candidates-from-hosted-services.md](../candidates-from-hosted-services.md) section 1, layer 2: a read-only, per-host pull-through mirror that the agent owns, with `agent.registry_mirror.enabled` and `agent.registry_mirror.max_bytes` and their `ZOOMIES_AGENT_REGISTRY_MIRROR_*` overrides. Codemany's version is a useful bound on scope: it holds public Docker Hub images only, refuses pushes, never caches private images and falls back to a direct pull when it is down. Take those four as requirements, and write the failure rule the cache service already has: a broken mirror slows a pull and never fails a job. Go, npm and git mirrors are out of scope.
+Authorised in `ROADMAP.md` version 3.15 (decision 34), as ZF-246 only. The design is sketched in [candidates-from-hosted-services.md](../candidates-from-hosted-services.md) section 1, layer 2: a read-only, per-host pull-through mirror that the agent owns, with `agent.registry_mirror.enabled` and `agent.registry_mirror.max_bytes` and their `ZOOMIES_AGENT_REGISTRY_MIRROR_*` overrides. Codemany's version is a useful bound on scope: it holds public Docker Hub images only, refuses pushes, never caches private images and falls back to a direct pull when it is down. Take those four as requirements, and write the failure rule the cache service already has: a broken mirror slows a pull and never fails a job. Go, npm and git mirrors are out of scope.
 
 - [ ] **Step 1:** Read [cache-service.md](../cache-service.md) and `internal/cacheservice`. The mirror is not part of that package, which is stdlib only and knows nothing about the fleet.
 - [ ] **Step 2:** Write a dated design under `roadmap/plans/` before any code, and stop for review.
 - [ ] **Step 3:** Each setting arrives with a `docs/configuration.md` row and its override; each finding code with a `docs/problem-codes.md` row; `make generate` is run, not hand-edited.
 
-### Task 7 (gated on a ROADMAP.md line): publish what the fleet measures
+### Task 7 (ZF-248): publish what the fleet measures
 
-Decision 3 chose Zoomies' own measures: queue wait and runner startup, which the product already records and shows (the Overview's startup and registration times, the Usage page's queue wait, and the MCP tool `queue_wait_breakdown`). No like-for-like comparison with GitHub-hosted runners, and no multiplier. The evidence comes before the page.
+Authorised in `ROADMAP.md` version 3.15 (decision 35). The decision chose Zoomies' own measures: queue wait and runner startup, which the product already records and shows (the Overview's startup and registration times, the Usage page's queue wait, and the MCP tool `queue_wait_breakdown`). No like-for-like comparison with GitHub-hosted runners, and no multiplier. The evidence comes before the page.
 
 - [ ] **Step 1:** Read [ui.md](../../docs/ui.md) (Overview and Usage) and the store fields behind them, and write down exactly what each figure measures, from which event to which event. A figure the page cannot define in one sentence is left out.
 - [ ] **Step 2:** Take the data from a real fleet, not the demo. This repository's own CI runs on a Zoomies fleet (`zoomies-linux-x64`), so use that over a stated window. Report the number of jobs, the median and the 90th percentile of each figure, and the runner startups that failed. Never leave failures out.
@@ -155,7 +158,8 @@ Decision 3 chose Zoomies' own measures: queue wait and runner startup, which the
 
 - A test in `internal/docs` fails on the new page for a reason this plan does not mention: report it, do not loosen the test.
 - `internal/provenance`'s list, which the owner supplies and which is not in the tree, turns out to include Codemany. The comparison pages name their subjects by design, so report it and ask; do not remove the name from the page.
-- Task 5b, 6 or 7 is started without a line in `ROADMAP.md` that authorises it. The decisions above say what the session chose; only the owner's line authorises work.
+- Task 6's code is written before its dated design has been reviewed, or Task 5b's steps 4 and 5 are done without the evidence from step 3. The roadmap authorises the work; it does not lift either gate.
+- Any docs page says macOS runners exist before a job has run on a real Mac.
 - A statement about Codemany cannot be traced to a page read on the date given. Remove the statement; do not soften it into a guess.
 
 ## Review Focus
