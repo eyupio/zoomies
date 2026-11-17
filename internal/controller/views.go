@@ -160,6 +160,11 @@ type HostView struct {
 	Tags      []scheduler.Tag    `json:"tags"`
 	SizeClass *HostSizeClassView `json:"size_class,omitempty"`
 	AutoPool  *HostAutoPoolView  `json:"auto_pool,omitempty"`
+	// RegistryMirror is what the host's agent says about its registry mirror:
+	// present when the mirror is on, with what is wrong with it in the controller's
+	// own sentences. It carries only what changes rarely. The figures move with
+	// every pull and never ride on a view or an event; they are the metrics'.
+	RegistryMirror *RegistryMirrorView `json:"registry_mirror,omitempty"`
 	// UnlimitedRunners is how many of the live runners here were created
 	// with no CPU quota -- a pool with none and defaults off, a process pool,
 	// a daemon that cannot apply one, or a row from before allocations were
@@ -324,6 +329,7 @@ func (c *Controller) HostView(h *store.Host) HostView {
 		Tags:                emptySlice(scheduler.HostTags(h, c.tracksClasses())),
 		SizeClass:           c.hostSizeClassView(h),
 		AutoPool:            c.hostAutoPoolView(h),
+		RegistryMirror:      c.registryMirrorView(h.ID),
 		UnlimitedRunners:    h.UnlimitedRunners,
 		ThrottleReason:      scheduler.ThrottleReason(h),
 		AutoAdjust:          h.AutoAdjust,
