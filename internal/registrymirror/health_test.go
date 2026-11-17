@@ -130,7 +130,10 @@ func TestABlobServedWholeEndsTheRun(t *testing.T) {
 	}
 }
 
-func TestAManifestFetchedByTagEndsTheRun(t *testing.T) {
+// A HEAD of a tag is answered by the registry alone, with no body to read, so
+// it is the one request that ends the run by itself. A GET would go on to fetch
+// the manifest, whose body ends it anyway, and would not show this.
+func TestAHeadOfATagEndsTheRun(t *testing.T) {
 	f := newFakeRegistry(t)
 	clock := newFakeClock()
 	broken := failingManifest(f, http.StatusInternalServerError)
@@ -138,7 +141,7 @@ func TestAManifestFetchedByTagEndsTheRun(t *testing.T) {
 	m, srv := newTestMirror(t, f, func(c *Config) { c.Now = clock.Now })
 	do(t, http.MethodGet, srv.URL+broken, nil)
 	clock.advance(time.Minute)
-	do(t, http.MethodGet, srv.URL+"/v2/library/busybox/manifests/latest", nil)
+	do(t, http.MethodHead, srv.URL+"/v2/library/busybox/manifests/latest", nil)
 	if got := m.Stats().UpstreamFailingSeconds; got != 0 {
 		t.Fatalf("failing for %d seconds after a tag was resolved", got)
 	}

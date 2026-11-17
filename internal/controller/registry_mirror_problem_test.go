@@ -41,6 +41,8 @@ func TestABrokenMirrorIsAProblemOnlyForAPoolThatWouldHaveUsedIt(t *testing.T) {
 	h := newHarness(t)
 	inst := h.installation()
 	host := h.hostWith("builder")
+	// A pool with no sidecar at all is not a pool the mirror would have served.
+	h.pool(inst, "no-sidecar")
 	h.mirrorBeat(host.ID, &backend.RegistryMirrorReport{Problem: backend.MirrorProblemListener})
 	if hasCode(h.problemCodes(), "host.registry_mirror_degraded") {
 		t.Fatal("raised with no pool that runs a docker-in-docker sidecar")
@@ -96,7 +98,13 @@ func TestADisabledOrNonDockerPoolIsNotCountedAsHavingLostAMirror(t *testing.T) {
 	inst := h.installation()
 	h.dindPool(inst, "off", func(p *store.Pool) { p.Enabled = false })
 	h.dindPool(inst, "podman", func(p *store.Pool) { p.Backend = store.BackendPodman })
+	// A host that offers both, so that the pool on Podman could run there and it
+	// is the pool's own backend, not the host's, that rules it out.
 	host := h.hostWith("builder")
+	host.Backends = store.StringSlice{"docker", "podman"}
+	if err := h.st.UpdateHost(h.ctx, host); err != nil {
+		t.Fatal(err)
+	}
 	h.mirrorBeat(host.ID, &backend.RegistryMirrorReport{Problem: backend.MirrorProblemGateway})
 	if hasCode(h.problemCodes(), "host.registry_mirror_degraded") {
 		t.Fatal("raised for pools that are off or cannot run a docker-in-docker sidecar")
@@ -243,7 +251,13 @@ func TestAPoolThatSomeHostWouldGiveTheMirrorIsNotToldItGoesWithout(t *testing.T)
 
 func TestAPoolThatRunsNoDockerSidecarIsNeverToldTheMirrorIsUnused(t *testing.T) {
 	h := newHarness(t)
-	h.pool(h.installation(), "no-docker") // DockerNone
+	// An image of its own is set, as it can be, on a pool that never starts a
+	// sidecar to run it in: there is nothing for the mirror to be unused for.
+	p := h.pool(h.installation(), "no-docker") // DockerNone
+	p.DinDImage = "registry.example.com/ci/dind:27"
+	if err := h.st.UpdatePool(h.ctx, p); err != nil {
+		t.Fatal(err)
+	}
 	host := h.hostWith("builder")
 	h.mirrorBeat(host.ID, &backend.RegistryMirrorReport{})
 	if hasCode(h.problemCodes(), "pool.registry_mirror_unused") {
@@ -252,22 +266,27 @@ func TestAPoolThatRunsNoDockerSidecarIsNeverToldTheMirrorIsUnused(t *testing.T) 
 }
 
 // A host the pool's selector rules out cannot run it, so a mirror there says
-// nothing about it: a broken one costs the pool nothing, and one that is working
-// is no reason to tell the pool it goes without.
-func TestAMirrorOnAHostThatCannotRunAPoolSaysNothingAboutThatPool(t *testing.T) {
+// nothing about it: one that is working is no reason to tell the pool it goes
+// without, and a broken one costs it nothing.
+func TestAMirrorOnAHostThatCannotRunAPoolSaysNothingAboutThatPoolBeingUnused(t *testing.T) {
 	h := newHarness(t)
-	inst := h.installation()
-	h.dindPool(inst, "elsewhere", func(p *store.Pool) {
+	h.dindPool(h.installation(), "elsewhere", func(p *store.Pool) {
 		p.HostSelector = store.StringMap{"rack": "b"}
 		p.DinDImage = "registry.example.com/ci/dind:27"
 	})
 	host := h.hostWith("rack-a")
-	h.mirrorBeat(host.ID, &backend.RegistryMirrorReport{Problem: backend.MirrorProblemListener})
-	codes := h.problemCodes()
-	if hasCode(codes, "pool.registry_mirror_unused") {
+	h.mirrorBeat(host.ID, &backend.RegistryMirrorReport{})
+	if hasCode(h.problemCodes(), "pool.registry_mirror_unused") {
 		t.Fatal("told a pool its mirror goes unused on a host that cannot run it")
 	}
-	if hasCode(codes, "host.registry_mirror_degraded") {
+}
+
+func TestABrokenMirrorOnAHostThatCannotRunAPoolCostsThatPoolNothing(t *testing.T) {
+	h := newHarness(t)
+	h.dindPool(h.installation(), "elsewhere", func(p *store.Pool) { p.HostSelector = store.StringMap{"rack": "b"} })
+	host := h.hostWith("rack-a")
+	h.mirrorBeat(host.ID, &backend.RegistryMirrorReport{Problem: backend.MirrorProblemListener})
+	if hasCode(h.problemCodes(), "host.registry_mirror_degraded") {
 		t.Fatal("raised for a pool that cannot run on the host")
 	}
 }
