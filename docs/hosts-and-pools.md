@@ -208,8 +208,9 @@ it is in WSL2 (`WSL_DISTRO_NAME`, or `microsoft-standard-WSL2` in
   `zoomies agent --wsl-ensure` when the distro starts (a command you already had
   there is kept, and ours is chained after it), and two Windows scheduled tasks
   start the distro if it is not running: `Zoomies\WslOnStart` at startup and
-  `Zoomies\WslEvery5Minutes`. Both run a small script under
-  `%LOCALAPPDATA%\Zoomies` that checks `wsl -l --running` first.
+  `Zoomies\WslEvery5Minutes`. Both run `zoomies-wsl.exe`, a small program under
+  `%LOCALAPPDATA%\Zoomies` that checks `wsl -l --running` first, and never open
+  a window (see below).
 
 `zoomies init`, `zoomies upgrade` and `zoomies agent join` notice a WSL2 distro
 and offer all of this, listing what is missing and asking before anything is
@@ -225,6 +226,49 @@ password: writing `/etc/wsl.conf` needs root, and an `ONSTART` task needs an
 elevated Windows session, so without those it says so and carries on with the
 rest (the five-minute task runs as you, and only while you are signed in).
 `zoomies agent join` runs the same step as root.
+
+#### The scheduled tasks never open a window
+
+Earlier versions registered the two tasks to run `powershell.exe -WindowStyle
+Hidden -File wsl-ensure.ps1`. `powershell.exe` and `wsl.exe` are console
+programs, so Task Scheduler gave each run a console, and where Windows Terminal
+is the default terminal that console is a visible terminal window that took
+focus every five minutes. `-WindowStyle Hidden` is applied after the window
+exists, and a task's own Hidden setting only hides it from the task list, so
+neither helped.
+
+The tasks now run `zoomies-wsl.exe ensure <distro>`, built for the Windows GUI
+subsystem, which is never given a console. It starts `wsl.exe` with
+`CREATE_NO_WINDOW`, so neither does its child. It does what the script did: ask
+`wsl -l --running -q`, and start the distro with `wsl.exe -d <distro> --exec
+/bin/sleep 120` only if it is not running. Its exit code is wsl.exe's. The
+tasks still run as you, only while you are signed in, and `zoomies agent
+--wsl-ensure` still never asks for a password. Interactive use is not touched:
+a terminal you open yourself is opened as it always was, and so is `wsl.exe`
+run by hand.
+
+**Existing installations repair themselves.** The next time `zoomies agent
+--wsl-ensure` runs (the agent runs it at start-up, the boot command runs it when
+the distro starts, and `zoomies upgrade` offers it) it writes the launcher,
+replaces the two tasks in place under the same names (so there is no
+duplicate), and removes `wsl-ensure.ps1`. It does nothing on a run after that.
+It also deletes tasks named `Zoomies WSL` and `Zoomies WSL keepalive` when their
+definition runs `wsl.exe`; a task under those names that runs something else is
+left alone. Deleting or replacing a task made elevated needs an elevated
+session once: without one the step is a warning that says so, and nothing is
+asked of you. A zoomies binary built without `make build` or `make dist` carries
+no launcher, says so, and leaves the tasks as they are.
+
+**Diagnosing without a window.** Run `sudo zoomies agent --wsl-ensure` to see
+each step. The launcher writes what it did, and why anything failed, to
+`%LOCALAPPDATA%\Zoomies\wsl-launcher.log` (it is trimmed at 256 KB); a run
+that found the distro already up writes nothing. Task Scheduler's **Last Run
+Result** is wsl.exe's exit code (0 is success, 1 means wsl.exe could not be
+started, 2 means the task had no distro name). Check a task from a terminal:
+
+```bash
+schtasks.exe /Query /TN 'Zoomies\WslEvery5Minutes' /V /FO LIST
+```
 
 When a host goes away, the controller fails its runners after five minutes and
 removes their GitHub registrations. A registration GitHub still reports as busy
