@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_from": "92bf6ef",
+  "generated_from": "e75e293",
   "entries": [
     {
       "id": "agent.backend_missing",
@@ -249,6 +249,20 @@
       "fix": "The process backend is running as root, so every job is root on the host.",
       "verify": null,
       "setting": "agent.backend",
+      "docs_html": "https://zoomies.sh/problem-codes/#configuration-the-agent",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#configuration-the-agent"
+    },
+    {
+      "id": "agent.registry_mirror.max_bytes",
+      "kind": "problem",
+      "title": "agent.registry_mirror.max_bytes",
+      "category": "configuration",
+      "severity": "error",
+      "detection": "static",
+      "detects": "Must be 0 (the default of 10 GiB) or at least 1073741824 bytes (1 GiB); a smaller mirror would evict what it had just fetched.",
+      "fix": "Must be 0 (the default of 10 GiB) or at least 1073741824 bytes (1 GiB); a smaller mirror would evict what it had just fetched.",
+      "verify": null,
+      "setting": "agent.registry_mirror.max_bytes",
       "docs_html": "https://zoomies.sh/problem-codes/#configuration-the-agent",
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#configuration-the-agent"
     },

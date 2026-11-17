@@ -819,6 +819,25 @@ type Agent struct {
 	// DockerBuildCacheMB is the target for unused Docker builder cache. Zero
 	// disables automatic cache pruning on shared or externally managed daemons.
 	DockerBuildCacheMB int `yaml:"docker_build_cache_mb"`
+	// RegistryMirror is the pull-through mirror of Docker Hub's public images
+	// that a host offers the docker-in-docker sidecars it starts.
+	RegistryMirror RegistryMirror `yaml:"registry_mirror"`
+}
+
+// MinRegistryMirrorBytes is the smallest size a registry mirror may be given
+// other than zero.
+const MinRegistryMirrorBytes int64 = 1 << 30
+
+// RegistryMirror configures the host's registry mirror. It is off until asked
+// for, because it opens a listener on the host and changes a sidecar's command.
+type RegistryMirror struct {
+	// Enabled turns the mirror on. A sidecar that uses a custom image is left as
+	// it is whether or not this is set.
+	Enabled bool `yaml:"enabled"`
+	// MaxBytes bounds what the mirror keeps on disk. Zero is the backend's
+	// default and any other value is at least one gibibyte; there is no
+	// unbounded mirror.
+	MaxBytes int64 `yaml:"max_bytes"`
 }
 
 // Scheduler tunes the scaling loop.

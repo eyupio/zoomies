@@ -6,6 +6,7 @@ import (
 
 	"github.com/eyupio/zoomies/internal/backend"
 	"github.com/eyupio/zoomies/internal/cacheservice"
+	"github.com/eyupio/zoomies/internal/registrymirror"
 )
 
 // cachingBackend is a fake backend that also runs cache services, so the beat
@@ -44,5 +45,47 @@ func TestTheHeartbeatCarriesWhatTheBackendsCacheServicesHaveDone(t *testing.T) {
 	be.stats = []backend.CacheStats{{PoolID: "pool_1", Stats: cacheservice.Stats{RestoreHits: 9, Entries: 2}}}
 	if second := nextBeat(t, a, tr); second.Caches[0].RestoreHits != 9 {
 		t.Errorf("second beat carried %+v, want the figures as they are now", second.Caches)
+	}
+}
+
+// mirroringBackend is a fake backend that also runs a registry mirror.
+type mirroringBackend struct {
+	*fakeBackend
+	stats *registrymirror.Stats
+}
+
+func (m *mirroringBackend) RegistryMirrorStats() *registrymirror.Stats { return m.stats }
+
+// The figures a host's registry mirror keeps reach the controller on the
+// heartbeat as the backend reports them at that beat, and a host that runs no
+// mirror sends a beat with no block, which an older controller reads the same
+// way.
+func TestTheHeartbeatCarriesWhatTheRegistryMirrorHasDone(t *testing.T) {
+	plain, tr, _, _ := newAgent(t, 2)
+	if err := plain.Join(context.Background(), "join-token"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	if beat := nextBeat(t, plain, tr); beat.RegistryMirror != nil {
+		t.Fatalf("a host with no mirror reported %+v", beat.RegistryMirror)
+	}
+
+	be := &mirroringBackend{fakeBackend: newFakeBackend("docker")}
+	a, tr, _, _ := newAgent(t, 2, func(o *Options) { o.Backends = backend.NewRegistry(be) })
+	if err := a.Join(context.Background(), "join-token"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	if beat := nextBeat(t, a, tr); beat.RegistryMirror != nil {
+		t.Fatalf("a mirror that has not started reported %+v", beat.RegistryMirror)
+	}
+	be.stats = &registrymirror.Stats{Requests: 4, Hits: 3, BytesStored: 2048}
+	first := nextBeat(t, a, tr)
+	if first.RegistryMirror == nil || first.RegistryMirror.Requests != 4 || first.RegistryMirror.BytesStored != 2048 {
+		t.Fatalf("registry mirror = %+v, want 4 requests and 2048 bytes held", first.RegistryMirror)
+	}
+
+	// Read afresh each beat: the counters move between them.
+	be.stats = &registrymirror.Stats{Requests: 11, Hits: 9, BytesStored: 4096}
+	if second := nextBeat(t, a, tr); second.RegistryMirror == nil || second.RegistryMirror.Requests != 11 {
+		t.Errorf("second beat carried %+v, want the figures as they are now", second.RegistryMirror)
 	}
 }

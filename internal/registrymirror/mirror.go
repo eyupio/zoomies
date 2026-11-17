@@ -47,16 +47,17 @@ type Config struct {
 }
 
 // Stats is what a mirror has done since it started, except BytesStored, which
-// is what it holds now.
+// is what it holds now. The names are what an agent's heartbeat carries, so they
+// are a contract with a controller that is upgraded separately.
 type Stats struct {
-	Requests       int64
-	Hits           int64
-	Misses         int64
-	UpstreamErrors int64
-	Evictions      int64
-	BytesServed    int64
-	BytesFetched   int64
-	BytesStored    int64
+	Requests       int64 `json:"requests"`
+	Hits           int64 `json:"hits"`
+	Misses         int64 `json:"misses"`
+	UpstreamErrors int64 `json:"upstream_errors"`
+	Evictions      int64 `json:"evictions"`
+	BytesServed    int64 `json:"bytes_served"`
+	BytesFetched   int64 `json:"bytes_fetched"`
+	BytesStored    int64 `json:"bytes_stored"`
 }
 
 // Mirror serves the read subset of the registry HTTP API.
