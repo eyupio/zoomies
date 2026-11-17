@@ -39,6 +39,9 @@ const FeatureElasticMemory = "elastic-memory"
 // safe but would read on the controller as a fill that failed on every host.
 const FeatureToolCacheFill = "tool-cache-fill"
 
+// FeatureCacheMaintenance advertises idle cleanup and storage measurements.
+const FeatureCacheMaintenance = "cache-maintenance"
+
 // FeatureHostCheck is advertised by an agent that understands TaskCheckHost,
 // and only where its own monitor can run the OS checks: a native Linux agent.
 // An agent in a container only re-reads a report another unit writes, and
@@ -294,6 +297,10 @@ const (
 
 // HeartbeatResponse tells the agent whether the controller still recognises it.
 type HeartbeatResponse struct {
+	// CachePolicies refreshes idle-time limits even when no runner is placed.
+	// Nil from an older controller disables maintenance rather than authorising
+	// deletion under settings the controller no longer confirms.
+	CachePolicies []backend.CachePolicy `json:"cache_policies,omitempty"`
 	// MutationsPaused preserves observed workloads during fenced recovery.
 	MutationsPaused bool `json:"mutations_paused,omitempty"`
 	OK              bool `json:"ok"`

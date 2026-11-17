@@ -355,7 +355,11 @@ type DockerBackend struct {
 	toolCacheMu      sync.Mutex
 	toolCacheProblem string
 	// cacheSvcs runs the pool cache services runners are pointed at.
-	cacheSvcs *cacheServices
+	cacheSvcs     *cacheServices
+	cacheGate     sync.Mutex
+	cacheBusy     int
+	cachePolicies []CachePolicy
+	cacheStorage  []CacheStorage
 	// externalsMu guards the maps below. Each externals volume has a lock of
 	// its own, so a fill blocks only the runners waiting for that volume.
 	// externalsReady is every volume filled and checked by this agent, and
@@ -485,7 +489,26 @@ func newContainerBackend(opts DockerOptions, fl flavor, detect func() []string, 
 func (b *DockerBackend) Close() { b.cacheSvcs.close() }
 
 // CacheStats is what this backend's cache services have done, by pool.
-func (b *DockerBackend) CacheStats() []CacheStats { return b.cacheSvcs.stats() }
+func (b *DockerBackend) CacheStats() []CacheStats {
+	out := b.cacheSvcs.stats()
+	b.cacheGate.Lock()
+	defer b.cacheGate.Unlock()
+	for _, storage := range b.cacheStorage {
+		found := false
+		for i := range out {
+			if out[i].PoolID == storage.PoolID {
+				out[i].Storage = &storage
+				found = true
+				break
+			}
+		}
+		if !found {
+			out = append(out, CacheStats{PoolID: storage.PoolID, Storage: &storage})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].PoolID < out[j].PoolID })
+	return out
+}
 
 // Kind identifies the implementation.
 func (b *DockerBackend) Kind() store.BackendKind { return b.fl.kind }
@@ -1304,6 +1327,8 @@ func (b *DockerBackend) Create(ctx context.Context, spec Spec) (Handle, error) {
 }
 
 func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (result CreateResult, createErr error) {
+	endCacheUse := b.beginCacheUse()
+	defer endCacheUse()
 	if err := spec.Validate(); err != nil {
 		return CreateResult{}, err
 	}
@@ -2129,6 +2154,17 @@ func (b *DockerBackend) Remove(ctx context.Context, h Handle) error {
 // host may drift, not a quota, so carrying one runner's worth of excess costs
 // some disk; deleting a running job's cache costs the job.
 func (b *DockerBackend) pruneCacheFor(ctx context.Context, spec Spec) {
+	b.cacheGate.Lock()
+	defer b.cacheGate.Unlock()
+	if b.cacheBusy > 1 {
+		return
+	}
+	for _, p := range b.cachePolicies {
+		if p.PoolID == spec.PoolID {
+			spec.Cache.SizeLimit = p.Cache.SizeLimit
+			break
+		}
+	}
 	// No limit is nothing to enforce, and no reason to ask the daemon.
 	if spec.Cache.SizeLimit <= 0 {
 		return
@@ -2136,6 +2172,13 @@ func (b *DockerBackend) pruneCacheFor(ctx context.Context, spec Spec) {
 	dir, ok := cacheDirectory(spec)
 	if !ok {
 		return
+	}
+	if identity, err := cacheIdentity(spec); err == nil && b.sharedDir != "" {
+		for _, kind := range []string{"tools", "service"} {
+			if pathsOverlap(dir, filepath.Join(b.sharedDir, "cache", kind, identity)) {
+				return
+			}
+		}
 	}
 	switch inUse, err := b.cacheInUse(ctx, dir); {
 	case err != nil:

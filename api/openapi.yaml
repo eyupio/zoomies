@@ -12952,10 +12952,13 @@ components:
           format: int64
           minimum: 0
           description: >-
-            Maximum bytes, enforced between one runner and the next by evicting
-            whole cache entries, least recently modified first. Only a cache in
-            a host directory can be measured, so a non-zero limit requires
-            `source` to be an absolute host path. Zero is unlimited.
+            Maximum apparent bytes shared by this pool's package cache, retained tool
+            generations and local Actions cache service on each host. Idle maintenance
+            evicts whole package and tool entries, oldest first, independently of new
+            placements. The service receives the remaining budget live. Active jobs,
+            open transfers and filesystem errors may defer enforcement; this is not a
+            filesystem quota. A non-zero limit requires an absolute host source.
+            Zero leaves package and tool data unlimited; the service defaults to 10 GiB.
         source: { type: string, description: Optional absolute host directory or safe named-volume prefix. }
         repository:
           type: string
@@ -16017,9 +16020,26 @@ components:
         retired_at: { type: string, format: date-time }
         retired_by: { type: string, description: Identity that explicitly retired the destination record. }
 
+    CacheStorage:
+      type: object
+      description: Apparent bytes in a pool's current cache namespace on this host. An unset measurement time means sizes are unknown. Older namespaces and daemon volumes are excluded.
+      required: [pool_id, package_bytes, tools_bytes, service_bytes, total_bytes, size_limit, measured_at]
+      properties:
+        pool_id: { type: string }
+        package_bytes: { type: integer, format: int64, minimum: 0 }
+        tools_bytes: { type: integer, format: int64, minimum: 0 }
+        service_bytes: { type: integer, format: int64, minimum: 0 }
+        total_bytes: { type: integer, format: int64, minimum: 0 }
+        size_limit: { type: integer, format: int64, minimum: 0 }
+        measured_at: { type: string, format: date-time }
+        deferred: { type: string, description: Why cleanup was deferred or the measurement is incomplete. }
     Host:
       type: object
       properties:
+        cache_storage:
+          type: array
+          description: Latest agent cache measurements by pool, also carried by host.updated events. Absent from older agents. Check measured_at and deferred before using a size.
+          items: { $ref: "#/components/schemas/CacheStorage" }
         retired: { type: boolean }
         recovery_state: { type: string, enum: [awaiting_recovery, verified, retired] }
         health_check: { $ref: "#/components/schemas/HostHealthCheck" }

@@ -2457,15 +2457,20 @@ absolute path puts the cache on a disk you chose; anything else is treated as a
 volume-name prefix. Zoomies appends the scope's own identity to whichever you
 give, so two pools never collide, and refuses a source containing `..`.
 
-`size_limit` is enforced, not advisory. As a runner starts, whole cache entries
-are removed, least recently modified first, until the cache is back under the
-limit. Deleting from a cache is only safe while nothing is reading it, so a
-runner that starts to find another runner still using the same cache leaves it
-alone and the next start tries again, on a pool with `max_runners` above one,
-that is most starts, and the eviction happens at the one that finds it idle.
-This bounds how far the cache drifts over the limit from one job to the next.
-It is not a filesystem quota: a single job can still fill the disk before the
-next runner starts, and if that matters, give the cache its own filesystem.
+`size_limit` is one budget per pool on each host: package entries, every
+retained tool image generation and the local Actions cache service share it.
+The agent checks on its reconciliation tick (normally every 30 seconds), even
+when no new runner can be placed. At an idle point it evicts whole package and
+tool entries, oldest first, then gives the service the room left over. Limit
+changes arrive on heartbeats and apply without restarting the agent or service.
+
+A running or starting container, an in-flight tool fill, an unavailable
+inventory or an unreadable directory defers package/tool eviction. This is not
+a filesystem quota: a live job can still fill the disk, and a continuously
+busy pool can remain over its limit until it becomes idle. Host cards show
+measured cache bytes and explain deferrals, including an over-limit cache. If
+a strict quota is needed, give the cache its own filesystem. Zero leaves
+packages and tools unlimited; the Actions service defaults to 10 GiB.
 
 Only a directory can be measured, so a non-zero `size_limit` requires `source`
 to be an absolute host path. On a named volume the bytes are the daemon's, on a
@@ -2558,8 +2563,8 @@ attached to, and on nothing else, on a port of its own for each pool (and each
 repository, for a repository-scoped cache), so it is shared with exactly the
 runners the pool cache is. It keeps its entries in the host's
 [shared folder](#the-shared-folder), under `cache/service`, within the cache's
-`size_limit` or 10 GiB where there is none, evicting the least recently used
-first. An agent restart starts a new service on a new port, and runners that
+remaining `size_limit` after packages and tools, or 10 GiB where no limit is
+set, evicting the least recently used first. An agent restart starts a new service on a new port, and runners that
 were already running keep the old address, so their cache calls miss until they
 finish; a miss is a slower build and never a failed one.
 

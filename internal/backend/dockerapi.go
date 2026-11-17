@@ -590,6 +590,9 @@ type ContainerInspect struct {
 
 // ContainerSummary is one entry of GET /containers/json.
 type ContainerSummary struct {
+	Mounts []struct {
+		Source string `json:"Source"`
+	} `json:"Mounts,omitempty"`
 	ID      string            `json:"Id"`
 	Names   []string          `json:"Names"`
 	Image   string            `json:"Image"`

@@ -1069,3 +1069,13 @@ flags. MCP/Eli validates references then returns summaries with details explicit
 omitted within its existing budgets. Matching metadata does not establish workload
 or configuration equivalence, causal improvement or savings. Controlled-experiment
 proof, dispatch and live model evaluation remain deferred.
+
+
+### Host cache measurements
+
+Host reads and `host.updated` events include optional `cache_storage` rows,
+one per pool measured by an agent with `cache-maintenance`. They carry package,
+tools, service and total apparent bytes, the configured limit, `measured_at`
+and a `deferred` explanation. An unset measurement time means unknown bytes;
+missing rows from an older agent must not be displayed as zero. Current
+configured namespaces are measured; historical namespaces are not inferred.

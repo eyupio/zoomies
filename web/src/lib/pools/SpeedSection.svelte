@@ -430,7 +430,7 @@
     <Field
       label="Cache size limit"
       error={errors['cache.size_limit']}
-      hint="Kept by evicting whole entries, least recently used first, between one runner and the next."
+      hint="One host budget for package, tool and Actions service caches. Idle maintenance evicts oldest entries; live jobs may temporarily exceed it. Zero leaves package/tools unlimited; the service defaults to 10 GiB."
     >
       {#snippet children({ id, describedBy })}
         <QuantityField

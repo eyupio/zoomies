@@ -81,8 +81,9 @@ func doctorView(r *hosttune.Report) *DoctorView {
 
 // HostView is one agent host and the room it has left.
 type HostView struct {
-	RecoveryState string `json:"recovery_state,omitempty"`
-	Retired       bool   `json:"retired"`
+	CacheStorage  []backend.CacheStorage `json:"cache_storage,omitempty"`
+	RecoveryState string                 `json:"recovery_state,omitempty"`
+	Retired       bool                   `json:"retired"`
 	// HealthCheck is the last "Check now" asked of this host's agent, in memory
 	// only and omitted when there is nothing to say: no request, or one old
 	// enough that the page has no use for it.
@@ -303,6 +304,7 @@ func (c *Controller) HostView(h *store.Host) HostView {
 	priority := scheduler.HostPriority(h)
 	out := HostView{
 		RecoveryState: h.RecoveryState(c.Now()),
+		CacheStorage:  c.cacheStorageFor(h.ID),
 		Retired:       h.Retired,
 		// Judged, not raw: the page, the problems and the metrics must read one
 		// answer about what counts.

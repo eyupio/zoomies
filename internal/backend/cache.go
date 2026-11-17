@@ -168,30 +168,22 @@ func pruneCacheContext(ctx context.Context, dir string, limit int64, log *slog.L
 	if limit <= 0 {
 		return
 	}
-	entries, err := os.ReadDir(dir)
+	root, err := openCacheRoot(dir)
 	if err != nil {
-		// A cache that does not exist yet is not over its limit; anything else
-		// is worth saying once, because it means the limit is not being kept.
 		if !os.IsNotExist(err) {
-			log.Warn("could not read the cache directory to enforce its size limit",
-				"dir", dir, "error", err)
+			log.Warn("could not safely read the cache directory to enforce its size limit", "dir", dir, "error", err)
 		}
 		return
 	}
-	type entry struct {
-		name  string
-		size  int64
-		mtime int64
+	defer root.Close()
+	items, err := readCacheEntries(ctx, root, "package")
+	if err != nil {
+		log.Warn("could not measure the cache directory to enforce its size limit", "dir", dir, "error", err)
+		return
 	}
-	items := make([]entry, 0, len(entries))
 	var total int64
-	for _, e := range entries {
-		size, mtime := treeSizeContext(ctx, filepath.Join(dir, e.Name()))
-		if ctx.Err() != nil {
-			return
-		}
-		items = append(items, entry{name: e.Name(), size: size, mtime: mtime})
-		total += size
+	for _, it := range items {
+		total += it.size
 	}
 	if total <= limit {
 		return
@@ -209,7 +201,7 @@ func pruneCacheContext(ctx context.Context, dir string, limit int64, log *slog.L
 		if ctx.Err() != nil || total-freed <= limit {
 			break
 		}
-		if err := os.RemoveAll(filepath.Join(dir, it.name)); err != nil {
+		if err := root.RemoveAll(it.name); err != nil {
 			log.Warn("could not evict a cache entry", "dir", dir, "entry", it.name, "error", err)
 			continue
 		}

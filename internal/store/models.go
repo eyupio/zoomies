@@ -900,10 +900,11 @@ func (s CacheScope) Valid() bool { return s == CacheScopePool || s == CacheScope
 type CacheConfig struct {
 	Enabled bool       `json:"enabled"`
 	Scope   CacheScope `json:"scope"`
-	// SizeLimit is enforced by evicting whole cache entries, least recently
-	// modified first, in the gap between one runner and the next. Only a cache
-	// in a host directory can be measured, so a limit is refused on a named
-	// volume rather than accepted and quietly ignored. Zero is unlimited.
+	// SizeLimit covers packages, tools and the local Actions cache service on
+	// each host. Idle maintenance evicts disposable entries and gives the
+	// service the room left over. A live job may exceed it; it is not a quota.
+	// A non-zero limit requires a host directory. Zero leaves package/tools
+	// unlimited; the service retains its own 10 GiB default.
 	SizeLimit int64  `json:"size_limit,omitempty"`
 	Source    string `json:"source,omitempty"`
 	// Repository names the repository a repository-scoped cache belongs to,

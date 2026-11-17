@@ -46,3 +46,44 @@ func TestTheHeartbeatCarriesWhatTheBackendsCacheServicesHaveDone(t *testing.T) {
 		t.Errorf("second beat carried %+v, want the figures as they are now", second.Caches)
 	}
 }
+
+type maintainingBackend struct {
+	*fakeBackend
+	policies []backend.CachePolicy
+	passes   int
+}
+
+func (b *maintainingBackend) SetCachePolicies(p []backend.CachePolicy) { b.policies = p }
+func (b *maintainingBackend) MaintainCaches(context.Context)           { b.passes++ }
+
+func TestAHeartbeatRefreshesIdleCachePoliciesAndReconciliationRunsWithoutACreate(t *testing.T) {
+	be := &maintainingBackend{fakeBackend: newFakeBackend("docker")}
+	a, tr, _, _ := newAgent(t, 2, func(o *Options) { o.Backends = backend.NewRegistry(be) })
+	if err := a.Join(context.Background(), "join-token"); err != nil {
+		t.Fatal(err)
+	}
+	tr.beatResp = &HeartbeatResponse{OK: true, CachePolicies: []backend.CachePolicy{{PoolID: "pool_one"}}}
+	nextBeat(t, a, tr)
+	if len(be.policies) != 1 {
+		t.Fatal("heartbeat policy did not reach the backend")
+	}
+	if _, err := a.ReconcileOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if be.passes != 1 {
+		t.Fatal("idle reconciliation did not maintain caches")
+	}
+	tr.beatResp = &HeartbeatResponse{OK: true, MutationsPaused: true}
+	nextBeat(t, a, tr)
+	if _, err := a.ReconcileOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if be.passes != 1 || len(be.policies) != 0 {
+		t.Fatal("fenced recovery allowed cache deletion")
+	}
+	tr.beatResp = &HeartbeatResponse{OK: true}
+	nextBeat(t, a, tr)
+	if len(be.policies) != 0 {
+		t.Fatal("an older controller left a stale deletion policy")
+	}
+}

@@ -16,6 +16,7 @@
   import { href, router } from '$lib/router';
   import { fleet } from '$lib/state/fleet.svelte';
   import { diskProblemFor } from '$lib/hosts/disk';
+  import HostCacheStorage from '$lib/hosts/HostCacheStorage.svelte';
   import { freshness } from '$lib/hosts/freshness';
   import { session } from '$lib/state/session.svelte';
   import {
@@ -585,6 +586,7 @@
     />
   {/if}
 </PageHeader>
+{#if host}<HostCacheStorage {host} />{/if}
 {#if diskProblem}
   <section id="disk-admission" aria-label="Disk admission" class="disk-admission">
     <Panel title="Disk prevents placement" description={diskProblem.detail}>
