@@ -330,7 +330,7 @@ daemon's `registry-mirrors` covers, and the mirror never carries a credential.
 ## Slice 1, as built
 
 Built on 17 November 2026: `internal/registrymirror`, standard library only, with
-51 tests at 89 per cent statement coverage under the race detector, the purity
+53 tests at 90 per cent statement coverage under the race detector, the purity
 test, and one opt-in test against a real `dockerd`. It is not wired into the
 agent, and nothing imports it yet. Slices 2 to 4 are unchanged.
 
@@ -392,18 +392,25 @@ the ones the heartbeat will carry.
     an empty or short digest, and a stray file with a short name in the folder
     was counted as an object and then crashed eviction. Both are fixed, and the
     store no longer relies on its callers having checked.
+11. What is remembered about tokens is bounded, like what is remembered about
+    tags. A token is kept for the repository it was issued for, the repository is
+    named by whoever sends the request, and a registry issues a token even for a
+    repository that does not exist, so neither the tag cache nor the store limited
+    it. The first version had no bound at all and never removed an expired token.
+    Codex found it on the second review. Expired tokens are now dropped whenever
+    one is added, and the cache is held to 4,096 entries, nearest expiry first.
 
 **What was shown.** A real `dockerd` (Docker 29.9.2, the same throwaway setup as
 the spike) pulled a hand-built one-layer image through the mirror from a fake
 registry, the image was removed, and the second pull asked the registry for no
 further blob: it was served from the mirror's disk. The same test fails if disk
-serving is broken. Twenty-five behaviours were then broken one at a time (serving
+serving is broken. Twenty-seven behaviours were then broken one at a time (serving
 from disk, the digest check, the eviction rule, shared fetches, the token not
 reaching the content network, ranges, tag lifetime, the size rule, refusing
 write methods, anonymous upstream, the `404` rule, the idle timeout, the redirect
 guard, startup cleanup, name validation, the tag bound, the manifest check,
 the `Retry-After` relay, the path check, what a start counts, the admission rule,
-the eviction on release and the token bound), and a test failed each time. The first run left two
+the eviction on release, the token bound, and the token cache's size and expiry), and a test failed each time. The first run left two
 alive: the stall before the first byte, which now has a test, and an early return
 that was redundant and was removed.
 

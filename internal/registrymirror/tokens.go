@@ -31,6 +31,15 @@ type tokenSource struct {
 
 	mu    sync.Mutex
 	cache map[string]cachedToken
+	// maxEntries bounds the cache.
+	maxEntries int
+}
+
+// count is how many tokens are held.
+func (t *tokenSource) count() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return len(t.cache)
 }
 
 type cachedToken struct {
@@ -94,8 +103,39 @@ func (t *tokenSource) get(ctx context.Context, name string) (string, error) {
 	if body.ExpiresIn > 0 {
 		life = time.Duration(body.ExpiresIn) * time.Second
 	}
-	t.mu.Lock()
-	t.cache[name] = cachedToken{value: token, expires: t.now().Add(life - tokenSlack)}
-	t.mu.Unlock()
+	t.remember(name, token, t.now().Add(life-tokenSlack))
 	return token, nil
+}
+
+// defaultMaxTokens bounds the cache. A repository name is chosen by whoever
+// sends the request, and a registry issues a token for one that does not exist,
+// so the cache is bounded here and not by anything downstream of it.
+const defaultMaxTokens = 4096
+
+// remember keeps a token. What has expired is of no use and goes whenever a
+// token is added, which is rare enough that the sweep costs nothing; and if the
+// cache is still full the token nearest its expiry goes too.
+func (t *tokenSource) remember(name, token string, expires time.Time) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	now := t.now()
+	for k, v := range t.cache {
+		if !now.Before(v.expires) {
+			delete(t.cache, k)
+		}
+	}
+	if _, ok := t.cache[name]; !ok {
+		for len(t.cache) >= t.maxEntries {
+			var victim string
+			var soonest time.Time
+			first := true
+			for k, v := range t.cache {
+				if first || v.expires.Before(soonest) {
+					victim, soonest, first = k, v.expires, false
+				}
+			}
+			delete(t.cache, victim)
+		}
+	}
+	t.cache[name] = cachedToken{value: token, expires: expires}
 }
