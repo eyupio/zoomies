@@ -289,12 +289,20 @@ func openCacheRoot(dir string) (*os.Root, error) {
 	if err != nil {
 		return nil, err
 	}
-	resolved, err := filepath.EvalSymlinks(abs)
-	if err != nil {
-		return nil, err
-	}
-	if resolved != abs {
-		return nil, fmt.Errorf("cache root is a symbolic link")
+	// Windows can expand short names and restore drive/component casing even
+	// when no link exists. Inspect the components themselves instead of using
+	// a lexical comparison with EvalSymlinks as a symlink detector.
+	for component := abs; ; component = filepath.Dir(component) {
+		info, err := os.Lstat(component)
+		if err != nil {
+			return nil, err
+		}
+		if info.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 {
+			return nil, fmt.Errorf("cache root contains a symbolic link or unsupported filesystem entry")
+		}
+		if filepath.Dir(component) == component {
+			break
+		}
 	}
 	before, err := os.Lstat(abs)
 	if err != nil {

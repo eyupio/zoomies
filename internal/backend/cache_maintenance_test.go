@@ -298,3 +298,19 @@ func TestSwitchingBackendsReusesTheServiceInsteadOfReopeningItsLiveIndex(t *test
 		t.Fatalf("service counters counted %d saves after a backend switch, want one", puts)
 	}
 }
+
+func TestCacheRootsRefuseASymlinkInAParentDirectory(t *testing.T) {
+	target := t.TempDir()
+	child := filepath.Join(target, "child")
+	if err := os.Mkdir(child, 0750); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "parent")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skip(err)
+	}
+	if root, err := openCacheRoot(filepath.Join(link, "child")); err == nil {
+		root.Close()
+		t.Fatal("accepted a symlink parent as an owned cache root")
+	}
+}

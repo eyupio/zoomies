@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -210,31 +209,4 @@ func pruneCacheContext(ctx context.Context, dir string, limit int64, log *slog.L
 	}
 	log.Info("evicted cache entries to stay under the pool's cache size limit",
 		"dir", dir, "limit_bytes", limit, "was_bytes", total, "freed_bytes", freed, "entries", removed)
-}
-
-// treeSizeContext sums the apparent size of a directory tree and reports the
-// newest modification time in it, so that touching one file inside a cache
-// entry keeps the whole entry warm. It stops early once ctx is done.
-func treeSizeContext(ctx context.Context, path string) (size int64, newest int64) {
-	_ = filepath.WalkDir(path, func(_ string, d fs.DirEntry, err error) error {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if err != nil {
-			// An entry that vanished mid-walk simply contributes nothing.
-			return nil
-		}
-		info, err := d.Info()
-		if err != nil {
-			return nil
-		}
-		if mod := info.ModTime().UnixMilli(); mod > newest {
-			newest = mod
-		}
-		if !d.IsDir() {
-			size += info.Size()
-		}
-		return nil
-	})
-	return size, newest
 }
