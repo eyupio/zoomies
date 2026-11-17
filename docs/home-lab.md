@@ -25,7 +25,9 @@ machine once you know where it fits.
 | A Proxmox VE server | Runner hosts made and removed as pools need them | Zoomies can [rent virtual machines from Proxmox](proxmox.md) through its provider contract |
 | A spare Windows PC | Windows jobs, as processes on the machine | One PowerShell command from **Hosts → Add a host** joins it. A manual trial is reported; [written qualification is still pending](index.md#what-is-qualified) |
 
-macOS is not on the list: there is no macOS runner image.
+macOS is not on the list: there is no macOS runner image. If a Mac is one of the
+machines you have, [Codemany](alternatives/codemany.md) can run macOS jobs on it
+while Zoomies runs the Linux ones; `runs-on` decides which a job gets.
 
 ## Where the controller goes
 

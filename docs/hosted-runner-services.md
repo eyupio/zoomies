@@ -44,7 +44,9 @@ Sizes differ between services, so compare the machine as well as the price.
 - **You need macOS.** Zoomies has no macOS runner image, RunsOn does not run
   macOS, and WarpBuild's BYOC pricing lists Linux and Windows only. Blacksmith,
   WarpBuild's own cloud and Depot (on its Startup and Business plans) do run
-  macOS.
+  macOS. If you already own the Macs, [Codemany](alternatives/codemany.md)
+  runs macOS jobs on them for a flat monthly price per machine, which is not a
+  per-minute service at all.
 - **You want the fleet run for you, with a cache built in.** Depot's
   [GitHub Actions runners](https://depot.dev/docs/github-actions/overview) run
   each job on a fresh EC2 instance that is never reused and, per its docs, are

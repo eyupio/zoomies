@@ -15,8 +15,9 @@
 **Done, in the pull request that added this file:**
 
 - [x] `docs/alternatives/codemany.md`, the comparison page, wired into `mkdocs.yml` and `docs/alternatives/index.md` (both tables, the macOS question under "How to choose", and the page description).
+- [x] Task 2, the macOS pointers, in `docs/hosted-runner-services.md`, `docs/should-i-self-host.md` and `docs/home-lab.md`. `docs/faq.md` was read and left alone: its answer links onward only for Windows qualification and the image catalogue.
 
-**Next unfinished step:** Task 2, then the owner's three decisions. Update this section, and tick the boxes below, in every pull request that works from this plan.
+**Next unfinished step:** Tasks 3 and 4, which need no decision, then the owner's three decisions. Update this section, and tick the boxes below, in every pull request that works from this plan.
 
 ## Global Constraints
 
@@ -65,13 +66,13 @@ Done. See "Where this stands".
 
 ### Task 2: Send macOS readers to the page
 
-No decision needed. Each of these already tells a reader "Zoomies has no macOS runner image" and sends them somewhere; add the page to where they are sent.
+Done. No decision needed. Each of these already tells a reader "Zoomies has no macOS runner image" and sends them somewhere; add the page to where they are sent.
 
 **Files:** modify `docs/hosted-runner-services.md` (the "You need macOS" bullet), `docs/should-i-self-host.md` (near line 32), `docs/home-lab.md` (near line 28); read `docs/faq.md` near line 128 and change it only if it already links onward.
 
-- [ ] **Step 1:** In each file, read the sentence first. Add one clause linking to `alternatives/codemany.md` (the path relative to that file) naming Codemany as a way to run macOS jobs on Macs the reader owns, beside the options already listed. Do not add it where the text lists only hosted services and has no sentence about owned hardware to attach it to.
-- [ ] **Step 2:** `make build-nogui`, then `go test -count=1 ./internal/docs/`. Expected: pass.
-- [ ] **Step 3:** Build the site with `pip install --require-hashes -r docs/requirements.txt` and `mkdocs build --strict`. Expected: no warnings, and `site/alternatives/codemany/index.html` exists.
+- [x] **Step 1:** In each file, read the sentence first. Add one clause linking to `alternatives/codemany.md` (the path relative to that file) naming Codemany as a way to run macOS jobs on Macs the reader owns, beside the options already listed. Do not add it where the text lists only hosted services and has no sentence about owned hardware to attach it to. *Outcome:* three files changed. `docs/should-i-self-host.md` also says "no macOS runner image" under "Plan capacity across platforms and sizes"; that sentence is about the support matrix, links to it, and was left alone so the page does not link to Codemany twice. In `docs/hosted-runner-services.md` the bullet sits under "When a runner service is the better choice", so the added sentence says outright that Codemany is not a per-minute service.
+- [x] **Step 2:** `make build-nogui`, then `go test -count=1 ./internal/docs/`. Expected: pass.
+- [x] **Step 3:** Build the site with `pip install --require-hashes -r docs/requirements.txt` and `mkdocs build --strict`. Expected: no warnings, and `site/alternatives/codemany/index.html` exists.
 
 ### Task 3: Add the evidence and one design option to candidate 4
 
