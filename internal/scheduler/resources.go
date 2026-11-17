@@ -613,14 +613,8 @@ func comfortFloor(p *store.Pool) Reservation {
 // never measured constrains nothing: an agent that predates the fields places
 // by slots alone, which is what keeps an upgrade from emptying a fleet.
 func fits(left, want Reservation, known store.HostAllocation) bool {
-	if known.DiskKnown {
-		// A host at or below its disk reserve takes no runner at all, however
-		// little the pool asks for. The reserve is the room the machine needs
-		// to do the work -- an image layer, a checkout, a log -- and not a
-		// budget to be spent down to nothing.
-		if known.DiskMB <= 0 || left.DiskMB < want.DiskMB {
-			return false
-		}
+	if !diskFits(left, want, known) {
+		return false
 	}
 	if known.CPUsKnown && left.CPUs+cpuEpsilon < want.CPUs {
 		return false

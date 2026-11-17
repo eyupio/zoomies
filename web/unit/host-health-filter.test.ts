@@ -230,7 +230,7 @@ test('the sentence under the chips names the filter, and is empty for All', () =
   assert.equal(filterSentence('all', 3, 3), '');
   assert.equal(
     filterSentence('attention', 2, 5),
-    'Showing 2 of 5 hosts: OS settings below the recommendation, or a reboot pending.',
+    'Showing 2 of 5 hosts: disk blocking placement, OS settings below the recommendation, or a reboot pending.',
   );
   assert.equal(
     filterSentence('no-report', 0, 1),
@@ -251,11 +251,11 @@ test('the tile says how many hosts are silent only when none needs attention', (
   );
   assert.equal(
     attentionDetail(counted({ attention: 1, stale: 1 })),
-    'OS settings below the recommendation, or a reboot pending',
+    'Disk blocking placement, OS settings below the recommendation, or a reboot pending',
   );
   assert.equal(
     attentionDetail(counted({})),
-    'OS settings below the recommendation, or a reboot pending',
+    'Disk blocking placement, OS settings below the recommendation, or a reboot pending',
   );
 });
 
