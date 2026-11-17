@@ -723,7 +723,7 @@ line already says, so it does not carry the notice for being full.
 **Details** opens the rest beneath it: the size class and the other neutral
 chips, the disk figure with its link to the check, the heartbeat and usage
 lines, the **Committed** bars, **Memory to lend**, **Runner sizes**,
-**Priority**, **Backends** and **Tags**. The cards in a row are
+**Priority**, **Backends**, **Registry mirror** and **Tags**. The cards in a row are
 one height and their sections line up across it: the pills, the slot bars, the
 three utilisation bars and the **Details** buttons sit at the same height from
 card to card, so a row reads straight across. A card with a notice leaves the
@@ -740,6 +740,17 @@ button then offers **Expand all** again. With a filter on, it acts on the hosts
 the filter shows and leaves the others as they were, and a line beside it says
 how many that is (**Acts on the 2 hosts shown**). A page with one card does not
 have it, because that card's **Details** button is the whole of it.
+
+**Registry mirror** appears only on a host whose agent is running one (see
+[Keeping the images a docker-in-docker job pulls](persistent-caches.md#keeping-the-images-a-docker-in-docker-job-pulls)),
+so most cards have no such block. It reads **On**, or **Not working** with the
+reason and what to change. It sits under **Details**, never on the closed card,
+because a mirror that has stopped only makes a pull slower and nothing fails:
+the line says so first, in the pending tone, and not the danger one. The reason is
+one of a short list the controller writes the sentences for; whatever the agent
+sends beyond that list is shown as a general sentence and never as sent. A host
+whose own sidecar image is custom is told which pools skip the mirror for that
+reason. The mirror's figures are not on the card; they are metrics.
 
 Under **Details**, **Agent connected** describes the heartbeat. Recent **CPU usage**,
 **memory available** and the one-minute **load** describe the machine's actual

@@ -172,9 +172,13 @@ are in the configuration reference. What it does and does not cover:
 A mirror only ever slows a pull down: if it cannot start, stops or cannot reach
 Docker Hub, the sidecar pulls from Docker Hub as it did before and no job fails.
 `host.registry_mirror_degraded` says when that is happening on a host that has a
-pool that would have used it, and what to do. The mirror's figures (requests, hits,
-bytes served and kept, and upstream errors) reach the controller on every
-heartbeat, and nothing shows them yet.
+pool that would have used it, and what to do. The host's card says whether its
+mirror is on and, when it is not working, why and what to change; a host with no
+mirror says nothing. The mirror's figures (requests, hits, bytes served and kept,
+how long Docker Hub has been failing, and evictions) are the
+`zoomies_registry_mirror_*` series on [`/metrics`](metrics.md), one set for each
+host, and are not on the card: they change with every pull, and a card that
+repainted for each would never be still.
 
 It has not been measured on a real fleet, so this page makes no claim about how
 much time it saves. Measure it the way [Verify the benefit](#verify-the-benefit)

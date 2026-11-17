@@ -159,6 +159,13 @@ will not fire when the numbers stop arriving altogether.
 | `zoomies_cache_puts_total` | counter | `pool`, `host`, `outcome` | Cache saves by outcome: `started` (the service agreed to take the save), `finalised` (it became an entry), `duplicate` (the same key and version was already stored or being saved, which is what a warm cache answers and is not a fault) and `failed` (the upload was lost, the archive was not the size the job said, or nobody finished the save before it expired). Each started save ends as exactly one of `finalised` or `failed`, so what is left of `started` is saves in flight. |
 | `zoomies_cache_evictions_total` | counter | `pool`, `host` | Entries removed to keep the service under the pool's cache size limit. Evictions keeping pace with `finalised` saves say the pool's cache is too small for what it keeps. |
 | `zoomies_cache_stored_bytes` | gauge | `pool`, `host` | Bytes of finished entries the host's cache services hold for the pool, as the agent last reported them. A pool with several repository-scoped caches is summed. |
+| `zoomies_registry_mirror_lookups_total` | counter | `host`, `result` | Manifest and blob requests the host's [registry mirror](persistent-caches.md#keeping-the-images-a-docker-in-docker-job-pulls) answered, as `hit` (served from the host's disk) or `miss` (fetched from Docker Hub). Both results are reported for every host whose agent says its mirror is on, so a hit ratio needs no `or vector(0)`. A `HEAD` request for a tag is neither. Read `hit / (hit + miss)` by host to see whether the mirror is being used. |
+| `zoomies_registry_mirror_served_bytes_total` | counter | `host` | Bytes the mirror sent to the docker-in-docker sidecars that asked. |
+| `zoomies_registry_mirror_fetched_bytes_total` | counter | `host` | Bytes the mirror fetched from Docker Hub. Set against the bytes served, the difference is what the sidecars did not have to fetch again, which is the mirror's whole purpose. |
+| `zoomies_registry_mirror_upstream_errors_total` | counter | `host` | Requests the mirror could not satisfy because Docker Hub failed it: a rate limit, a server error, an unreachable registry, a transfer that stalled, or a manifest or blob that did not hash to its digest. The sidecar pulls from Docker Hub itself when this happens, so nothing fails. |
+| `zoomies_registry_mirror_evictions_total` | counter | `host` | Objects removed to keep the mirror under `agent.registry_mirror.max_bytes`. Evictions keeping pace with `miss` lookups say the mirror is too small for what the sidecars pull. |
+| `zoomies_registry_mirror_stored_bytes` | gauge | `host` | Bytes the mirror holds on disk, as the agent last reported them. |
+| `zoomies_registry_mirror_upstream_failing_seconds` | gauge | `host` | How long Docker Hub has failed the mirror without a break; `0` while the last thing it asked came back. The agent raises `host.registry_mirror_degraded` after five minutes of it. |
 | `zoomies_tool_cache_fills_total` | counter | `pool`, `outcome` | Toolchain versions a [tool cache fill](persistent-caches.md) was asked for, by what became of each: `installed`, `present` (already in the cache), `skipped` (not one a fill can serve) or `failed`; `unknown` is an outcome this controller does not recognise, from a newer agent. A fill that fails as a whole counts every version it was sent as `failed`. Counted by the controller as each answer arrives, so it has no `host` label and a restart of an agent does not reset it. |
 
 Every `pool` label is the pool's **name**, so a query can join these against
@@ -182,6 +189,14 @@ for the scrape and nowhere else (it is not in the host's API view or the live
 event stream, where it would change with every cache request), so a controller
 restart leaves the series absent until each host's next heartbeat. A pool the
 controller does not have, and a host that has been deleted, are not reported.
+
+The `zoomies_registry_mirror_` series are the same kind of thing for a host's
+registry mirror: the totals its agent keeps, sent on every heartbeat, so they carry
+the host and `rate()` reads an agent restart as a counter reset. Only a host whose
+agent says its mirror is on has any. They are kept in memory for the scrape and are
+not in the host's API view or the live event stream, which carry only whether the
+mirror is on and what is wrong with it, because the figures change with every pull.
+A value an agent reports below zero is exported as zero.
 Hosts whose pools do not use the cache service report none of these series.
 
 `zoomies_image_prewarm_duration_seconds` is the matching histogram, with the

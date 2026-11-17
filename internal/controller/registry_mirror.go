@@ -137,6 +137,48 @@ var mirrorProblemSentences = map[string]struct{ detail, fix string }{
 	},
 }
 
+// mirrorProblemWords is what a host's view and its finding say for a word an agent
+// used: the word itself when this controller knows it, and "other" with a general
+// sentence when it does not, because the agent's text is not trusted to be shown
+// as it arrived. The fix for a word this controller has never heard is the one
+// thing it can say for certain.
+func mirrorProblemWords(word string) (shown string, detail, fix string) {
+	if sentence, known := mirrorProblemSentences[word]; known {
+		return word, sentence.detail, sentence.fix
+	}
+	return "other",
+		"the agent reports a problem with its registry mirror that this controller has no description for.",
+		"upgrade the controller to the same release as the agent, or look in the agent's log."
+}
+
+// RegistryMirrorView is what a host's registry mirror is doing, for the host card.
+// Problem is empty when nothing is wrong. Detail and Fix are the controller's
+// sentences, so the page does not keep a copy that could drift from the finding's,
+// and HostImageCustom says that pools which follow the host's own sidecar image
+// are not given the mirror.
+type RegistryMirrorView struct {
+	Problem         string `json:"problem,omitempty"`
+	Detail          string `json:"detail,omitempty"`
+	Fix             string `json:"fix,omitempty"`
+	HostImageCustom bool   `json:"host_image_custom,omitempty"`
+}
+
+// registryMirrorView is the mirror's part of a host's view, nil while the host
+// has not said it has one on.
+func (c *Controller) registryMirrorView(hostID string) *RegistryMirrorView {
+	c.mirrorMu.Lock()
+	rep, ok := c.mirrorHosts[hostID]
+	c.mirrorMu.Unlock()
+	if !ok {
+		return nil
+	}
+	out := &RegistryMirrorView{HostImageCustom: rep.HostImageCustom}
+	if rep.Problem != "" {
+		out.Problem, out.Detail, out.Fix = mirrorProblemWords(rep.Problem)
+	}
+	return out
+}
+
 // registryMirrorDegradedProblem is host.registry_mirror_degraded: the agent says
 // something is wrong with its mirror, raised only where it costs something, which
 // is a pool that would have been given the mirror and could run on this host.
@@ -153,23 +195,14 @@ func registryMirrorDegradedProblem(h *store.Host, rep backend.RegistryMirrorRepo
 	if len(affected) == 0 {
 		return Problem{}, false
 	}
-	sentence, known := mirrorProblemSentences[rep.Problem]
-	if !known {
-		// A word from an agent newer than this controller. It is never shown, since
-		// the agent's text is not trusted to be rendered, and the fix is the one
-		// thing this controller can say for certain.
-		sentence = struct{ detail, fix string }{
-			"the agent reports a problem with its registry mirror that this controller has no description for.",
-			"upgrade the controller to the same release as the agent, or look in the agent's log.",
-		}
-	}
+	_, detail, fix := mirrorProblemWords(rep.Problem)
 	return Problem{
 		Code:     "host.registry_mirror_degraded",
 		Severity: config.SeverityWarning,
 		Title:    naming.ForSentence(h.Name) + " is not serving its registry mirror",
 		Detail: fmt.Sprintf("%s %s start their docker-in-docker sidecars there without it and pull from Docker Hub as they did before, so nothing fails; the pulls are slower and count against Docker Hub's limit.",
-			capitalise(sentence.detail), strings.Join(affected, ", ")),
-		Fix:        sentence.fix,
+			capitalise(detail), strings.Join(affected, ", ")),
+		Fix:        fix,
 		TargetKind: "host",
 		TargetID:   h.ID,
 	}, true

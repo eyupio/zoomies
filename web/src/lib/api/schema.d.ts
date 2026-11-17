@@ -10063,6 +10063,20 @@ export interface components {
             /** @enum {string} */
             reason_code?: "cordoned" | "incompatible" | "silent" | "unclassified" | "bad_size_label" | "unknown_architecture" | "no_backend";
         };
+        /** @description What a host's agent says about its registry mirror, which keeps the public Docker Hub images the host's docker-in-docker sidecars pull. Only what changes rarely is here: the mirror's figures move with every pull and are the metrics', never part of a host's view or of any event. */
+        HostRegistryMirror: {
+            /**
+             * @description What is wrong with the mirror, when something is: the agent runs in a container (`container`), the host has no shared folder to keep it in (`shared_folder`), its own folder could not be written (`folder`), the host's address on a sidecar network was not found (`gateway`), it could not listen or stopped listening (`listener`), or Docker Hub has failed it for at least five minutes without a break (`upstream`). `other` is a problem the agent reported that this controller has no word for; the agent's own text is never passed on. Absent when nothing is wrong.
+             * @enum {string}
+             */
+            problem?: "container" | "shared_folder" | "folder" | "gateway" | "listener" | "upstream" | "other";
+            /** @description What is wrong, as the controller's own sentence. Absent when nothing is. */
+            detail?: string;
+            /** @description What to do about it, as the controller's own sentence. Absent when nothing is wrong. */
+            fix?: string;
+            /** @description This host's own sidecar image (`agent.dind_image`) is not the default, so a pool that follows the host's image is not given the mirror. A pool that names an image of its own is decided by that image. Absent when the host's image is the default. */
+            host_image_custom?: boolean;
+        };
         PoolAuto: {
             /** @description The architecture and class the pool is kept for, `amd64/medium`. */
             key: string;
@@ -11590,6 +11604,8 @@ export interface components {
             size_class?: components["schemas"]["HostSizeClass"];
             /** @description Which automatic pool this host counts towards, or why it counts towards none. Absent while `scheduler.auto_pools` is `off`. */
             auto_pool?: components["schemas"]["HostAutoPool"];
+            /** @description What the host's agent says about its registry mirror. Present while the mirror is on, which is `agent.registry_mirror.enabled` on that host; absent when it is off and from an agent that predates it. */
+            registry_mirror?: components["schemas"]["HostRegistryMirror"];
             /** @description How many of the live runners here were created with no CPU quota -- a pool with none and default limits off, a process pool, a daemon that cannot apply one, or a runner from before allocations were recorded. Omitted when zero. They are the runners a CPU hold can mean something about, since a throttle cannot slow them. */
             unlimited_runners?: number;
             id?: string;

@@ -43,12 +43,14 @@
   const MINUTE = 60 * SECOND;
   const HOUR = 60 * MINUTE;
   const DAY = 24 * HOUR;
+  const GIB = 1024 ** 3;
   /* The notches a setting's slider moves between, by what it measures. The
      field beside it takes any figure, and one off the notches joins them. */
   const NOTCHES: Record<Quantity, readonly number[]> = {
     cpus: CPU_NOTCHES,
     mb: [512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072],
     gb: [1, 2, 5, 10, 20, 50, 100, 200, 500, 1024],
+    bytes: [1, 2, 5, 10, 20, 50, 100, 200, 500, 1024].map((gib) => gib * GIB),
     count: [1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 25, 30, 40, 50, 75, 100, 200, 500, 1000],
     ms: [
       SECOND,

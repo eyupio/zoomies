@@ -17,9 +17,10 @@
 
 /**
  * A quantity a field can hold, named by the unit it is carried in: cores,
- * megabytes, gigabytes, a plain count, or a length of time in milliseconds.
+ * megabytes, gigabytes or bytes, a plain count, or a length of time in
+ * milliseconds.
  */
-export type Quantity = 'cpus' | 'mb' | 'gb' | 'count' | 'ms';
+export type Quantity = 'cpus' | 'mb' | 'gb' | 'bytes' | 'count' | 'ms';
 
 /** What a parse makes of some text: a value, nothing (the field was cleared), or why not. */
 export type Parsed = { ok: true; value: number | null } | { ok: false; error: string };
@@ -48,6 +49,20 @@ function parseBytes(text: string, bare: 'mb' | 'gb'): number | undefined {
     return bare === 'gb' ? n * 1024 : n;
   }
   return n * (MB_PER[unit] ?? NaN);
+}
+
+/**
+ * Reads a size into bytes, for a field that is carried in them. A bare number is
+ * bytes, the unit the field is in, so a figure pasted from an API or a shell stays
+ * itself; with a unit it is a binary multiple, as everywhere else on the page, so
+ * "20 GB", "20g" and "20 GiB" are all 21474836480.
+ */
+function parseByteSize(text: string): number | undefined {
+  const m = /^(\d+(?:\.\d+)?|\.\d+)\s*([kmgtp]?)(?:i?b)?$/i.exec(text);
+  if (!m) return undefined;
+  const unit = (m[2] ?? '').toLowerCase();
+  const steps = unit === '' ? 0 : 'kmgtp'.indexOf(unit) + 1;
+  return Number(m[1]) * 1024 ** steps;
 }
 
 /**
@@ -108,6 +123,7 @@ const EXAMPLES: Record<Quantity, string> = {
   cpus: 'a number of cores, such as 2 or 1.5',
   mb: 'a size such as 4 GB, 4096 MB or 4g',
   gb: 'a size such as 40 GB, 1.5 TB or 500g',
+  bytes: 'a size such as 20 GB, 512 MB or 21474836480',
   count: 'a whole number, such as 10',
   ms: 'a length of time, such as 30s, 5m, 1h30m or 7d',
 };
@@ -136,6 +152,9 @@ export function parseQuantity(input: string, quantity: Quantity): Parsed {
   } else if (quantity === 'ms') {
     const ms = parseDuration(text);
     value = ms === undefined ? undefined : Math.round(ms);
+  } else if (quantity === 'bytes') {
+    const bytes = parseByteSize(text);
+    value = bytes === undefined ? undefined : Math.round(bytes);
   } else {
     const mb = parseBytes(text, quantity);
     if (mb !== undefined) value = quantity === 'gb' ? Math.round(mb / 1024) : Math.round(mb);
@@ -148,6 +167,9 @@ export function parseQuantity(input: string, quantity: Quantity): Parsed {
 
 const BYTE_UNITS = ['MB', 'GB', 'TB', 'PB'] as const;
 
+/** The units a size carried in bytes is written in, from the smallest. */
+const BYTE_STEPS = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'] as const;
+
 /**
  * Writes a size in the largest unit that says it exactly, to two decimal
  * places: 4096 MB is "4 GB", 1536 MB is "1.5 GB", and 3000 MB stays "3000 MB",
@@ -158,6 +180,15 @@ export function formatQuantity(value: number, quantity: Quantity): string {
   if (quantity === 'cpus') return `${trim(value)} ${value === 1 ? 'core' : 'cores'}`;
   if (quantity === 'count') return String(value);
   if (quantity === 'ms') return formatDuration(value);
+  if (quantity === 'bytes') {
+    let step = 0;
+    let n = value;
+    while (step < BYTE_STEPS.length - 1 && n >= 1024 && exact(n / 1024)) {
+      n /= 1024;
+      step++;
+    }
+    return `${trim(n)} ${BYTE_STEPS[step]}`;
+  }
   let at = quantity === 'gb' ? 1 : 0;
   let n = value;
   while (at < BYTE_UNITS.length - 1 && n >= 1024 && exact(n / 1024)) {

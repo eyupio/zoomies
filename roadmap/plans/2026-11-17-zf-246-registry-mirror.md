@@ -628,3 +628,85 @@ the catalogue was regenerated with `make generate`.
 
 Decision 1, writing the protocol rather than running the upstream registry image,
 is still open. If the owner prefers the other, slices 1 to 3 are not wanted.
+
+## UI slice, as built
+
+Built on 17 November 2026, on top of slices 1 to 3 (merged in #1517 and #1519): a
+host's card says whether its mirror is on and what is wrong with it, the mirror's
+figures are metrics, and the mirror's size is shown and edited as a size. It adds
+eight Go tests, eleven unit tests and one browser test that runs on the desktop and
+the phone project, and nothing in it has run against a real fleet. Slice 4 is
+unchanged.
+
+**What it does.** The host's view, which is the shape `GET /api/v1/hosts` and the
+event stream both carry, gains `registry_mirror`, present only for a host whose
+agent reports a mirror: the problem word (one of the six the controller knows, or
+`other`), the controller's sentence for it and for what to change, and whether the
+host's own sidecar image is custom. The seven series are `zoomies_registry_mirror_*`
+on `/metrics`, one set for each host, in the same shape as the cache's (lookups by
+result, bytes served and fetched, upstream errors, evictions, bytes stored, and how
+long the registry has been failing). The card shows a **Registry mirror** block
+under **Details**, **On** or **Not working**, and a problem says first that nothing
+is failing. `agent.registry_mirror.max_bytes` is read and written as a size on the
+Settings page, because a key ending in `_bytes` now names a quantity like `_mb`
+does.
+
+**Where it departs from the design above, and why.**
+
+1. The state is on the card and the figures are metrics, as the owner chose on
+   17 November 2026 over the card carrying both. The figures change with every pull,
+   and the host view is a frame the page drops straight into its cache, so a figure
+   in it would repaint every card each time the derived pass ran. A test holds the
+   view to its state: it moves with a problem or the custom image and does not move
+   with a hit.
+2. The block is under **Details** and not on the closed card. The closed card is
+   for what keeps a host from taking work, and a broken mirror does not: the
+   sidecars pull from Docker Hub as they did before. The warning is the pending
+   tone, never the danger one.
+3. A word the controller has never heard is `other` in the API, with the general
+   sentences, so the contract has a closed list and the page never shows what an
+   agent sent. A test sends markup as the word and checks that none of it reaches
+   the view.
+4. The figures are held in memory for the scrape and nowhere else, as the cache's
+   are. A controller restart leaves them absent until each host's next heartbeat,
+   and a host that is deleted is forgotten by the next scrape. A counter is never
+   reported below zero, because a falling counter reads as an agent restart.
+
+**What was shown.** Eight Go tests under the race detector: the view saying what the
+agent says (no mirror, on, each problem word, the custom image), an unknown word
+never being echoed, the figures not being part of the view and the view not moving
+with them, the series by host, zeros when a mirror is unused, the totals being counters and
+what the mirror holds being a gauge, and the series being bounded, never negative
+and gone with the host. Eleven unit tests: the card line's
+every state, and a size in bytes read, shown and read back. The browser test
+enrols a host through a join token, sends heartbeats and watches the card go from
+no block, to **On**, to a warning, to the general sentence for a word it has never
+heard (checking that no markup was rendered), to the custom image note, and back to
+no block; it passed on the desktop and the phone project against a built binary.
+Thirty behaviours were then broken one at a time and a
+test failed each time. The first pass left nine: five because the pattern naming
+the tests matched the wrong ones, two because the text to break appeared in two
+places, one because the mutation could change no output (a size between 1000 and
+1023 bytes is never an exact figure in kibibytes anyway, so it was replaced by one
+that could), and one real weakness, that nothing said a stored size is a gauge and
+not a counter. Mending the two that appeared twice showed a second: nothing asked
+for a petabyte to be read. Each now has a test. `make test-short`, the checks and
+the rest of the gates are recorded in the pull request.
+
+**What it does not show, and is still open.**
+
+* A real fleet. No host has run the mirror, so no card has shown a real heartbeat's
+  mirror, and the metrics have not been scraped from a real agent.
+* The Settings row. The fixture controller runs no embedded agent, so the agent's
+  settings are not offered on its Configuration page and a browser test cannot reach
+  the mirror's size there. The parsing and the display are unit-tested; the row's
+  slider (its notches and the step it moves in) is type-checked and not exercised in
+  a browser.
+* A size of `0` reads **0 B**, although it means the default of 10 GiB. The page has
+  no word for a setting whose zero is a default, and adding one touches every
+  setting that is like that, so it is left and recorded here.
+* The screenshots are not recaptured. The ones in the docs show hosts with no
+  mirror, which is still what they show; a card with one would need a seeded host
+  that reports it.
+* `staticcheck` could not be run in the session's environment, so CI's pinned
+  release is its first run on this slice.

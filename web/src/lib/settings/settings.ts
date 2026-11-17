@@ -118,8 +118,8 @@ export function displayValue(setting: Setting): string {
 /**
  * What a numeric or duration setting measures, so it can be shown and edited
  * the way people think of it. A duration is a length of time, shown as "7d"
- * rather than 168h. A number is a size where its key names the unit -- `_mb`
- * and `_gb` are sizes, a key ending in `cpus` is cores -- and a count
+ * rather than 168h. A number is a size where its key names the unit -- `_mb`,
+ * `_gb` and `_bytes` are sizes, a key ending in `cpus` is cores -- and a count
  * otherwise. Every one of them is edited with a slider and a field that reads
  * what people write: 4g, 1.5, 2 weeks.
  */
@@ -128,6 +128,7 @@ export function settingQuantity(setting: Pick<Setting, 'key' | 'kind'>): Quantit
   if (setting.kind !== 'int' && setting.kind !== 'float') return null;
   if (setting.key.endsWith('_mb')) return 'mb';
   if (setting.key.endsWith('_gb')) return 'gb';
+  if (setting.key.endsWith('_bytes')) return 'bytes';
   if (setting.key.endsWith('cpus')) return 'cpus';
   return setting.kind === 'int' ? 'count' : null;
 }
