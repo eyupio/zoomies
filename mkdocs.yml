@@ -267,6 +267,7 @@ nav:
       - Compared with TestFlows Hetzner runners: alternatives/testflows-hetzner-runners.md
       - Compared with Cirun: alternatives/cirun.md
       - Compared with runscaler: alternatives/runscaler.md
+      - Compared with Codemany: alternatives/codemany.md
       - Compared with gharp: alternatives/gharp.md
       - Compared with runner services: hosted-runner-services.md
       - GitHub Actions alternatives: github-actions-alternatives.md

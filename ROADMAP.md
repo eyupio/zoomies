@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 3.14 · 8 November 2026 · derived from the owner's
+Version 3.15 · 17 November 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md),
 reconciled against `main` at `6d12a72` on 6 September, at `9a80b31`
 on 19 September and at `88c41f6` on 8 October, when the owner set a new primary target, withdrew the
@@ -406,6 +406,34 @@ list is the only account of what was decided.
     passphrase re-seal, using the argon2id-and-AES-GCM pattern
     `backup_remotes.passphrase_enc` already uses, so offboarding never needs
     the instance key.*
+
+### Taken on 17 November 2026
+
+Three decisions from [the Codemany review](roadmap/plans/2026-11-17-codemany-follow-ups.md),
+put to the person running the session one at a time, each with a
+recommendation, and taken as below. The first is the one that was not the
+recommendation.
+
+33. **macOS runners, and which kind.** *Taken on 17 November 2026,* against
+    the recommendation to leave macOS out for now: build a backend, as
+    actions/runner processes on an Apple silicon Mac, the shape decision 26
+    took for Windows, recorded as
+    [decision 0020](roadmap/decisions/0020-macos-runners-are-processes-on-a-mac.md).
+    The code already maps `darwin` to the `osx` release and nothing has run on
+    a Mac, so the first slice, ZF-247, is mostly proof. No page says Zoomies
+    runs macOS jobs until one has run on a real Mac. A virtual machine per job
+    is not part of this and needs a new record if someone asks for the
+    isolation.
+34. **Which cache follow-up.** *Taken on 17 November 2026:* ZF-246, the
+    per-host registry mirror proposed beside ZF-245, and nothing more. Go, npm
+    and git mirrors are not added: ZF-212's recipes and ZF-245's cache service
+    already cover those downloads, and a mirror would be a second path to the
+    same saving. Measure before adding one.
+35. **What Zoomies says about speed.** *Taken on 17 November 2026:* it
+    publishes its own queue-wait and runner-startup figures, with the method
+    and the evidence, as ZF-248, and publishes no multiplier and no comparison
+    with GitHub-hosted runners. The rule that nothing claims faster execution
+    without evidence stands.
 
 ## 5. Delivery rules
 
@@ -1916,6 +1944,57 @@ bundled node loads a preload that rewrites only the cache's calls. Buildx's
 It was asked for on 8 November 2026 because a fleet should not rewrite its
 workflows to get a warm cache. Size M. The registry mirror is ZF-246.
 
+### ZF-246: a registry mirror on every host
+
+A runner's pull of a public base image is served from its own host after the
+first pull, so a fleet stops meeting Docker Hub's rate limit again for every
+job. The agent runs a read-only pull-through mirror per host and points a
+pool's Docker-in-Docker sidecar and the host daemon at it.
+`agent.registry_mirror.enabled` and `agent.registry_mirror.max_bytes`, with
+`ZOOMIES_AGENT_REGISTRY_MIRROR_*` overrides, are the settings the sketch
+names, and their defaults are settled in the design. Four bounds are
+requirements: it holds public images only, it refuses pushes, it never caches a
+private image, and when it is down a pull goes direct. The failure rule is the
+cache service's: a broken mirror slows a pull and never fails a job. It is not
+part of `internal/cacheservice`, which is standard library only and knows
+nothing about the fleet. The sketch is in
+[candidates-from-hosted-services.md](roadmap/candidates-from-hosted-services.md)
+section 1, layer 2, and [the cache design](roadmap/cache-service.md) names it.
+A dated design under `roadmap/plans/` comes before any code, and stops for
+review. Authorised on 17 November 2026 by decision 34; Go, npm and git mirrors
+are not part of it. Size M.
+
+### ZF-247: a Mac as a runner host, on the process backend
+
+The first slice of decision 33, and mostly proof. Tests pin what the `process`
+backend does on `darwin`: the `osx-arm64` archive is named, a 32-bit build is
+refused and the preflight answers as it does on Linux. The installer gets a
+launchd unit for an agent if it has none. An Apple silicon Mac then joins,
+runs one job that prints its architecture and macOS version, and the work
+directory is gone and the registration spent. What happened, failures
+included, goes in `roadmap/validation/`, and the support matrix gets a macOS
+agent row that says shape and runtime separately. Nothing in the docs says
+macOS runners exist until that run has happened; the eight pages that say
+there is no macOS runner image change then, and say beta and that a job runs as
+the agent's user. Nothing in the scheduler or the store changes, because a
+host's `os` and a pool's selector already exist. It needs an Apple silicon Mac
+the owner provides; the tests and the unit can land without it. The plan is
+[Task 5b](roadmap/plans/2026-11-17-codemany-follow-ups.md). Size S to M.
+
+### ZF-248: the fleet's own queue-wait and startup figures, published
+
+Decision 35. The evidence comes first, then the page. From this repository's
+own CI fleet, over a stated window, report the number of jobs and the median
+and 90th percentile of queue wait and of runner startup and registration, with
+the runner startups that failed counted rather than left out. Each figure is
+defined in one sentence, from the event it starts at to the one it ends at, and
+a figure that cannot be defined that way is left out. The evidence file goes in
+`roadmap/validation/` with the calls that produced it, and the page in `docs/`
+carries the method beside the numbers and says what the fleet is. There is no
+comparison with GitHub-hosted runners and no single multiplier. It is expected
+to need no new code, because the Overview and the Usage page already record
+and show these figures. Size S to M.
+
 ## 9. Kept for the day somebody asks
 
 Nothing here is authorised by planning alone. Each starts when a fleet
@@ -2032,6 +2111,9 @@ every package in section 8 was re-read on 19 September against the code.
 | --- | --- | --- |
 | next | ZF-237 complete instance transfer | The round-trip, ownership and refusal tests, with CLI and REST documentation |
 | later | ZF-245 a cache service on every host | A real runner restores from the host's service with no workflow change, and a pull request cannot plant an entry the default branch restores |
+| later | ZF-246 a registry mirror on every host | A second job's pull of a public image is served from the host; a private image is never cached; with the mirror down the pull goes direct and the job passes |
+| later | ZF-247 a Mac as a runner host, on the process backend | A real Mac joins and runs one job, its work directory is removed and its registration is spent, with the evidence in `roadmap/validation/`; the matrix row says what ran and what did not |
+| later | ZF-248 the fleet's own queue-wait and startup figures | Each figure is defined in one sentence; the evidence names the fleet, the window and the failures; the page carries no comparison with GitHub-hosted runners |
 | 0 | ZF-005 documentation corrections and the marketplace repin, done, 19 September | The three pages agree with the record; `release.env` pins the current full release |
 | 1 | ZF-207 two audiences: the role and its migration, the actions, the settings scope, the problems split, tokens, copy and audit | The per-role Playwright assertions hold; a single-team instance is unchanged; an upgraded instance has one platform identity |
 | 1b | ZF-224 auto-recovery on a lost runner, off by default | A job the fleet broke is re-run once on its own; a test that failed never is; the bound holds across a restart |
@@ -2077,6 +2159,7 @@ arrives and never waited for.
 | Whether immutable releases are enabled in the repository settings | Decision 9's last residue | Check once; not roadmap work |
 | Decisions 29, 31 and 32 | ZF-222; the settings scope in ZF-207; the re-seal in ZF-210b | Written as if the recommendations were accepted; a different answer changes the package it names |
 | A fleet with a Windows host, a Proxmox cluster or a GPU | The section 9 rows | Recorded when it happens; never waited for |
+| An Apple silicon Mac | ZF-247's join and job | The tests and the launchd unit can land without one; the support-matrix row and every docs claim about macOS runners wait for the run |
 | The primary target's first fleet | The usability feedback ZF-303's second operator was for | Their onboarding is the session; record what they asked, not what was assumed |
 
 ## 12. Instruction for the next implementation session
@@ -2100,6 +2183,20 @@ results or user feedback; do not wait for them either.
 
 ## 13. Change record
 
+* **17 November 2026: Version 3.15:** Decisions 33 to 35 taken, from a review
+  of Codemany, a paid desktop app that runs jobs on Macs and Linux machines its
+  customers own ([the comparison](docs/alternatives/codemany.md) and
+  [the plan](roadmap/plans/2026-11-17-codemany-follow-ups.md)). ZF-247 added:
+  a Mac as a runner host on the `process` backend, as
+  [decision 0020](roadmap/decisions/0020-macos-runners-are-processes-on-a-mac.md)
+  records. Its first slice is proof, and no page claims macOS runners until a
+  job has run on one. ZF-246, proposed beside ZF-245 on 8 November, is
+  authorised and written up in section 8, with no Go, npm or git mirror.
+  ZF-248 added: the fleet's own queue-wait and startup figures, published
+  with their evidence and with no comparison with GitHub-hosted runners.
+  Decision 33 was not the recommendation, which was to leave macOS out for
+  now; decisions 34 and 35 were. Section 10 gains three rows and section 11
+  one input. No code changed.
 * **8 November 2026: Version 3.14:** ZF-245 added: a cache service on every
   host, so a fleet gets a warm Actions cache without rewriting its workflows.
   The earlier proposal for it in

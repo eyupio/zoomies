@@ -30,8 +30,10 @@ Self-hosting tends to make sense when:
 
 It tends not to make sense when your CI volume is low, when you have no one who
 wants to own the fleet, or when you need macOS runners (Zoomies has no macOS
-runner image). In those cases a managed service may be simpler. See
-[Compared with runner services](hosted-runner-services.md) for the trade-offs.
+runner image). In those cases a managed service may be simpler, and for macOS
+on Macs you already own, [Codemany](alternatives/codemany.md) is another option.
+See [Compared with runner services](hosted-runner-services.md) for the
+trade-offs.
 
 ## What a runner fleet has to do
 
