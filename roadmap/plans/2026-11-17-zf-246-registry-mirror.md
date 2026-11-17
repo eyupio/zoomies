@@ -1,9 +1,11 @@
 # A registry mirror on every host (ZF-246)
 
-**Status:** design, for review. No code is written and none starts until the
-owner has answered the four decisions at the end. This is the dated design
-[ROADMAP.md](../../ROADMAP.md) section 8 says comes before any code, and it
-stops here.
+**Status:** design, and slice 1 built (see "Slice 1, as built" at the end).
+Slices 2 to 4 are not started. This is the dated design
+[ROADMAP.md](../../ROADMAP.md) section 8 says comes before any code. Slice 1 was
+started on the recommended answers to the four decisions below, at the request of
+the person running the session; the owner has not separately answered them, and a
+different answer to the first changes what slice 1 was.
 
 **Written:** 17 November 2026 against `9af2f87`. It follows
 [the Codemany plan](2026-11-17-codemany-follow-ups.md), Task 6, and
@@ -324,3 +326,79 @@ daemon's `registry-mirrors` covers, and the mirror never carries a credential.
 * Registries other than Docker Hub: `registry-mirrors` does not cover them.
 * The host's own daemon, serving stale tags, and a mirror shared between hosts.
 * Any speed claim. Slice 4 measures; this design does not.
+
+## Slice 1, as built
+
+Built on 17 November 2026: `internal/registrymirror`, standard library only, with
+44 tests at 88 per cent statement coverage under the race detector, the purity
+test, and one opt-in test against a real `dockerd`. It is not wired into the
+agent, and nothing imports it yet. Slices 2 to 4 are unchanged.
+
+**What it does.** The read subset of the registry API: the ping, manifests by tag
+or digest, blobs by digest, `HEAD` for each, and ranges. Upstream is anonymous.
+What it keeps is content addressed, hashed before it becomes visible, bounded
+by `MaxBytes`, evicted least recently used and never while being read, and
+counted again after a restart. The public surface a later slice uses is
+`New(Config)`, `(*Mirror).ServeHTTP` and `(*Mirror).Stats()`, whose figures are
+the ones the heartbeat will carry.
+
+**Where it departs from the design above, and why.**
+
+1. A blob of known length is checked and kept before its last chunk is sent to
+   the client. The design said the client verifies; this means a corrupt blob is
+   never delivered whole, because the client gets a short body and falls back.
+   For a blob of unknown length that is not possible and the client's own check
+   is the only one.
+2. An upstream `401` or `403` is answered `404 NAME_UNKNOWN`, not relayed. The
+   design said the mirror answers `404` only when upstream did. Docker Hub
+   answers an anonymous caller's request for a private repository and for an
+   absent one with the same `401`, so to the mirror they are the same thing, and
+   a `401` would send `dockerd` off to authenticate against it.
+3. What is remembered about a tag is keyed by what the client accepts, as the
+   design said, and is bounded at 10,000 answers, oldest first. The design said
+   only that it should be bounded.
+4. The redirect guard checks a name and every address it resolves to before the
+   request, and requires HTTPS. It does not check at connect time. A proxy makes
+   the address connected to the proxy's, and the names come from the registry and
+   not from the job. A name that resolves differently the second time is not
+   caught, and that is stated in the code.
+5. A download that will be kept is finished when the client that asked for it
+   goes away, because the next job is owed the blob. One that will not be kept
+   (too large) stops with the client.
+6. The idle timeout is armed when a transfer starts, not at its first byte.
+   The code did that from the start, but when the starting wait was mutated to an
+   hour no test noticed, because the stall tests sent half a body first and the
+   timer was reset by it. A registry that sends its headers and then nothing now
+   has a test.
+
+**What was shown.** A real `dockerd` (Docker 29.9.2, the same throwaway setup as
+the spike) pulled a hand-built one-layer image through the mirror from a fake
+registry, the image was removed, and the second pull asked the registry for no
+further blob: it was served from the mirror's disk. The same test fails if disk
+serving is broken. Eighteen behaviours were then broken one at a time (serving
+from disk, the digest check, the eviction rule, shared fetches, the token not
+reaching the content network, ranges, tag lifetime, the size rule, refusing
+write methods, anonymous upstream, the `404` rule, the idle timeout, the redirect
+guard, startup cleanup, name validation, the tag bound, the manifest check and
+the `Retry-After` relay), and a test failed each time. The first run left two
+alive: the stall before the first byte, which now has a test, and an early return
+that was redundant and was removed.
+
+**What it does not show, and is still open.**
+
+* Docker Hub itself. The registry in the test is a fake with a second server for
+  the redirect. A real blob redirect to Docker Hub's content network has not been
+  exercised, and slice 4 is where it is.
+* What `dockerd` does with a mirror that accepts a connection and then stalls, or
+  with a `404` from a mirror. The mirror gives up on a stalled upstream within the
+  idle timeout, which is tested, but `dockerd`'s own patience is not.
+* A token the registry rejects early is not retried: the repository answers
+  `404` until the token's own expiry, and `dockerd` falls back. A rotated token
+  is not expected, and it is a known limit and not a handled case.
+* Failures of the disk itself (a full or unwritable folder): the code stops
+  keeping and carries on streaming, and no test fills a disk.
+* Buildx builders, the containerd image store, the proxy case and the sidecar's
+  reachability, all as listed above, are slice 2 and 4 questions.
+* The package compiles and vets for Windows and macOS. Its tests were run on
+  Linux only, and `staticcheck` could not be run in the session's environment (it
+  failed inside the standard library), so CI's pinned release is its first run.

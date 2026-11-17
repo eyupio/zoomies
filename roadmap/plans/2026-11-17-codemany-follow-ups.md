@@ -137,7 +137,7 @@ Authorised in `ROADMAP.md` version 3.15 (decision 34), as ZF-246 only. The desig
 
 - [x] **Step 1:** Read [cache-service.md](../cache-service.md) and `internal/cacheservice`. The mirror is not part of that package, which is stdlib only and knows nothing about the fleet. *Outcome:* read, and the design puts the mirror in its own package, `internal/registrymirror`, with the same purity test.
 - [x] **Step 2:** Write a dated design under `roadmap/plans/` before any code, and stop for review. *Outcome:* [2026-11-17-zf-246-registry-mirror.md](2026-11-17-zf-246-registry-mirror.md), with eight findings from a short experiment against a real `dockerd`, four slices and four decisions for the owner. It stops at review: no code is written.
-- [ ] **Step 3:** Each setting arrives with a `docs/configuration.md` row and its override; each finding code with a `docs/problem-codes.md` row; `make generate` is run, not hand-edited.
+- [ ] **Step 3:** Each setting arrives with a `docs/configuration.md` row and its override; each finding code with a `docs/problem-codes.md` row; `make generate` is run, not hand-edited. *Progress:* slice 1 (the package) is built; settings and findings are slices 2 and 3 and are not started.
 
 ### Task 7 (ZF-248): publish what the fleet measures
 
