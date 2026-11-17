@@ -79,7 +79,7 @@ func TestTheStoreNeverEvictsABlobBeingServed(t *testing.T) {
 		fetchBlob(t, srv.URL, clock, digest)
 	}
 
-	if _, err := os.Stat(m.store.path(digests[0])); err != nil {
+	if _, err := os.Stat(mustPath(t, m.store, digests[0])); err != nil {
 		t.Errorf("the blob being read was evicted: %v", err)
 	}
 	reading.release()
@@ -148,7 +148,7 @@ func TestAStartSweepsLeftoversAndCountsWhatIsOnDisk(t *testing.T) {
 	srv.Close()
 
 	stray := filepath.Join(dir, "tmp", "obj-crashed.tmp")
-	orphanType := first.store.path(digestOf([]byte("gone"))) + typeSuffix
+	orphanType := mustPath(t, first.store, digestOf([]byte("gone"))) + typeSuffix
 	if err := os.WriteFile(stray, []byte("half"), 0o640); err != nil {
 		t.Fatal(err)
 	}

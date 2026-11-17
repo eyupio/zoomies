@@ -178,6 +178,9 @@ func (m *Mirror) fetchManifest(r *http.Request, name, digest, accept string) ([]
 		return nil, "", unavailable(errors.New("the manifest does not hash to its digest"))
 	}
 	contentType := resp.Header.Get("Content-Type")
+	if !m.store.cacheable(int64(len(body))) {
+		return body, contentType, nil // served, and not kept: it is too large to
+	}
 	if keep, err := m.store.begin(); err != nil {
 		m.cfg.Log.Warn("registry mirror cannot keep a manifest", "error", err)
 	} else if _, err := keep.Write(body); err != nil {

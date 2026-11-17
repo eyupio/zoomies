@@ -330,7 +330,7 @@ daemon's `registry-mirrors` covers, and the mirror never carries a credential.
 ## Slice 1, as built
 
 Built on 17 November 2026: `internal/registrymirror`, standard library only, with
-44 tests at 88 per cent statement coverage under the race detector, the purity
+51 tests at 89 per cent statement coverage under the race detector, the purity
 test, and one opt-in test against a real `dockerd`. It is not wired into the
 agent, and nothing imports it yet. Slices 2 to 4 are unchanged.
 
@@ -370,17 +370,40 @@ the ones the heartbeat will carry.
    hour no test noticed, because the stall tests sent half a body first and the
    timer was reset by it. A registry that sends its headers and then nothing now
    has a test.
+7. What is kept is held to one admission rule in the store itself: an object over
+   a quarter of the bound is not kept, whether it is a blob or a manifest. The
+   first version applied it to blobs in the code that streams them and forgot it
+   for manifests, so a manifest larger than the bound would have been kept, and
+   evicted everything else to make room for it. Code review found it.
+8. When the last reader of an object is done the store is brought back within its
+   bound at once. The first version evicted only when something was committed, so
+   a store whose every object was being read stayed over its bound after the
+   readers left, until the next commit. Code review found it.
+9. The whole of a token exchange, headers and body, is bounded by the idle
+   timeout. The first version bounded the wait for headers only, and a token
+   service that sent its headers and then stalled would have held a fetch, and
+   every request waiting on it, open for good. Code review found it.
+10. The store builds an object's path only from something that is a sha256
+    digest, rebuilt from a fixed alphabet, and treats as an object only what is
+    named as one in the place it would be put. Every digest it was handed had
+    been checked on the way in, so no request could reach a hostile path, and
+    CodeQL's six high-severity alerts for this were false positives in effect. But
+    tracing them found two real weaknesses in the same code: `path()` panicked on
+    an empty or short digest, and a stray file with a short name in the folder
+    was counted as an object and then crashed eviction. Both are fixed, and the
+    store no longer relies on its callers having checked.
 
 **What was shown.** A real `dockerd` (Docker 29.9.2, the same throwaway setup as
 the spike) pulled a hand-built one-layer image through the mirror from a fake
 registry, the image was removed, and the second pull asked the registry for no
 further blob: it was served from the mirror's disk. The same test fails if disk
-serving is broken. Eighteen behaviours were then broken one at a time (serving
+serving is broken. Twenty-five behaviours were then broken one at a time (serving
 from disk, the digest check, the eviction rule, shared fetches, the token not
 reaching the content network, ranges, tag lifetime, the size rule, refusing
 write methods, anonymous upstream, the `404` rule, the idle timeout, the redirect
-guard, startup cleanup, name validation, the tag bound, the manifest check and
-the `Retry-After` relay), and a test failed each time. The first run left two
+guard, startup cleanup, name validation, the tag bound, the manifest check,
+the `Retry-After` relay, the path check, what a start counts, the admission rule,
+the eviction on release and the token bound), and a test failed each time. The first run left two
 alive: the stall before the first byte, which now has a test, and an early return
 that was redundant and was removed.
 

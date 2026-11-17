@@ -50,6 +50,8 @@ type fakeRegistry struct {
 	cdnEnded atomic.Int32
 	// manifestStall makes manifest bodies stop halfway.
 	manifestStall bool
+	// tokenStall makes the token service stop halfway through its answer.
+	tokenStall bool
 	// accepts is the Accept header of each manifest request, in order.
 	accepts []string
 	// omitDigest makes manifest answers leave out Docker-Content-Digest.
@@ -163,6 +165,16 @@ func writeRegistryError(w http.ResponseWriter, status int, code, message string)
 func (f *fakeRegistry) serveRegistry(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/token" {
 		f.inc("token")
+		f.mu.Lock()
+		stall := f.tokenStall
+		f.mu.Unlock()
+		if stall {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"token":"an-unfinished`))
+			w.(http.Flusher).Flush()
+			<-r.Context().Done()
+			return
+		}
 		f.mu.Lock()
 		f.tokenAuth = append(f.tokenAuth, r.Header.Get("Authorization"))
 		f.mu.Unlock()
@@ -410,4 +422,19 @@ func fetch(url string, header http.Header) ([]byte, int, error) {
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	return body, resp.StatusCode, err
+}
+
+func mustPath(t *testing.T, s *store, digest string) string {
+	t.Helper()
+	p, err := s.path(digest)
+	if err != nil {
+		t.Fatalf("path(%q): %v", digest, err)
+	}
+	return p
+}
+
+func (f *fakeRegistry) setTokenStall(on bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.tokenStall = on
 }

@@ -119,7 +119,7 @@ func New(cfg Config) (*Mirror, error) {
 		return nil, err
 	}
 	m := &Mirror{cfg: cfg, client: noRedirects(cfg.Client), redirect: cfg.RedirectClient, store: st, tags: map[tagKey]tagEntry{}, maxTags: defaultMaxTags, flights: map[string]*flight{}}
-	m.tokens = &tokenSource{client: m.client, url: cfg.TokenURL, service: cfg.Service, now: cfg.Now, cache: map[string]cachedToken{}}
+	m.tokens = &tokenSource{client: m.client, url: cfg.TokenURL, service: cfg.Service, now: cfg.Now, timeout: cfg.IdleTimeout, cache: map[string]cachedToken{}}
 	return m, nil
 }
 

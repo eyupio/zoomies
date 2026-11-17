@@ -23,6 +23,11 @@ type tokenSource struct {
 	url     string
 	service string
 	now     func() time.Time
+	// timeout bounds a whole token exchange, headers and body. The answer is
+	// small, and a service that sends its headers and then stalls would
+	// otherwise hold the request open for good: the transport bounds the wait
+	// for headers and not for a body.
+	timeout time.Duration
 
 	mu    sync.Mutex
 	cache map[string]cachedToken
@@ -48,6 +53,8 @@ func (t *tokenSource) get(ctx context.Context, name string) (string, error) {
 	}
 	t.mu.Unlock()
 
+	ctx, cancel := context.WithTimeout(ctx, t.timeout)
+	defer cancel()
 	u, err := url.Parse(t.url)
 	if err != nil {
 		return "", fmt.Errorf("token service address: %w", err)

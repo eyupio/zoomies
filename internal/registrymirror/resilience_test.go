@@ -211,3 +211,25 @@ func TestAnUpstreamThatSendsItsHeadersAndNothingElseIsGivenUpOn(t *testing.T) {
 		t.Error("no upstream error was counted")
 	}
 }
+
+// The token is a small JSON answer, and a service that sends its headers and
+// then stalls would hold the request open for good: the transport bounds the
+// wait for headers and not for a body. It matters more than for a blob, because
+// the fetch of a blob is not stopped by the client leaving, so a hung token
+// request would hold every request for that blob.
+func TestATokenServiceThatStallsMidAnswerIsGivenUpOn(t *testing.T) {
+	f := newFakeRegistry(t)
+	digest := f.addBlob(blobOf(500, 't'))
+	f.setTokenStall(true)
+	_, srv := newTestMirror(t, f, func(c *Config) { c.IdleTimeout = 150 * time.Millisecond })
+
+	start := time.Now()
+	body, status, err := fetch(srv.URL+"/v2/library/alpine/blobs/"+digest, nil)
+
+	if err != nil || status != http.StatusBadGateway {
+		t.Errorf("status %d, error %v, %d bytes, want 502", status, err, len(body))
+	}
+	if d := time.Since(start); d > 3*time.Second {
+		t.Errorf("giving up took %v, want about the 150ms timeout", d)
+	}
+}
