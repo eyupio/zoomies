@@ -36,6 +36,21 @@ test('the controller disk verdict turns a connected host red even without a doct
   assert.match(vital?.summary ?? '', /one runner needs 10 GiB/);
 });
 
+// The doctor's rule says why the bar is amber and the controller's problem says
+// what that costs placement. A host can be blocked above the doctor's line (the
+// test above) or past it, and when it is past it a card that kept only the
+// problem would stop saying where the amber comes from.
+test('a blocked disk that is also past the doctor line keeps both explanations', () => {
+  const low: Host = { ...host, disk_total_mb: 60 * 1024, disk_free_mb: 8 * 1024 };
+  const vital = hostVitals(low, Date.now(), problem).items.find((item) => item.key === 'disk');
+  assert.equal(vital?.tight, true);
+  assert.match(vital?.summary ?? '', /Low: the Work directory free space/);
+  assert.match(vital?.summary ?? '', /one runner needs 10 GiB/);
+  const plain = hostVitals(low, Date.now()).items.find((item) => item.key === 'disk');
+  assert.match(plain?.summary ?? '', /Low: the Work directory free space/);
+  assert.doesNotMatch(plain?.summary ?? '', /one runner needs/);
+});
+
 test('a different host, an offline host and a deliberate cordon do not inherit a disk fault', () => {
   assert.equal(diskProblemFor({ ...host, id: 'host-b' }, [problem]), undefined);
   assert.equal(diskProblemFor({ ...host, healthy: false }, [problem]), undefined);

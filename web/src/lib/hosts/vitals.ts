@@ -219,7 +219,20 @@ export function hostVitals(host: Host, now: number, diskProblem?: Problem): Vita
   const items = KEYS.map((key): Vital => {
     const percent = silent ? null : metricValue(sample, key);
     const diskBlocked = key === 'disk' && Boolean(diskProblem);
-    const tight = percent !== null && (diskBlocked || pressed(key, host, sample));
+    const past = percent !== null && pressed(key, host, sample);
+    const tight = percent !== null && (diskBlocked || past);
+    // A blocked disk says two things, and they are independent. The doctor's rule
+    // says why the bar is amber (below ten percent or ten gigabytes free), and the
+    // controller's problem says what that costs placement. A disk can be blocked
+    // by a pool's requirement while still above the doctor's line, and low by the
+    // doctor's line with no pool affected, so neither sentence stands in for the
+    // other.
+    const note = [
+      noteOf(key, host, sample, past),
+      diskBlocked ? diskProblem?.detail || 'Disk prevents placement.' : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
     const item = {
       key,
       label: LABEL[key],
@@ -230,13 +243,7 @@ export function hostVitals(host: Host, now: number, diskProblem?: Problem): Vita
     };
     return {
       ...item,
-      summary: summaryOf(
-        item,
-        reasonOf(key, host, silent),
-        diskBlocked
-          ? diskProblem?.detail || 'Disk prevents placement.'
-          : noteOf(key, host, sample, tight),
-      ),
+      summary: summaryOf(item, reasonOf(key, host, silent), note),
     };
   });
   const measured = items.some((item) => item.percent !== null);

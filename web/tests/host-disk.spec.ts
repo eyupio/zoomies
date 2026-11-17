@@ -45,7 +45,7 @@ test('a disk-blocked host is red in its collapsed row and recovers without a cor
   );
   blocked = false;
   await reload(page, 'Hosts');
-  await expect(page.getByRole('heading', { name: 'No host needs attention' })).toBeVisible();
+  await expect(page.getByText('No host needs attention', { exact: true })).toBeVisible();
   await goto(page, '/hosts', 'Hosts');
   await expect(card.getByText('Disk blocked', { exact: true })).toHaveCount(0);
   await expect(card.getByText('Connected', { exact: true })).toBeVisible();
