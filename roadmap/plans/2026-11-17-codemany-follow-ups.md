@@ -22,7 +22,7 @@
 - [x] Task 5, [decision 0020](../decisions/0020-macos-runners-are-processes-on-a-mac.md), written and indexed.
 - [x] `ROADMAP.md` version 3.15, at the request of the person running the session: decisions 33 to 35, ZF-246 to ZF-248 in section 8, three rows in section 10, one input in section 11, the change record, and three `not_started` rows in [progress.md](../progress.md). Decision 0020 is now accepted on that instruction; the owner has not separately confirmed the shape.
 
-**Next unfinished step:** the owner's review of [the ZF-246 design](2026-11-17-zf-246-registry-mirror.md) (its four decisions, then slices 1 and 2), Task 7's evidence (ZF-248, which needs read access to this repository's own CI fleet) and Task 5b's tests and launchd unit (ZF-247, which need no Mac); only Task 5b's real join and job needs an Apple silicon Mac. Task 8 is due three months after 17 November 2026. Update this section, and tick the boxes below, in every pull request that works from this plan.
+**Next unfinished step:** the owner's review of [the ZF-246 design](2026-11-17-zf-246-registry-mirror.md) (its four decisions, then slices 1 to 3), Task 7's evidence (ZF-248, which needs read access to this repository's own CI fleet) and Task 5b's tests and launchd unit (ZF-247, which need no Mac); only Task 5b's real join and job needs an Apple silicon Mac. Task 8 is due three months after 17 November 2026. Update this section, and tick the boxes below, in every pull request that works from this plan.
 
 ## Global Constraints
 
@@ -137,7 +137,7 @@ Authorised in `ROADMAP.md` version 3.15 (decision 34), as ZF-246 only. The desig
 
 - [x] **Step 1:** Read [cache-service.md](../cache-service.md) and `internal/cacheservice`. The mirror is not part of that package, which is stdlib only and knows nothing about the fleet. *Outcome:* read, and the design puts the mirror in its own package, `internal/registrymirror`, with the same purity test.
 - [x] **Step 2:** Write a dated design under `roadmap/plans/` before any code, and stop for review. *Outcome:* [2026-11-17-zf-246-registry-mirror.md](2026-11-17-zf-246-registry-mirror.md), with eight findings from a short experiment against a real `dockerd`, four slices and four decisions for the owner. It stops at review: no code is written.
-- [ ] **Step 3:** Each setting arrives with a `docs/configuration.md` row and its override; each finding code with a `docs/problem-codes.md` row; `make generate` is run, not hand-edited. *Progress:* slice 1 (the package) and slice 2 (the settings, the agent's listener, the sidecar flag and the heartbeat figures; `agent.registry_mirror.max_bytes` and its code came with the settings) are built; the other two finding codes, the docs section and the host card line are slice 3, and the real host is slice 4. Neither is started.
+- [ ] **Step 3:** Each setting arrives with a `docs/configuration.md` row and its override; each finding code with a `docs/problem-codes.md` row; `make generate` is run, not hand-edited. *Progress:* slices 1 to 3 are built. Slice 1 is the package, slice 2 the settings, the agent's listener, the sidecar flag and the heartbeat figures (`agent.registry_mirror.max_bytes` and its code came with the settings), and slice 3 the two findings and the docs section. The host card line is a UI slice of its own and the real host is slice 4; neither is started.
 
 ### Task 7 (ZF-248): publish what the fleet measures
 
