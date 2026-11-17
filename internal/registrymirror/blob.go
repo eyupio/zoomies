@@ -186,6 +186,9 @@ func (m *Mirror) passRange(w http.ResponseWriter, r *http.Request, rt route) {
 			_ = rc.Flush()
 		}
 		if rerr == io.EOF {
+			// A part of a blob has no digest to be checked against, so its
+			// arriving whole is the most the mirror can say.
+			m.upstreamAnswered()
 			return
 		}
 		if rerr != nil {
@@ -288,6 +291,7 @@ func (m *Mirror) fetchAndServe(w http.ResponseWriter, r *http.Request, rt route,
 					m.upstreamError()
 					panic(http.ErrAbortHandler)
 				}
+				m.upstreamAnswered()
 				if keep != nil {
 					if err := keep.commit(rt.ref, ""); err != nil {
 						m.cfg.Log.Warn("registry mirror could not keep a blob", "digest", rt.ref, "error", err)
@@ -317,6 +321,12 @@ func (m *Mirror) fetchAndServe(w http.ResponseWriter, r *http.Request, rt route,
 		}
 	}
 	if keep == nil {
+		if resp.ContentLength < 0 {
+			// A blob of unknown length that is not kept cannot be checked here, so
+			// the client's own check is the only one, and the body having arrived
+			// whole is the most the mirror can say.
+			m.upstreamAnswered()
+		}
 		return
 	}
 	// Reached for a blob of unknown length, or an empty one, where there was no
@@ -325,8 +335,10 @@ func (m *Mirror) fetchAndServe(w http.ResponseWriter, r *http.Request, rt route,
 	if got := "sha256:" + hex.EncodeToString(sum.Sum(nil)); !complete || got != rt.ref {
 		m.cfg.Log.Warn("registry mirror dropped a blob that did not match its digest", "digest", rt.ref, "got", got)
 		keep.abort()
+		m.upstreamError()
 		return
 	}
+	m.upstreamAnswered()
 	if err := keep.commit(rt.ref, ""); err != nil {
 		m.cfg.Log.Warn("registry mirror could not keep a blob", "digest", rt.ref, "error", err)
 	}

@@ -570,9 +570,14 @@ mirror, because of a sidecar image the operator chose.
 3. "A sustained time" is five minutes of unbroken failure, timed in the mirror and
    carried as `upstream_failing_seconds`, a gauge, among its figures. A run begins
    at the first failure (a rate limit, a server error, an unreachable registry, a
-   transfer that stalls or breaks) and ends at the next answer, and a "no" is an
-   answer. The slice 1 counter already counted a request the client abandoned as an
-   upstream failure, so a client that cancelled every request for five minutes with
+   transfer that stalls or breaks, a manifest or blob that does not hash to its
+   digest) and ends at the next answer. An answer is a body that arrived whole and
+   was what was asked for, a HEAD the registry answered, or a "no". The first
+   version ended a run when a body reached its end, which is before it is checked,
+   so one corrupt manifest or blob wiped out a run of failures and, for a blob of
+   unknown length, was not counted as a failure at all. Codex found it on the review
+   of this pull request. The slice 1 counter already counted a request the client
+   abandoned as an upstream failure, so a client that cancelled every request for five minutes with
    nothing succeeding between would raise this finding wrongly. That is a known
    limit and not a handled case.
 4. `pool.registry_mirror_unused` is left off the public status page. It tells an

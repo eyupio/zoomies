@@ -101,23 +101,18 @@ type idleBody struct {
 	io.ReadCloser
 	timer *time.Timer
 	d     time.Duration
-	// done is called when the body has been read to its end, which is the
-	// registry having given the whole of what it was asked for.
-	done func()
 }
 
 // idle wraps a response body so that a stalled transfer is cancelled through
 // cancel, and the request it belongs to fails.
 func (m *Mirror) idle(body io.ReadCloser, cancel context.CancelFunc) io.ReadCloser {
-	return &idleBody{ReadCloser: body, d: m.cfg.IdleTimeout, timer: time.AfterFunc(m.cfg.IdleTimeout, cancel), done: m.upstreamAnswered}
+	return &idleBody{ReadCloser: body, d: m.cfg.IdleTimeout, timer: time.AfterFunc(m.cfg.IdleTimeout, cancel)}
 }
 
 func (b *idleBody) Read(p []byte) (int, error) {
 	n, err := b.ReadCloser.Read(p)
 	if err == nil {
 		b.timer.Reset(b.d)
-	} else if err == io.EOF && b.done != nil {
-		b.done()
 	}
 	return n, err
 }
