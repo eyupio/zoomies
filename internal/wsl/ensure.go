@@ -6,7 +6,6 @@ import (
 	"errors"
 	"io/fs"
 	"path"
-	"path/filepath"
 	"strings"
 )
 
@@ -237,7 +236,7 @@ func ensureTasks(ctx context.Context, sys System, distro string, opts Options) [
 			steps = append(steps, s)
 		}
 	}
-	if old := res.dir + "/" + oldScriptName; sys.Exists(old) && !dry {
+	if old := path.Join(res.dir, oldScriptName); sys.Exists(old) && !dry {
 		if err := sys.Remove(old); err == nil {
 			steps = append(steps, Step{Name: "old start script", Status: StatusChanged, Detail: "removed " + oldScriptName + ", which the launcher replaces"})
 		}
@@ -270,11 +269,12 @@ func writeLauncher(ctx context.Context, sys System, exe []byte, dry bool) (launc
 	if err != nil {
 		return res, errors.New("translating " + local + " to a Linux path: " + err.Error())
 	}
-	dir := filepath.Join(strings.TrimSpace(string(unixOut)), "Zoomies")
-	path := filepath.Join(dir, launcherName)
+	// A Linux path, whatever the host the tests run on: slashes only.
+	dir := path.Join(strings.TrimSpace(string(unixOut)), "Zoomies")
+	file := path.Join(dir, launcherName)
 	res.dir = dir
 	res.windowsPath = local + `\Zoomies\` + launcherName
-	if cur, err := sys.ReadFile(path); err == nil && bytes.Equal(cur, exe) {
+	if cur, err := sys.ReadFile(file); err == nil && bytes.Equal(cur, exe) {
 		return res, nil
 	}
 	if dry {
@@ -284,8 +284,8 @@ func writeLauncher(ctx context.Context, sys System, exe []byte, dry bool) (launc
 	if err := sys.MkdirAll(dir, 0o755); err != nil {
 		return res, errors.New("creating " + dir + ": " + err.Error())
 	}
-	if err := sys.WriteFile(path, exe, 0o755); err != nil {
-		return res, errors.New("writing " + path + " (a task that is running it may hold it; this is retried on the next run): " + err.Error())
+	if err := sys.WriteFile(file, exe, 0o755); err != nil {
+		return res, errors.New("writing " + file + " (a task that is running it may hold it; this is retried on the next run): " + err.Error())
 	}
 	res.changed = true
 	return res, nil
