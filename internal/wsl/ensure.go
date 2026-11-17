@@ -228,8 +228,21 @@ func ensureTasks(ctx context.Context, sys System, distro string, opts Options) [
 	case res.changed:
 		steps[0].Status = StatusChanged
 	}
+	// What the old arrangement left is only taken away once both new tasks are
+	// in place. A task that could not be replaced (made elevated, and this run
+	// is not) still runs the old script, and deleting that, or the older tasks
+	// that keep the distro up, would leave nothing that works.
+	replaced := true
 	for _, spec := range taskSpecs() {
-		steps = append(steps, ensureTask(ctx, sys, spec, res.windowsPath, distro, dry))
+		st := ensureTask(ctx, sys, spec, res.windowsPath, distro, dry)
+		if st.Status == StatusWarn {
+			replaced = false
+		}
+		steps = append(steps, st)
+	}
+	if !replaced {
+		return append(steps, Step{Name: "old tasks and script", Status: StatusSkipped,
+			Detail: "kept, because a new task could not be created; they are removed once both are in place"})
 	}
 	for _, name := range legacyTasks {
 		if s, found := removeLegacyTask(ctx, sys, name, dry); found {

@@ -322,6 +322,34 @@ func TestAnOldPowerShellInstallationIsRepairedInPlaceOnce(t *testing.T) {
 	}
 }
 
+// A task made elevated cannot be replaced by an ordinary run. It still runs the
+// old script, so the script, and the older tasks, must stay until it can be.
+func TestNothingOldIsRemovedWhileATaskCouldNotBeReplaced(t *testing.T) {
+	f := wslHost()
+	inner := f.cmds[SchtasksPath]
+	old := `powershell.exe -File "C:\\Users\\me\\AppData\\Local\\Zoomies\\wsl-ensure.ps1"`
+	f.tasks[taskOnStart] = old + "<BootTrigger>"
+	f.tasks["Zoomies WSL keepalive"] = "wsl.exe"
+	oldScript := "/mnt/c/Users/me/AppData/Local/Zoomies/wsl-ensure.ps1"
+	f.files[oldScript] = "# old"
+	f.cmds[SchtasksPath] = func(a []string) ([]byte, error) {
+		if a[0] == "/Create" && a[2] == taskOnStart {
+			return []byte("ERROR: Access is denied."), errors.New("exit status 1")
+		}
+		return inner(a)
+	}
+	rep := Ensure(context.Background(), f, Options{Binary: "/z", Launcher: testLauncher})
+	if _, ok := f.files[oldScript]; !ok {
+		t.Error("the old script was deleted while a task still runs it")
+	}
+	if _, ok := f.tasks["Zoomies WSL keepalive"]; !ok {
+		t.Error("an old task was deleted while the new ones are not all in place")
+	}
+	if len(rep.Warnings()) == 0 {
+		t.Fatalf("the failure was not reported: %+v", rep.Steps)
+	}
+}
+
 func TestATaskForAnotherDistroIsRetargeted(t *testing.T) {
 	f := wslHost()
 	Ensure(context.Background(), f, Options{Binary: "/z", Launcher: testLauncher})
