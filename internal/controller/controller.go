@@ -387,6 +387,13 @@ type Controller struct {
 	// forgets it until the next heartbeat repeats it.
 	cacheMu    sync.Mutex
 	cacheHosts map[string][]backend.CacheStats
+	// mirrorHosts is what each host's agent last said about its registry mirror:
+	// that it is on, what it has done, and what is wrong with it. Memory only, as
+	// the cache figures are, because it is what the agent says now and the next
+	// heartbeat repeats it; it is what host.registry_mirror_degraded and
+	// pool.registry_mirror_unused are raised from.
+	mirrorMu    sync.Mutex
+	mirrorHosts map[string]backend.RegistryMirrorReport
 	// pairs is what each docker-in-docker pool's runners have recently used of
 	// the two halves of their slot -- see pairWindow. Memory only, on purpose:
 	// it is evidence for advice, and forgetting it on a restart costs the advice

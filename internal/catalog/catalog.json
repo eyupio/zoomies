@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_from": "e75e293",
+  "generated_from": "e9b2d90",
   "entries": [
     {
       "id": "agent.backend_missing",
@@ -1386,6 +1386,20 @@
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#runtime-hosts-and-installations"
     },
     {
+      "id": "host.registry_mirror_degraded",
+      "kind": "problem",
+      "title": "host.registry_mirror_degraded",
+      "category": "reliability",
+      "severity": "warning",
+      "detection": "runtime",
+      "detects": "A host's agent says its [registry mirror](configuration.md#agentregistry_mirrorenabled-and-agentregistry_mirrormax_bytes-keep-what-the-sidecars-pull) is on and something is wrong with it, and an enabled pool that would be given the mirror could run there. The detail says which of six things it is: the agent runs in a container, the host has no shared folder to keep the mirror in, the mirror's own folder could not be written, the host's address on the sidecars' network was not found, the mirror could not listen or stopped listening, or Docker Hub has failed it for five minutes without a break. Nothing fails: the sidecars on that host pull from Docker Hub as they did before, only slower and against its limit. It is not raised for a pool that runs a sidecar image of its own, which is not given the mirror, or when no pool could use it.",
+      "fix": "A host's agent says its [registry mirror](configuration.md#agentregistry_mirrorenabled-and-agentregistry_mirrormax_bytes-keep-what-the-sidecars-pull) is on and something is wrong with it, and an enabled pool that would be given the mirror could run there. The detail says which of six things it is: the agent runs in a container, the host has no shared folder to keep the mirror in, the mirror's own folder could not be written, the host's address on the sidecars' network was not found, the mirror could not listen or stopped listening, or Docker Hub has failed it for five minutes without a break. Nothing fails: the sidecars on that host pull from Docker Hub as they did before, only slower and against its limit. It is not raised for a pool that runs a sidecar image of its own, which is not given the mirror, or when no pool could use it.",
+      "verify": "Fix the cause the detail names. The next runner that starts a sidecar tries again, and the next heartbeat clears this once the mirror is serving. Turn `agent.registry_mirror.enabled` off on the host to stop it for good.",
+      "status_sentence": "A machine is not keeping the container images its jobs pull, so jobs there download them again and may start slower.",
+      "docs_html": "https://zoomies.sh/problem-codes/#runtime-hosts-and-installations",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#runtime-hosts-and-installations"
+    },
+    {
       "id": "host.resources_unknown",
       "kind": "problem",
       "title": "host.resources_unknown",
@@ -2455,6 +2469,19 @@
       "status_sentence": "A pool keeps no runner warm, and the slowest jobs wait minutes for one to be made, even though most start at once.",
       "docs_html": "https://zoomies.sh/problem-codes/#runtime-hosts-and-installations",
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#runtime-hosts-and-installations"
+    },
+    {
+      "id": "pool.registry_mirror_unused",
+      "kind": "problem",
+      "title": "pool.registry_mirror_unused",
+      "category": "capacity",
+      "severity": "info",
+      "detection": "runtime",
+      "detects": "A registry mirror is on at a host that could run this pool, and none of those hosts would give the pool the mirror, because the pool's own `dind_image`, or `agent.dind_image` on the host, names a docker-in-docker sidecar image of the operator's own. That is where an operator keeps a `daemon.json`, and a mirror named in two places stops the daemon starting, so the sidecar is left as it was and pulls from Docker Hub. Nothing is wrong if the image is meant.",
+      "fix": "A registry mirror is on at a host that could run this pool, and none of those hosts would give the pool the mirror, because the pool's own `dind_image`, or `agent.dind_image` on the host, names a docker-in-docker sidecar image of the operator's own. That is where an operator keeps a `daemon.json`, and a mirror named in two places stops the daemon starting, so the sidecar is left as it was and pulls from Docker Hub. Nothing is wrong if the image is meant.",
+      "verify": "Nothing to do if the image is meant: bake a mirror into it, as [persistent-caches.md](persistent-caches.md) describes. Otherwise clear the image so the pool uses the default sidecar, which the mirror serves. The entry goes when either changes.",
+      "docs_html": "https://zoomies.sh/problem-codes/#runtime-pools-jobs-and-runners",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#runtime-pools-jobs-and-runners"
     },
     {
       "id": "pool.repository_scale_up_deferred",

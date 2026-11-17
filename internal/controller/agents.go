@@ -1097,6 +1097,9 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 	// Telemetry only: kept in memory for the metrics endpoint and never put on
 	// the host row or a view, because it changes with every cache request.
 	c.noteCaches(hostID, req.Caches)
+	// The same, for the registry mirror: what the agent said at this beat, and
+	// nothing when it said nothing.
+	c.noteRegistryMirror(hostID, req.RegistryMirror)
 	// The ladder runs on the measurements just recorded, and on every beat
 	// rather than only the ones that carry a sample: a host whose agent has
 	// stopped measuring is lifted here after StaleThrottleReset, not left on a
