@@ -90,6 +90,36 @@ test('an account can be created, given a different role, and deleted by name', a
   await expect(row).toHaveCount(0);
 });
 
+test('the account count treats a platform account as one that can administer', async ({ page }) => {
+  // Platform outranks administrator, and the server's last-administrator rule
+  // counts it. A count of `admin` only said "0 enabled administrators" beside
+  // the one account that could do everything. Mocked because deleting the last
+  // platform account is refused, by design, and a fixture cannot leave one
+  // behind for the tests that follow.
+  await page.route('**/api/v1/users*', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        items: [
+          {
+            id: 'usr_platform_spec',
+            username: 'platform-owner',
+            role: 'platform',
+            disabled: false,
+            created_at: new Date().toISOString(),
+          },
+        ],
+        total: 1,
+      }),
+    }),
+  );
+  await goto(page, '/settings/users', 'Users');
+  await expect(page.locator('.admins')).toContainText(
+    'One enabled account can administer this instance.',
+  );
+});
+
 test('an administrator is not offered changes to an account that outranks them', async ({
   page,
 }) => {

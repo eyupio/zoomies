@@ -28,7 +28,7 @@
 <PageHeader
   title="Add a provider"
   breadcrumb={[{ label: 'Providers', href: '/providers' }, { label: 'Add a provider' }]}
-  subtitle="Five steps: where it is and how we sign in, where a machine is built, what shape it is, what it may spend, and what the controller makes of it. A ceiling of zero rents nothing."
+  subtitle="Where it is and how we sign in, where a machine is built, what shape it is, what it may spend, and what the controller makes of it. A ceiling of zero rents nothing."
 />
 
 {#if canAdmin}

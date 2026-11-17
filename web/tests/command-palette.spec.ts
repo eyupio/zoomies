@@ -67,6 +67,25 @@ test('typing a runner name finds that runner and opens it', async ({ page }) => 
   await expect(page).toHaveURL(/\/runners\/run_demo\d+$/);
 });
 
+test('the footer says what Enter does to the highlighted result', async ({ page }) => {
+  await page.keyboard.press('Control+k');
+  await search(page).fill('demo');
+
+  // A host is somewhere to go, so Enter opens it.
+  await expect(palette(page).getByRole('option').first()).toContainText('Host');
+  await expect(palette(page)).toContainText('Enter to open');
+
+  // An action is something to do. The footer says so before Enter is pressed,
+  // because the two kinds share one list.
+  const action = palette(page)
+    .getByRole('option')
+    .filter({ hasText: 'Cordon demo-builder-1' })
+    .first();
+  await expect(action).toBeVisible();
+  await action.hover();
+  await expect(palette(page)).toContainText('Enter to run this action');
+});
+
 test('the arrow keys move the selection and say so in the accessibility tree', async ({ page }) => {
   await page.keyboard.press('Control+k');
   await search(page).fill('demo');

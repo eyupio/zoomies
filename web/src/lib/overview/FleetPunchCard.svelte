@@ -302,7 +302,18 @@
       <div class="axis" aria-hidden="true">
         {#each HOURS as label (label)}<span>{label}</span>{/each}
       </div>
+      <div class="legend" aria-hidden="true">
+        <span>Fewer</span>
+        {#each [0, 1, 2, 3, 4] as level (level)}
+          <span class="key" data-level={level}></span>
+        {/each}
+        <span>More</span>
+      </div>
     </div>
+    <p class="sr-only">
+      A darker square means more jobs finished in that hour. A square with a hole in it means an
+      hour with a failure.
+    </p>
   </div>
 {/if}
 
@@ -372,21 +383,47 @@
     cursor: pointer;
     transition: transform var(--z-motion-fast) var(--z-ease);
   }
-  .sq[data-level='1'] {
+  .sq[data-level='1'],
+  .key[data-level='1'] {
     --mix: 30%;
   }
-  .sq[data-level='2'] {
+  .sq[data-level='2'],
+  .key[data-level='2'] {
     --mix: 52%;
   }
-  .sq[data-level='3'] {
+  .sq[data-level='3'],
+  .key[data-level='3'] {
     --mix: 76%;
   }
-  .sq[data-level='4'] {
+  .sq[data-level='4'],
+  .key[data-level='4'] {
     --mix: 100%;
   }
-  .sq:not([data-level='0']) {
+  .sq:not([data-level='0']),
+  .key:not([data-level='0']) {
     background: var(--fill);
     box-shadow: none;
+  }
+  .legend {
+    grid-column: 2 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--z-nudge-2);
+    margin-top: var(--z-nudge-1);
+    font-size: var(--z-text-2xs);
+    line-height: 1;
+    color: var(--z-panel-text-subtle);
+  }
+  .key {
+    --mix: 0%;
+    --fill: color-mix(in srgb, var(--z-brand-runner-blue) var(--mix), var(--z-panel-raised));
+    box-sizing: border-box;
+    width: var(--z-space-2);
+    aspect-ratio: 1;
+    border-radius: var(--z-nudge-2);
+    background: var(--z-panel-raised);
+    box-shadow: inset 0 0 0 var(--z-border-width) var(--z-panel-border);
   }
   /* Punched through: the one shape a failure has here, the same as the matrix's. */
   .sq[data-failing]:not([data-level='0']) {
