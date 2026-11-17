@@ -232,3 +232,69 @@ func TestAnUnreadableCacheTreeIsNotAnEmptyMeasurement(t *testing.T) {
 		t.Fatalf("invalid cache counted as empty: %+v", st)
 	}
 }
+
+func TestSwitchingBackendsKeepsTheOtherDaemonsActiveCacheSafe(t *testing.T) {
+	for _, tc := range []struct {
+		name, state string
+		fail, busy  bool
+	}{{"runner", "running", false, false}, {"starting runner", "created", false, false}, {"tool fill", "", false, true}, {"unknown old daemon", "", true, false}, {"finished old job", "exited", false, false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			old, spec, packages, tools := maintenanceFixture(t, tc.state, tc.fail)
+			next, _, _, _ := maintenanceFixture(t, "", false)
+			next.fl = podmanFlavor()
+			next.sharedDir = old.sharedDir
+			next.cacheSvcs.sharedDir = old.sharedDir
+			reg := NewRegistry(old, &PodmanBackend{DockerBackend: next})
+			writeCacheBytes(t, packages, "package", 200, time.Hour)
+			writeCacheBytes(t, tools, "image/version", 200, time.Hour)
+			reg.SetCachePolicies([]CachePolicy{{PoolID: spec.PoolID, Backend: store.BackendPodman, Cache: spec.Cache}})
+			if tc.busy {
+				end := old.beginCacheUse()
+				defer end()
+			}
+			reg.MaintainCaches(context.Background())
+			st := storageOf(t, next)
+			if tc.name == "finished old job" {
+				if st.TotalBytes != 0 || st.Deferred != "" {
+					t.Fatalf("idle cache not reclaimed: %+v", st)
+				}
+			} else {
+				if st.PackageBytes != 200 || st.ToolsBytes != 200 || st.Deferred == "" {
+					t.Fatalf("active cache not protected across daemons: %+v", st)
+				}
+				if _, err := os.Stat(filepath.Join(tools, "image/version")); err != nil {
+					t.Fatal("old daemon lost its live tool cache", err)
+				}
+				next.pruneCacheFor(context.Background(), spec)
+				if _, err := os.Stat(filepath.Join(packages, "package")); err != nil {
+					t.Fatal("create-time prune ignored the other daemon", err)
+				}
+			}
+		})
+	}
+}
+
+func TestSwitchingBackendsReusesTheServiceInsteadOfReopeningItsLiveIndex(t *testing.T) {
+	notInAContainer(t)
+	old, spec, _, _ := maintenanceFixture(t, "running", false)
+	next, _, _, _ := maintenanceFixture(t, "", false)
+	next.fl = podmanFlavor()
+	next.sharedDir, next.cacheSvcs.sharedDir = old.sharedDir, old.sharedDir
+	old.cacheSvcs.gateway, next.cacheSvcs.gateway = loopback, loopback
+	reg := NewRegistry(old, &PodmanBackend{DockerBackend: next})
+	spec.Cache.SizeLimit = 2000
+	reg.SetCachePolicies([]CachePolicy{{PoolID: spec.PoolID, Backend: store.BackendPodman, Cache: spec.Cache}})
+	original := old.cacheServiceURL(context.Background(), spec, "")
+	saveEntry(t, original, "kept", []byte("archive"))
+	migrated := next.cacheServiceURL(context.Background(), spec, "")
+	if migrated != original || !restoreFinds(t, migrated, "kept") {
+		t.Fatal("backend switch reopened a service over the same folder")
+	}
+	var puts uint64
+	for _, row := range reg.CacheStats() {
+		puts += row.PutsFinalised
+	}
+	if puts != 1 {
+		t.Fatalf("service counters counted %d saves after a backend switch, want one", puts)
+	}
+}

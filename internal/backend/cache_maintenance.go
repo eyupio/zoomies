@@ -76,8 +76,10 @@ func (b *DockerBackend) SetCachePolicies(policies []CachePolicy) {
 	if b.cacheSvcs != nil {
 		b.cacheSvcs.mu.Lock()
 		b.cacheSvcs.policyLimits = make(map[string]int64, len(b.cachePolicies))
-		for _, p := range b.cachePolicies {
-			b.cacheSvcs.policyLimits[p.PoolID] = p.Cache.SizeLimit
+		for _, p := range policies {
+			if p.Cache.Enabled {
+				b.cacheSvcs.policyLimits[p.PoolID] = p.Cache.SizeLimit
+			}
 		}
 		b.cacheSvcs.mu.Unlock()
 	}
@@ -95,14 +97,22 @@ func (b *DockerBackend) beginCacheUse() func() {
 // MaintainCaches also runs when placement is disk-blocked and no new runner
 // will arrive to trigger the old create-time prune.
 func (b *DockerBackend) MaintainCaches(ctx context.Context) {
-	b.cacheGate.Lock()
-	defer b.cacheGate.Unlock()
+	unlock := b.lockCachePeers()
+	defer unlock()
 	if len(b.cachePolicies) == 0 {
 		return
 	}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	inventory, inventoryErr := b.api.ContainerList(ctx, nil)
+	var inventory []ContainerSummary
+	var inventoryErr error
+	busy := false
+	for _, peer := range b.cacheBackendPeers() {
+		rows, err := peer.api.ContainerList(ctx, nil)
+		inventory = append(inventory, rows...)
+		inventoryErr = errors.Join(inventoryErr, err)
+		busy = busy || peer.cacheBusy > 0
+	}
 	var out []CacheStorage
 	for _, p := range b.cachePolicies {
 		if ctx.Err() != nil {
@@ -172,7 +182,7 @@ func (b *DockerBackend) MaintainCaches(ctx context.Context) {
 				st.Deferred = "Package cache is a daemon volume; its size is unknown"
 			case inventoryErr != nil:
 				st.Deferred = "Container inventory unavailable; cleanup deferred"
-			case b.cacheBusy > 0:
+			case busy:
 				st.Deferred = "A runner start or tool fill is in progress"
 			default:
 				for _, c := range inventory {
@@ -233,7 +243,7 @@ func (b *DockerBackend) MaintainCaches(ctx context.Context) {
 			} else {
 				limit = max(0, limit-st.PackageBytes-st.ToolsBytes)
 			}
-			if err := b.cacheSvcs.applyStorageBudget(ctx, spec, serviceDir, limit); err != nil {
+			if err := b.cacheServiceOwner(spec).applyStorageBudget(ctx, spec, serviceDir, limit); err != nil {
 				st.Deferred = "Cache service budget could not be updated"
 			} else if n, err := measuredCacheTree(ctx, serviceDir); err == nil {
 				st.ServiceBytes = n
@@ -399,4 +409,56 @@ func (c *cacheServices) applyStorageBudget(ctx context.Context, spec Spec, dir s
 	}
 	budget.SetMaxBytes(remaining)
 	return nil
+}
+
+func (b *DockerBackend) cacheBackend() *DockerBackend { return b }
+
+func (b *DockerBackend) cacheBackendPeers() []*DockerBackend {
+	if len(b.cachePeers) == 0 {
+		return []*DockerBackend{b}
+	}
+	return b.cachePeers
+}
+
+// Every backend takes the gates in the registry's stable order, including a
+// backend whose current pool list is empty but whose old jobs can still run.
+func (b *DockerBackend) lockCachePeers() func() {
+	peers := b.cacheBackendPeers()
+	for _, peer := range peers {
+		peer.cacheGate.Lock()
+	}
+	return func() {
+		for i := len(peers) - 1; i >= 0; i-- {
+			peers[i].cacheGate.Unlock()
+		}
+	}
+}
+
+// A pool switched between daemons still has one service over its shared
+// folder. Reuse its owner rather than reopening its index and sweeping a
+// live upload as an abandoned reservation. Caller holds all cache gates.
+func (b *DockerBackend) cacheServiceOwner(spec Spec) *cacheServices {
+	identity, err := cacheIdentity(spec)
+	if err != nil {
+		return b.cacheSvcs
+	}
+	for _, peer := range b.cacheBackendPeers() {
+		if peer.sharedDir != b.sharedDir || peer.cacheSvcs == nil {
+			continue
+		}
+		c := peer.cacheSvcs
+		c.mu.Lock()
+		_, found := c.services[identity]
+		c.mu.Unlock()
+		if found {
+			return c
+		}
+	}
+	return b.cacheSvcs
+}
+
+func (b *DockerBackend) cacheServiceURL(ctx context.Context, spec Spec, network string) string {
+	unlock := b.lockCachePeers()
+	defer unlock()
+	return b.cacheServiceOwner(spec).urlForGateway(ctx, spec, network, b.cacheSvcs.gateway)
 }

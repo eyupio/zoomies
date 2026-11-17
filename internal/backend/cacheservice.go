@@ -119,6 +119,10 @@ func newCacheServices(sharedDir, sharedProblem string, log *slog.Logger, gateway
 // pool has not asked for one, or when this host cannot offer one, and says why
 // once for each pool and reason.
 func (c *cacheServices) urlFor(ctx context.Context, spec Spec, network string) string {
+	return c.urlForGateway(ctx, spec, network, c.gateway)
+}
+
+func (c *cacheServices) urlForGateway(ctx context.Context, spec Spec, network string, gateway func(context.Context, string) (string, error)) string {
 	if !spec.Cache.Enabled || !spec.Cache.Service {
 		return ""
 	}
@@ -142,7 +146,7 @@ func (c *cacheServices) urlFor(ctx context.Context, spec Spec, network string) s
 		c.warnOnce(spec, "shared", errors.New(reason))
 		return ""
 	}
-	host, err := c.gateway(ctx, network)
+	host, err := gateway(ctx, network)
 	if err != nil {
 		c.warnOnce(spec, "gateway", err)
 		return ""

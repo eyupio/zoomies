@@ -365,6 +365,7 @@ type DockerBackend struct {
 	// cacheSvcs runs the pool cache services runners are pointed at.
 	cacheSvcs     *cacheServices
 	cacheGate     sync.Mutex
+	cachePeers    []*DockerBackend
 	cacheBusy     int
 	cachePolicies []CachePolicy
 	cacheStorage  []CacheStorage
@@ -1509,7 +1510,7 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (result
 	b.pruneCacheFor(ctx, spec)
 	// Offered, never required: a host that cannot run the service leaves the
 	// runner on GitHub's cache, as it was before the pool asked for one.
-	opts.CacheServiceURL = b.cacheSvcs.urlFor(ctx, spec, network)
+	opts.CacheServiceURL = b.cacheServiceURL(ctx, spec, network)
 
 	var dindReadyDuration *time.Duration
 	switch spec.DockerMode {
@@ -2264,6 +2265,11 @@ func (b *DockerBackend) Remove(ctx context.Context, h Handle) error {
 // host may drift, not a quota, so carrying one runner's worth of excess costs
 // some disk; deleting a running job's cache costs the job.
 func (b *DockerBackend) pruneCacheFor(ctx context.Context, spec Spec) {
+	// Shared caches can still be mounted on the other daemon after a backend
+	// switch. The coordinated maintenance pass checks both inventories.
+	if len(b.cachePeers) > 1 {
+		return
+	}
 	b.cacheGate.Lock()
 	defer b.cacheGate.Unlock()
 	if b.cacheBusy > 1 {
