@@ -162,6 +162,7 @@ export type JobEvent = Schemas['JobEvent'];
 export type JobEventKind = Schemas['JobEventKind'];
 export type FaultKind = Schemas['FaultKind'];
 export type BackendInfo = Schemas['BackendInfo'];
+export type HostRegistryMirror = Schemas['HostRegistryMirror'];
 export type Host = Schemas['Host'];
 export type HostSample = Schemas['HostSample'];
 export type HostThrottle = Schemas['HostThrottle'];

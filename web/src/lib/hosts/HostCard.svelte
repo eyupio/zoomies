@@ -43,6 +43,7 @@
   import Tooltip from '$lib/components/Tooltip.svelte';
   import UtilisationBar from '$lib/components/UtilisationBar.svelte';
   import BackendList from './BackendList.svelte';
+  import RegistryMirrorLine from './RegistryMirrorLine.svelte';
   import HostMemoryPool from './HostMemoryPool.svelte';
   import HostUpdateRow from './HostUpdateRow.svelte';
   import HostVitals from './HostVitals.svelte';
@@ -1011,6 +1012,13 @@
 
       {#if !noBackend}
         {@render backendsBlock()}
+      {/if}
+
+      {#if host.registry_mirror}
+        <section class="block" aria-label="Registry mirror on {host.name || host.id}">
+          <h4>Registry mirror</h4>
+          <RegistryMirrorLine mirror={host.registry_mirror} />
+        </section>
       {/if}
 
       <section class="block" aria-label="Tags on {host.name || host.id}">
