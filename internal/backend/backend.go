@@ -575,6 +575,22 @@ func NewRegistry(bs ...Backend) *Registry {
 			r.backends[b.Kind()] = b
 		}
 	}
+	var peers []*DockerBackend
+	kinds := r.Kinds()
+	sort.Slice(kinds, func(i, j int) bool { return kinds[i] < kinds[j] })
+	seen := map[*DockerBackend]bool{}
+	for _, kind := range kinds {
+		if c, ok := r.backends[kind].(interface{ cacheBackend() *DockerBackend }); ok {
+			b := c.cacheBackend()
+			if !seen[b] {
+				peers = append(peers, b)
+				seen[b] = true
+			}
+		}
+	}
+	for _, b := range peers {
+		b.cachePeers = peers
+	}
 	return r
 }
 

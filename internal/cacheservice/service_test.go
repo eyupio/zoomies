@@ -759,3 +759,20 @@ func TestABlockArrivingForAnExpiredReservationLeavesNoFolderBehind(t *testing.T)
 		t.Fatal("the expired reservation's folder was recreated")
 	}
 }
+
+func TestABudgetCanShrinkToZeroAndGrowWithoutRestartingTheService(t *testing.T) {
+	b := NewBudget(100)
+	h := newHarness(t, Options{Budget: b})
+	h.save(mainToken, "old", "v", []byte("old data"))
+	b.SetMaxBytes(0)
+	if h.svc.Stats().StoredBytes != 0 {
+		t.Fatal("live budget did not evict existing entries")
+	}
+	if _, status := h.reserve(mainToken, "no-room"); status == http.StatusOK {
+		t.Fatal("zero remaining budget accepted a save")
+	}
+	b.SetMaxBytes(100)
+	if !h.save(mainToken, "new", "v", []byte("new data")) {
+		t.Fatal("larger live budget did not permit a save")
+	}
+}

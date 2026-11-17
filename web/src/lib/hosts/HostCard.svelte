@@ -47,6 +47,7 @@
   import HostMemoryPool from './HostMemoryPool.svelte';
   import HostUpdateRow from './HostUpdateRow.svelte';
   import HostVitals from './HostVitals.svelte';
+  import HostCacheStorage from './HostCacheStorage.svelte';
   import ResourceBar from './ResourceBar.svelte';
   import { backendTrouble } from './backends';
   import { committedNotice } from './committed';
@@ -754,6 +755,7 @@
 
   <div class="vitals-slot">
     <HostVitals {vitals} name={host.name || host.id || ''} />
+    <HostCacheStorage {host} />
   </div>
 
   <!--

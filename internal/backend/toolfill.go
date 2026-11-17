@@ -76,6 +76,8 @@ const (
 // FillToolCache runs the fill in a short-lived container of the pool's image,
 // with the pool's tool cache mounted where its runners have it.
 func (b *DockerBackend) FillToolCache(ctx context.Context, spec Spec, tools []ToolRequest) ([]ToolFill, error) {
+	endCacheUse := b.beginCacheUse()
+	defer endCacheUse()
 	if len(tools) == 0 {
 		return nil, nil
 	}
