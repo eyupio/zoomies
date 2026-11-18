@@ -430,7 +430,7 @@
     <Field
       label="Cache size limit"
       error={errors['cache.size_limit']}
-      hint="One host budget for package, tool and Actions service caches. Idle maintenance evicts oldest entries; live jobs may temporarily exceed it. Zero leaves package/tools unlimited; the service defaults to 10 GiB."
+      hint="One limit on each host for this pool's package, tool and Actions service caches together. The oldest entries go when nothing is using the cache, so running jobs can take it over the limit for a while. Zero leaves packages and tools unlimited; the Actions service cache then keeps to 10 GiB."
     >
       {#snippet children({ id, describedBy })}
         <QuantityField
@@ -456,9 +456,9 @@
           <p class="callout-title">More cache than the smallest host can spare</p>
           <p>
             {room?.smallest_disk_host} has {formatMegabytes(room?.smallest_disk_mb ?? 0)} free behind
-            its work directory, and this cache may grow to {gbLabel(cacheLimitGb)}. Eviction happens
-            between one runner and the next, so the disk fills first, and a host at or below its
-            disk reserve takes no runner of any pool, not just this one.
+            its work directory, and this cache may grow to {gbLabel(cacheLimitGb)}. Entries are
+            evicted only when nothing is using the cache, so the disk fills first, and a host at or
+            below its disk reserve takes no runner of any pool, not just this one.
           </p>
         </div>
       </div>

@@ -7,17 +7,27 @@
 
   let { host }: { host: Host } = $props();
   const summary = $derived(cacheStorageSummary(host));
+  // A finger has no hover: a tap opens the same bubble, as it does for the
+  // memory pills, so the breakdown is not something only a mouse can read.
+  let open = $state(false);
   const help = $derived(
     summary
-      ? `Packages ${formatBytes(summary.packages)}, tools ${formatBytes(summary.tools)}, Actions service ${formatBytes(summary.service)}. Current cache namespaces only. ${summary.reasons}`
+      ? `Packages ${formatBytes(summary.packages)}, tools ${formatBytes(summary.tools)}, Actions service ${formatBytes(summary.service)}. Current cache namespaces only.`
       : '',
   );
 </script>
 
 {#if summary}
   <p class="cache-storage" class:over={summary.over} data-testid="host-cache-storage">
-    <Tooltip text={help}>
-      <button type="button" class="help-term"
+    <Tooltip text={help} bind:open>
+      <button
+        type="button"
+        class="help-term"
+        aria-expanded={open}
+        onclick={(event) => {
+          event.currentTarget.focus();
+          open = true;
+        }}
         >Cache: {summary.measuredAt
           ? formatBytes(summary.bytes)
           : 'size unknown'}{summary.partial && summary.measuredAt ? ' (partial)' : ''}</button
