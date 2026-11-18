@@ -2,6 +2,7 @@ package backend
 
 import (
 	"context"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -299,18 +300,171 @@ func TestSwitchingBackendsReusesTheServiceInsteadOfReopeningItsLiveIndex(t *test
 	}
 }
 
-func TestCacheRootsRefuseASymlinkInAParentDirectory(t *testing.T) {
+// A data directory kept on another disk is reached through a link, and so is
+// everything under /var on macOS. Refusing those left every cache on such a
+// host growing past its limit; the link is the operator's own, so the pool's
+// directory beyond it is still the pool's.
+func TestCacheRootsFollowALinkAboveThePoolsOwnDirectory(t *testing.T) {
 	target := t.TempDir()
 	child := filepath.Join(target, "child")
-	if err := os.Mkdir(child, 0750); err != nil {
-		t.Fatal(err)
-	}
+	writeCacheBytes(t, child, "old", 200, time.Hour)
 	link := filepath.Join(t.TempDir(), "parent")
 	if err := os.Symlink(target, link); err != nil {
 		t.Skip(err)
 	}
-	if root, err := openCacheRoot(filepath.Join(link, "child")); err == nil {
-		root.Close()
-		t.Fatal("accepted a symlink parent as an owned cache root")
+	root, err := openCacheRoot(filepath.Join(link, "child"))
+	if err != nil {
+		t.Fatal("refused a cache below the operator's own link:", err)
+	}
+	root.Close()
+	pruneCache(filepath.Join(link, "child"), 1, quietLogger())
+	if _, err := os.Stat(filepath.Join(child, "old")); !os.IsNotExist(err) {
+		t.Fatal("the size limit was not enforced through a linked parent:", err)
+	}
+}
+
+// The refusal that remains is one an operator can act on, so it has to say
+// what to change rather than that something could not be read.
+func TestALinkedCacheDirectorySaysWhatToChange(t *testing.T) {
+	b, _, packages, _ := maintenanceFixture(t, "", false)
+	if err := os.Remove(packages); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(t.TempDir(), packages); err != nil {
+		t.Skip(err)
+	}
+	b.MaintainCaches(context.Background())
+	if st := storageOf(t, b); !strings.Contains(st.Deferred, "symbolic link") {
+		t.Fatalf("the reason does not name the link: %q", st.Deferred)
+	}
+}
+
+type vanishedEntry struct{ fs.DirEntry }
+
+func (vanishedEntry) Info() (fs.FileInfo, error) { return nil, fs.ErrNotExist }
+func (vanishedEntry) IsDir() bool                { return false }
+
+// A job deletes its temporary files while maintenance walks the cache. That
+// used to fail the whole measurement, so a busy pool read "size unknown" and
+// its limit was skipped.
+func TestAFileThatVanishesDuringMeasurementWeighsNothing(t *testing.T) {
+	e := cacheDiskEntry{size: 7}
+	if err := e.weigh(vanishedEntry{}, nil); err != nil || e.size != 7 {
+		t.Fatalf("a file gone before it was read failed the walk: %v, size %d", err, e.size)
+	}
+	if err := e.weigh(nil, fs.ErrNotExist); err != nil {
+		t.Fatal("a folder gone before it was listed failed the walk:", err)
+	}
+	if err := e.weigh(nil, fs.ErrPermission); err == nil {
+		t.Fatal("an unreadable folder was measured as empty")
+	}
+}
+
+// A runner start waits on the gate maintenance takes. Walking a package cache
+// of millions of files with it held stopped every start on the host for the
+// length of the walk, so the measuring half has to finish while somebody else
+// holds it.
+func TestMeasuringACacheDoesNotWaitOnTheGateARunnerStartHolds(t *testing.T) {
+	b, spec, packages, _ := maintenanceFixture(t, "", false)
+	writeCacheBytes(t, packages, "package", 200, time.Hour)
+	b.cacheGate.Lock()
+	defer b.cacheGate.Unlock()
+	done := make(chan *cachePass, 1)
+	go func() {
+		done <- b.measureCache(context.Background(), CachePolicy{PoolID: spec.PoolID, Backend: store.BackendDocker, Cache: spec.Cache})
+	}()
+	select {
+	case pass := <-done:
+		for _, root := range pass.roots {
+			root.Close()
+		}
+		if pass.st.PackageBytes != 200 {
+			t.Fatalf("measured %+v, want the 200 bytes on disk", pass.st)
+		}
+		if _, err := os.Stat(filepath.Join(packages, "package")); err != nil {
+			t.Fatal("measuring deleted from the cache:", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("measuring waited for the gate a runner start was holding")
+	}
+}
+
+// A link above a cache directory is followed, which makes two spellings of one
+// folder possible. A package cache whose source reaches the service's folder
+// through a link is that folder, and evicting its "entries" would delete the
+// service's blobs and index behind the index that manages them.
+func TestAPackageCacheThatReachesServiceStorageThroughALinkIsNotEvicted(t *testing.T) {
+	b, spec, _, _ := maintenanceFixture(t, "", false)
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skip(err)
+	}
+	spec.Cache.Source = filepath.Join(link, "src")
+	packages, ok := cacheDirectory(spec)
+	if !ok {
+		t.Fatal("the fixture's package cache is not a directory")
+	}
+	rel, err := filepath.Rel(link, packages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The shared folder sits inside the package cache as the disk has it, and
+	// nowhere near it as the two are written.
+	b.sharedDir = filepath.Join(real, rel, "shared")
+	b.cacheSvcs.sharedDir = b.sharedDir
+	identity, _ := cacheIdentity(spec)
+	service := filepath.Join(b.sharedDir, "cache", "service", identity)
+	writeCacheBytes(t, service, "blobs/one", 200, time.Hour)
+	if pathsOverlap(packages, service) {
+		t.Fatal("the two overlap as written, so this would prove nothing")
+	}
+	b.SetCachePolicies([]CachePolicy{{PoolID: spec.PoolID, Backend: store.BackendDocker, Cache: spec.Cache}})
+	b.MaintainCaches(context.Background())
+	if _, err := os.Stat(filepath.Join(service, "blobs/one")); err != nil {
+		t.Fatal("the service's own storage was evicted as package entries:", err)
+	}
+	if st := storageOf(t, b); !strings.Contains(st.Deferred, "overlaps") {
+		t.Fatalf("the reason does not name the overlap: %+v", st)
+	}
+	b.pruneCacheFor(context.Background(), spec)
+	if _, err := os.Stat(filepath.Join(service, "blobs/one")); err != nil {
+		t.Fatal("the start-time prune evicted the service's storage:", err)
+	}
+}
+
+// Measuring holds no gate, so a heartbeat can land in the middle of it. One
+// that pauses maintenance or raises a limit has to win: evicting on the policy
+// the pass started with deletes after it was told to stop.
+func TestAPolicyChangedWhileMeasuringEvictsNothing(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(*DockerBackend, CachePolicy)
+	}{
+		{"withdrawn", func(b *DockerBackend, _ CachePolicy) { b.SetCachePolicies(nil) }},
+		{"limit raised", func(b *DockerBackend, p CachePolicy) {
+			p.Cache.SizeLimit = 1000
+			b.SetCachePolicies([]CachePolicy{p})
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b, spec, packages, _ := maintenanceFixture(t, "", false)
+			writeCacheBytes(t, packages, "package", 200, time.Hour)
+			policy := CachePolicy{PoolID: spec.PoolID, Backend: store.BackendDocker, Cache: spec.Cache}
+			pass := b.measureCache(context.Background(), policy)
+			defer func() {
+				for _, root := range pass.roots {
+					root.Close()
+				}
+			}()
+			tc.change(b, policy)
+			b.evictCaches(context.Background(), []*cachePass{pass})
+			if _, err := os.Stat(filepath.Join(packages, "package")); err != nil {
+				t.Fatal("evicted on a policy that no longer stands:", err)
+			}
+			if !pass.stale {
+				t.Fatal("the pass was not marked as overtaken")
+			}
+		})
 	}
 }

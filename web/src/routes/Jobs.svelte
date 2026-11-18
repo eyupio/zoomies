@@ -568,7 +568,10 @@
       },
       cell: stateCell,
     },
-    ...(filters.failed || filters.attention ? [failedAtColumn] : []),
+    // Every view whose rows are all failures says how each one failed. "Our
+    // failures" is such a view: without the column an operator who came to see
+    // where the fleet broke jobs was shown that it had, and not how.
+    ...(filters.failed || filters.attention || filters.faulted ? [failedAtColumn] : []),
     {
       id: 'repo',
       header: 'Repository',

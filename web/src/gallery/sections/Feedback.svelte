@@ -60,6 +60,7 @@
     hostStatus({ healthy: true, cordoned: false }),
     hostStatus({ healthy: false, cordoned: false }),
     hostStatus({ healthy: true, cordoned: true }),
+    hostStatus({ healthy: true, cordoned: false }, true),
     machineStatus('creating'),
     machineStatus('ready'),
     machineStatus('ready', true),

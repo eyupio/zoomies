@@ -24,23 +24,44 @@
   let retention = $state('3');
   let approvedRequest = $state<Body<'applyAIContextMaintenance'> | null>(null);
   const validMode = $derived(mode === 'amend' || mode === 'remove' ? mode : 'reinstall');
-  onMount(async () => {
+  // The page could not start, as opposed to a review or a publish that failed:
+  // that one has a way back, which is to ask again.
+  let loadFailed = $state(false);
+  let retentionError = $state('');
+  async function load() {
+    error = null;
+    loadFailed = false;
     try {
       repository = await getAIContextRepository(id);
       destination = repository.config.destination;
       exclusions = repository.config.exclude.join('\n');
       retention = String(repository.config.keep_snapshots);
+    } catch (cause) {
+      error = cause;
+      loadFailed = true;
+      return;
+    }
+    try {
       const saved = await previewAIContextSetup(id);
       if (saved.mode === validMode && saved.setup?.state === 'pending') {
         plan = saved;
         approvedRequest = { mode: validMode, revision: saved.revision, plan_hash: saved.plan_hash };
       }
-    } catch (cause) {
-      error = cause;
+    } catch {
+      // A draft saved earlier that cannot be read is nothing the operator asked
+      // for yet. The form works without it, and reviewing asks afresh; reporting
+      // it put "could not finish" over a page where nothing had been started.
     }
-  });
+  }
+  onMount(load);
   async function review() {
     if (!repository) return;
+    retentionError = '';
+    const keep = Number(retention);
+    if (validMode === 'amend' && (!Number.isInteger(keep) || keep < 1)) {
+      retentionError = 'Write a whole number of snapshots to keep, such as 3.';
+      return;
+    }
     busy = true;
     error = null;
     try {
@@ -57,7 +78,7 @@
             .split('\n')
             .map((s) => s.trim())
             .filter(Boolean),
-          keep_snapshots: Number(retention),
+          keep_snapshots: keep,
         };
       plan = await previewAIContextMaintenance(id, request);
       approvedRequest = { ...request, plan_hash: plan.plan_hash };
@@ -133,7 +154,7 @@
           mono
         />{/snippet}</Field
     >
-    <Field label="Snapshots to retain"
+    <Field label="Snapshots to retain" error={retentionError}
       >{#snippet children({ id, describedBy })}<Input
           {id}
           {describedBy}
@@ -142,7 +163,11 @@
         />{/snippet}</Field
     >
   {/if}
-  {#if error}<ErrorState {error} title="Maintenance could not finish" />{/if}
+  {#if error}<ErrorState
+      {error}
+      title={loadFailed ? 'This repository could not be read' : 'Maintenance could not finish'}
+      onretry={loadFailed ? load : undefined}
+    />{/if}
   {#if plan}
     <h3>Review repository changes</h3>
     {#each plan.files as file (file.path)}

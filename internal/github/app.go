@@ -635,7 +635,11 @@ func (c *appClient) DeleteRunner(ctx context.Context, id int64) error {
 		}
 		_, name, _ := SplitTarget(repo)
 		resp, err = c.asInstallation.Actions.RemoveRunner(ctx, c.owner, name, id)
-		if err == nil {
+		// An ephemeral runner removes itself when its job ends, so the usual
+		// answer here is that GitHub no longer knows it. That is as gone as
+		// one this call removed; forgetting only on success kept an entry for
+		// every job the account ever ran.
+		if e := classify(resp, err); e == nil || errors.Is(e, ErrNotFound) {
 			c.forgetRunnerRepo(id)
 		}
 	case c.isOrg():

@@ -3,6 +3,7 @@
 // component so a unit test can hold it without rendering anything.
 
 import { faultLabel, fleetFailed } from '../faults';
+import { formatDuration } from '../format';
 
 export interface WhyEvidence {
   kind: string;
@@ -66,11 +67,22 @@ export interface EvidenceRow {
   href?: string;
 }
 
+/**
+ * A wait arrives as a count of seconds, and every other duration in the drawer
+ * reads as "8m 00s". "480 s" beside them made an operator do the division.
+ */
+function evidenceValue(e: WhyEvidence): string {
+  if (e.kind === 'queue_wait' && e.unit === 's' && /^\d+(\.\d+)?$/.test(e.value)) {
+    return formatDuration(Number(e.value) * 1000);
+  }
+  return e.unit ? `${e.value} ${e.unit}` : e.value;
+}
+
 export function evidenceRows(evidence: readonly WhyEvidence[]): EvidenceRow[] {
   return evidence.map((e) => {
     const row: EvidenceRow = {
       label: e.label,
-      value: e.unit ? `${e.value} ${e.unit}` : e.value,
+      value: evidenceValue(e),
       mono: FIGURES.has(e.kind),
     };
     if (e.ref) row.href = e.ref;

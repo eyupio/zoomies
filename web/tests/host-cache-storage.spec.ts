@@ -54,6 +54,11 @@ test('cache storage is visible while the host card is collapsed, and unknown sta
     await expect(bubble).toBeVisible();
     await expect(bubble).toContainText('Packages 20 GB, tools 8.0 GB, Actions service 4.0 GB');
   }
+  // A finger has no hover, so a tap opens the same bubble and says it did.
+  await page.mouse.move(0, 0);
+  await trigger.click();
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+  await expect(storage.locator('.bubble:popover-open')).toContainText('Packages 20 GB');
   known = false;
   await reload(page, 'Hosts');
   await expect(card.getByTestId('host-cache-storage')).toHaveCount(0);

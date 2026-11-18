@@ -22,7 +22,9 @@ import (
 // The kernel keeps the count the daemon does not: memory.events in a
 // container's cgroup counts every kill in it and below it. The agent reads it
 // while the container runs, because a stopped container's cgroup is gone, and
-// remembers the largest figure it saw.
+// remembers the largest figure it saw. "Below it" includes containers a job
+// gave limits of their own, so the count is kept only where the container's
+// own limit is what ran out (memory.events.local, on kernels that keep it).
 
 // oomKillLedger is the kills the agent has seen, by container ID, and the
 // cgroup folder each container was found in.
@@ -43,6 +45,16 @@ func (b *DockerBackend) noteOOMKills(ctx context.Context, container string) {
 	}
 	n, ok := readOOMKills(filepath.Join(dir, "memory.events"))
 	if !ok || n <= 0 {
+		return
+	}
+	// The count covers everything below the container, including a container
+	// a job started with a limit of its own (docker run -m) and a service the
+	// job expected to be killed. Those ran out of their own room, not the
+	// runner's, and a job that carried on past one must not be failed for it,
+	// have it put on its memory history or be run again at the fleet's cost.
+	// memory.events.local counts only the times this container's own limit was
+	// what ran out; where the kernel keeps it, a kill counts only with one.
+	if own, ok := readMemoryEvent(filepath.Join(dir, "memory.events.local"), "oom"); ok && own <= 0 {
 		return
 	}
 	l := &b.oomKills
@@ -142,13 +154,19 @@ func cgroupDirOf(procRoot, cgroupRoot string, pid int, containerID string) strin
 
 // readOOMKills reads the oom_kill line of a memory.events file.
 func readOOMKills(path string) (int64, bool) {
+	return readMemoryEvent(path, "oom_kill")
+}
+
+// readMemoryEvent reads one named count from a memory.events file. A file
+// that is not there, or has no such line, is "cannot tell" rather than zero.
+func readMemoryEvent(path, name string) (int64, bool) {
 	body, err := os.ReadFile(path)
 	if err != nil {
 		return 0, false
 	}
 	sc := bufio.NewScanner(bytes.NewReader(body))
 	for sc.Scan() {
-		if v, ok := strings.CutPrefix(sc.Text(), "oom_kill "); ok {
+		if v, ok := strings.CutPrefix(sc.Text(), name+" "); ok {
 			n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
 			return n, err == nil
 		}

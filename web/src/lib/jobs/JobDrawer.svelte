@@ -133,6 +133,15 @@
   // ID; only a job recorded without one falls back to the run's failures. The
   // confirmation has to say which, or it promises more than it does.
   const jobLevelRerun = $derived((job?.github_job_id ?? 0) > 0);
+  // A job can arrive with neither a run number nor a run id, and the sentence
+  // that names its run then read "Run  in acme/api will be re-run".
+  const rerunRunLabel = $derived(
+    job?.run_number
+      ? `Run #${job.run_number}`
+      : job?.github_run_id
+        ? `Run ${job.github_run_id}`
+        : 'This run',
+  );
   let rerunning = $state(false);
   let acking = $state(false);
   let rerunOpen = $state(false);
@@ -538,8 +547,8 @@
 
 <!--
   The same confirmation the cancel above gets, for the same reason: a rerun
-  starts every failed job in the run, not the one this drawer is about, and it
-  spends this fleet's capacity doing it.
+  spends this fleet's capacity, and where the job has no GitHub job ID it starts
+  every failed job in the run, not only the one this drawer is about.
 -->
 <ConfirmDialog
   bind:open={rerunOpen}
@@ -549,11 +558,11 @@
     : 'This job has no GitHub job ID recorded, so GitHub has no job-level re-run to offer. This starts every failed job in the run again as a new run attempt.'}
   consequences={jobLevelRerun
     ? [
-        `Run ${job?.run_number ? '#' + job.run_number : (job?.github_run_id ?? '')} in ${job?.repo ?? 'GitHub'} will run this job again.`,
+        `${rerunRunLabel} in ${job?.repo ?? 'GitHub'} will run this job again.`,
         'The runner it starts comes from the same pool, so it spends capacity like a new run.',
       ]
     : [
-        `Run ${job?.run_number ? '#' + job.run_number : (job?.github_run_id ?? '')} in ${job?.repo ?? 'GitHub'} will be re-run.`,
+        `${rerunRunLabel} in ${job?.repo ?? 'GitHub'} will be re-run.`,
         'The runners it starts come from the same pools, so it spends capacity like a new run.',
       ]}
   confirmLabel="Run again"

@@ -1004,14 +1004,16 @@ func (t *tick) grant(p *store.Pool, plan *PoolPlan, runners []*store.Runner, que
 			heldOff = t.hosts.heldOff(p, need)
 		}
 	}
+	if t.byRepository[p.ID] && len(plan.repositories) == 0 {
+		// Nothing waiting names a repository to register on, and a runner
+		// registered nowhere in particular can take no job. This returns
+		// before the pool's requirement is put on the hosts: left there, it
+		// was what every later pool in the pass was judged against.
+		return false
+	}
 	enforce := t.historySizing == HistoryOn && need.Known()
 	if enforce {
 		t.hosts.need = &need
-	}
-	if t.byRepository[p.ID] && len(plan.repositories) == 0 {
-		// Nothing waiting names a repository to register on, and a runner
-		// registered nowhere in particular can take no job.
-		return false
 	}
 	placed := t.hosts.placeAvoiding(p, 1, recentBusyHosts(runners, t.now))
 	t.hosts.need = nil

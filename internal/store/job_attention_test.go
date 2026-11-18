@@ -490,6 +490,50 @@ func TestAFailureLeavesAttentionOnceItsBranchHasMovedToAnotherCommit(t *testing.
 	}
 }
 
+// A pull request from a fork runs under the name of the fork's branch, and a
+// fork's default branch is called main too. Its run is in this repository, on
+// a branch of that name and another commit, and it says nothing about where
+// this repository's main is.
+func TestAPullRequestFromABranchOfTheSameNameDoesNotMoveThePushedBranch(t *testing.T) {
+	for _, tc := range []struct {
+		name, oldEvent, laterEvent string
+		wantOld                    bool
+	}{
+		{name: "a pull request after a push", oldEvent: "push", laterEvent: "pull_request", wantOld: true},
+		{name: "a pull request's target run after a push", oldEvent: "push", laterEvent: "pull_request_target", wantOld: true},
+		{name: "a push after a push", oldEvent: "push", laterEvent: "push"},
+		{name: "a pull request after its own earlier run", oldEvent: "pull_request", laterEvent: "pull_request"},
+		{name: "a push after a pull request", oldEvent: "pull_request", laterEvent: "push"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			now := time.Now().UTC()
+			s := newTestStoreAt(t, func() time.Time { return now })
+			ctx := context.Background()
+			for _, j := range []*Job{
+				{GitHubJobID: 1, GitHubRunID: 10, Repo: "acme/repo", Workflow: "Browser", JobName: "browser", HeadBranch: "main", HeadSHA: "aaa", RunEvent: tc.oldEvent,
+					State: JobCompleted, Conclusion: "failure", QueuedAt: now.Add(-time.Hour)},
+				{GitHubJobID: 2, GitHubRunID: 20, Repo: "acme/repo", Workflow: "Release", JobName: "build", HeadBranch: "main", HeadSHA: "bbb", RunEvent: tc.laterEvent,
+					State: JobCompleted, Conclusion: "success", QueuedAt: now.Add(-time.Minute)},
+			} {
+				if _, err := s.UpsertJob(ctx, j); err != nil {
+					t.Fatal(err)
+				}
+				// The event arrives with the run, not with the job.
+				if err := s.SetRunEventForRun(ctx, j.Repo, j.GitHubRunID, j.RunEvent); err != nil {
+					t.Fatal(err)
+				}
+			}
+			rows, _, err := s.ListJobs(ctx, JobFilter{AttentionOnly: true}, Page{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if found := slices.ContainsFunc(rows, func(j *Job) bool { return j.GitHubJobID == 1 }); found != tc.wantOld {
+				t.Fatalf("old failure visible = %v, want %v", found, tc.wantOld)
+			}
+		})
+	}
+}
+
 // A failure that does not say which commit it ran on cannot be called out of
 // date: missing metadata is not a licence to guess, here as for the branch.
 func TestAFailureWithNoCommitIsNotCalledOutOfDate(t *testing.T) {
