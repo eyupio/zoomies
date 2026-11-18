@@ -125,17 +125,25 @@ func (c *Controller) cachePolicies(ctx context.Context, h *store.Host) []backend
 		return nil
 	}
 	var out []backend.CachePolicy
+	// Every host asks on every heartbeat, and pools of one installation ask
+	// the same question: each installation is read once a call, not once a pool.
+	targets := map[string]string{}
 	for _, p := range pools {
 		if !p.Cache.Enabled {
 			continue
 		}
 		repo := p.Cache.Repository
 		if repo == "" && p.Cache.Scope == store.CacheScopeRepository {
-			inst, err := c.st.GetInstallation(ctx, p.InstallationID)
-			if err != nil {
-				continue
+			target, known := targets[p.InstallationID]
+			if !known {
+				inst, err := c.st.GetInstallation(ctx, p.InstallationID)
+				if err != nil {
+					continue
+				}
+				target = inst.Target
+				targets[p.InstallationID] = target
 			}
-			repo = inst.Target
+			repo = target
 		}
 		out = append(out, backend.CachePolicy{PoolID: p.ID, Backend: p.Backend, Repository: repo, Cache: p.Cache})
 	}

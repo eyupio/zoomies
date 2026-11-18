@@ -1388,13 +1388,21 @@ func unreplacedJobSQL() string {
 //
 // The price is the one an operator accepts with it: a path-filtered workflow
 // that is still broken leaves the list when the branch next moves, unfixed.
+//
+// A pull request's run names the branch the pull request comes from, and that
+// branch may be in a fork: a contributor's own "main" is not this repository's.
+// So a pull request's run shows that a branch moved only to a failure that was
+// itself a pull request's; otherwise anybody opening one from a fork's main
+// took the real failure on main off the list with nothing fixed.
 func branchNotMovedSQL() string {
 	return `NOT EXISTS (
 		SELECT 1 FROM jobs later
 		WHERE jobs.github_run_id != 0 AND jobs.head_branch != '' AND jobs.head_sha != ''
 			AND later.repo = jobs.repo AND later.head_branch = jobs.head_branch
 			AND later.github_run_id > jobs.github_run_id
-			AND later.head_sha != '' AND later.head_sha != jobs.head_sha)`
+			AND later.head_sha != '' AND later.head_sha != jobs.head_sha
+			AND (later.run_event NOT IN ('pull_request', 'pull_request_target')
+				OR jobs.run_event IN ('pull_request', 'pull_request_target')))`
 }
 
 // dependabotNotRetriedSQL says that Dependabot has not tried this update again.
