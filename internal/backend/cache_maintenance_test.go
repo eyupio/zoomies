@@ -2,6 +2,7 @@ package backend
 
 import (
 	"context"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -299,18 +300,91 @@ func TestSwitchingBackendsReusesTheServiceInsteadOfReopeningItsLiveIndex(t *test
 	}
 }
 
-func TestCacheRootsRefuseASymlinkInAParentDirectory(t *testing.T) {
+// A data directory kept on another disk is reached through a link, and so is
+// everything under /var on macOS. Refusing those left every cache on such a
+// host growing past its limit; the link is the operator's own, so the pool's
+// directory beyond it is still the pool's.
+func TestCacheRootsFollowALinkAboveThePoolsOwnDirectory(t *testing.T) {
 	target := t.TempDir()
 	child := filepath.Join(target, "child")
-	if err := os.Mkdir(child, 0750); err != nil {
-		t.Fatal(err)
-	}
+	writeCacheBytes(t, child, "old", 200, time.Hour)
 	link := filepath.Join(t.TempDir(), "parent")
 	if err := os.Symlink(target, link); err != nil {
 		t.Skip(err)
 	}
-	if root, err := openCacheRoot(filepath.Join(link, "child")); err == nil {
-		root.Close()
-		t.Fatal("accepted a symlink parent as an owned cache root")
+	root, err := openCacheRoot(filepath.Join(link, "child"))
+	if err != nil {
+		t.Fatal("refused a cache below the operator's own link:", err)
+	}
+	root.Close()
+	pruneCache(filepath.Join(link, "child"), 1, quietLogger())
+	if _, err := os.Stat(filepath.Join(child, "old")); !os.IsNotExist(err) {
+		t.Fatal("the size limit was not enforced through a linked parent:", err)
+	}
+}
+
+// The refusal that remains is one an operator can act on, so it has to say
+// what to change rather than that something could not be read.
+func TestALinkedCacheDirectorySaysWhatToChange(t *testing.T) {
+	b, _, packages, _ := maintenanceFixture(t, "", false)
+	if err := os.Remove(packages); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(t.TempDir(), packages); err != nil {
+		t.Skip(err)
+	}
+	b.MaintainCaches(context.Background())
+	if st := storageOf(t, b); !strings.Contains(st.Deferred, "symbolic link") {
+		t.Fatalf("the reason does not name the link: %q", st.Deferred)
+	}
+}
+
+type vanishedEntry struct{ fs.DirEntry }
+
+func (vanishedEntry) Info() (fs.FileInfo, error) { return nil, fs.ErrNotExist }
+func (vanishedEntry) IsDir() bool                { return false }
+
+// A job deletes its temporary files while maintenance walks the cache. That
+// used to fail the whole measurement, so a busy pool read "size unknown" and
+// its limit was skipped.
+func TestAFileThatVanishesDuringMeasurementWeighsNothing(t *testing.T) {
+	e := cacheDiskEntry{size: 7}
+	if err := e.weigh(vanishedEntry{}, nil); err != nil || e.size != 7 {
+		t.Fatalf("a file gone before it was read failed the walk: %v, size %d", err, e.size)
+	}
+	if err := e.weigh(nil, fs.ErrNotExist); err != nil {
+		t.Fatal("a folder gone before it was listed failed the walk:", err)
+	}
+	if err := e.weigh(nil, fs.ErrPermission); err == nil {
+		t.Fatal("an unreadable folder was measured as empty")
+	}
+}
+
+// A runner start waits on the gate maintenance takes. Walking a package cache
+// of millions of files with it held stopped every start on the host for the
+// length of the walk, so the measuring half has to finish while somebody else
+// holds it.
+func TestMeasuringACacheDoesNotWaitOnTheGateARunnerStartHolds(t *testing.T) {
+	b, spec, packages, _ := maintenanceFixture(t, "", false)
+	writeCacheBytes(t, packages, "package", 200, time.Hour)
+	b.cacheGate.Lock()
+	defer b.cacheGate.Unlock()
+	done := make(chan *cachePass, 1)
+	go func() {
+		done <- b.measureCache(context.Background(), CachePolicy{PoolID: spec.PoolID, Backend: store.BackendDocker, Cache: spec.Cache})
+	}()
+	select {
+	case pass := <-done:
+		for _, root := range pass.roots {
+			root.Close()
+		}
+		if pass.st.PackageBytes != 200 {
+			t.Fatalf("measured %+v, want the 200 bytes on disk", pass.st)
+		}
+		if _, err := os.Stat(filepath.Join(packages, "package")); err != nil {
+			t.Fatal("measuring deleted from the cache:", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("measuring waited for the gate a runner start was holding")
 	}
 }
