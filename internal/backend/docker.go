@@ -2297,7 +2297,7 @@ func (b *DockerBackend) pruneCacheFor(ctx context.Context, spec Spec) {
 	}
 	if identity, err := cacheIdentity(spec); err == nil && b.sharedDir != "" {
 		for _, kind := range []string{"tools", "service"} {
-			if pathsOverlap(dir, filepath.Join(b.sharedDir, "cache", kind, identity)) {
+			if cachePathsOverlap(dir, filepath.Join(b.sharedDir, "cache", kind, identity)) {
 				return
 			}
 		}

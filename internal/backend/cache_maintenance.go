@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -107,6 +108,10 @@ type cachePass struct {
 	// settled says the pool's line is already written and nothing may be
 	// evicted for it: its folders could not be told apart or resolved.
 	settled bool
+	// stale says the pool's policy was changed or withdrawn while its cache
+	// was being measured. Nothing is evicted on a policy that no longer stands,
+	// and the line the host last reported is kept until the next pass.
+	stale bool
 	// budgetFailed says the cache service was not told its room, so what it
 	// holds was not changed by this pass and is not read again.
 	budgetFailed bool
@@ -149,6 +154,9 @@ func (b *DockerBackend) MaintainCaches(ctx context.Context) {
 	out := make([]CacheStorage, 0, len(passes))
 	for _, pass := range passes {
 		st := &pass.st
+		if pass.stale {
+			continue
+		}
 		if !pass.settled && !st.MeasuredAt.IsZero() && pass.measurable && !pass.budgetFailed {
 			// The service evicts through its own index as its budget shrinks,
 			// so what it holds is read again, and again without the gates.
@@ -170,6 +178,17 @@ func (b *DockerBackend) MaintainCaches(ctx context.Context) {
 	// Do not replace an earlier measurement with a false zero on cancellation,
 	// nor bring one back for policies withdrawn while this pass was measuring.
 	if ctx.Err() == nil && len(b.cachePolicies) > 0 {
+		for _, pass := range passes {
+			if !pass.stale {
+				continue
+			}
+			for _, earlier := range b.cacheStorage {
+				if earlier.PoolID == pass.policy.PoolID {
+					out = append(out, earlier)
+				}
+			}
+		}
+		sort.SliceStable(out, func(i, j int) bool { return out[i].PoolID < out[j].PoolID })
 		b.cacheStorage = out
 	}
 }
@@ -193,7 +212,7 @@ func (b *DockerBackend) measureCache(ctx context.Context, p CachePolicy) *cacheP
 		pass.toolsDir = filepath.Join(b.sharedDir, "cache", "tools", identity)
 		pass.serviceDir = filepath.Join(b.sharedDir, "cache", "service", identity)
 	}
-	if pass.packageDir != "" && (pathsOverlap(pass.packageDir, pass.toolsDir) || pathsOverlap(pass.packageDir, pass.serviceDir)) {
+	if pass.packageDir != "" && (cachePathsOverlap(pass.packageDir, pass.toolsDir) || cachePathsOverlap(pass.packageDir, pass.serviceDir)) {
 		st.Deferred, pass.settled = "Package cache overlaps tool or service storage; choose a separate cache source", true
 		return pass
 	}
@@ -253,7 +272,18 @@ func (b *DockerBackend) evictCaches(ctx context.Context, passes []*cachePass) {
 		inventoryErr = errors.Join(inventoryErr, err)
 		busy = busy || peer.cacheBusy > 0
 	}
+	// The measuring was done without the gates, and a heartbeat can replace or
+	// withdraw the policies meanwhile: maintenance paused, a pool's limit
+	// raised. What is evicted has to be what the policy says now.
+	current := make(map[string]CachePolicy, len(b.cachePolicies))
+	for _, p := range b.cachePolicies {
+		current[p.PoolID] = p
+	}
 	for _, pass := range passes {
+		if now, ok := current[pass.policy.PoolID]; !ok || !reflect.DeepEqual(now, pass.policy) {
+			pass.stale = true
+			continue
+		}
 		if pass.settled {
 			continue
 		}
@@ -331,6 +361,36 @@ func (b *DockerBackend) evictCaches(ctx context.Context, passes []*cachePass) {
 			}
 		}
 	}
+}
+
+// cachePathsOverlap is pathsOverlap for two cache folders as the disk has
+// them, not as they are spelt. A link above a cache directory is followed, so
+// a package cache whose source reaches the tool or service folder through one
+// is the same folder under another name: compared as written the two never
+// overlap, and maintenance would evict the service's own index as package
+// entries.
+func cachePathsOverlap(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	return pathsOverlap(a, b) || pathsOverlap(canonicalCachePath(a), canonicalCachePath(b))
+}
+
+// canonicalCachePath resolves the links in a path as far as the path exists,
+// and keeps what does not exist yet as it is written. A path that cannot be
+// resolved is returned as given: the comparison as written was made already.
+func canonicalCachePath(path string) string {
+	path = filepath.Clean(path)
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return path
+	}
+	parent := filepath.Dir(path)
+	if parent == path {
+		return path
+	}
+	return filepath.Join(canonicalCachePath(parent), filepath.Base(path))
 }
 
 func pathsOverlap(a, b string) bool {
