@@ -1760,7 +1760,11 @@ has stopped, and the job's explanation says it was the sidecar that was short of
 room. A build runs in a container of the sidecar's own daemon, and a kill there
 need not set that flag, so on a host with cgroup v2 the agent also reads the
 kernel's own count of kills (`memory.events`) in each container while it runs,
-and a count above nothing marks the job the same way. It cannot be read where
+and a count above nothing marks the job the same way. That count includes
+containers a job started with a limit of their own (`docker run -m`), so a kill
+is the runner's only where the container's own limit is what ran out
+(`memory.events.local`, on kernels that keep it): a job that carries on past a
+kill under a limit it set itself is left as it ended. It cannot be read where
 the Docker daemon is in a virtual machine or on another host, and a kill that
 ends the job within a second or two can still be missed. Both show on the job's page, in
 `GET /api/v1/jobs/{id}`, in `job_stats` and in the MCP tools.
