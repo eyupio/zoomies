@@ -236,27 +236,36 @@ func TestMCPOAuthDiscoveryStartsFromTheUnauthorisedAnswer(t *testing.T) {
 	}
 }
 
-// When server.external_url is not set, the issuer and the endpoints in the
-// discovery documents are read from each request's Host header. A shared
-// cache keyed by URL alone would then hand one caller's Host-derived answer
-// back to another, so the response says it must not be shared.
-func TestMCPDiscoveryIsNotSharedCachedWithoutAnExternalURL(t *testing.T) {
+// When server.external_url is not set, or carries a value that is not an
+// absolute URL, the issuer and endpoints in the discovery documents are
+// read from each request's Host header: publicBase falls back to it unless
+// the address has both a scheme and a host. A shared cache keyed by URL
+// alone would then hand one caller's Host-derived answer back to another,
+// so the response says it must not be shared.
+func TestMCPDiscoveryIsNotSharedCachedWhenPublicBaseFallsBackToHost(t *testing.T) {
 	on := true
-	h := newHarness(t, func(c *config.Config) {
-		c.Server.ExternalURL = ""
-		c.Security.MCPOAuth = &on
-	})
-	for _, path := range []string{
-		"/.well-known/oauth-protected-resource",
-		"/.well-known/oauth-protected-resource/mcp",
-		"/.well-known/oauth-authorization-server",
+	for name, external := range map[string]string{
+		"empty":     "",
+		"malformed": "not-an-absolute-url",
 	} {
-		resp := h.do(request{method: http.MethodGet, path: path, noOrigin: true})
-		resp.mustStatus(t, http.StatusOK, path)
-		if got := resp.header.Get("Cache-Control"); got != "no-store" {
-			t.Errorf("%s: Cache-Control = %q, want %q so a shared cache cannot hand one caller's Host-derived answer to another",
-				path, got, "no-store")
-		}
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t, func(c *config.Config) {
+				c.Server.ExternalURL = external
+				c.Security.MCPOAuth = &on
+			})
+			for _, path := range []string{
+				"/.well-known/oauth-protected-resource",
+				"/.well-known/oauth-protected-resource/mcp",
+				"/.well-known/oauth-authorization-server",
+			} {
+				resp := h.do(request{method: http.MethodGet, path: path, noOrigin: true})
+				resp.mustStatus(t, http.StatusOK, path)
+				if got := resp.header.Get("Cache-Control"); got != "no-store" {
+					t.Errorf("%s: Cache-Control = %q, want %q so a shared cache cannot hand one caller's Host-derived answer to another",
+						path, got, "no-store")
+				}
+			}
+		})
 	}
 }
 
