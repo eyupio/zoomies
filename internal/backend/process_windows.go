@@ -193,3 +193,9 @@ func platformChildEnv(dir string) []string {
 	}
 	return env
 }
+
+func runnerGroupAlive(pid int) bool { return processAlive(pid) }
+
+func lockProcessSlots(string) (func(), error) {
+	return nil, fmt.Errorf("native slot admission requires a Unix host; clear agent.process_admission_file on Windows")
+}

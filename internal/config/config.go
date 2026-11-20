@@ -810,7 +810,8 @@ type Agent struct {
 	// Zero deletes on the next pass. Unlike retention.runners, which keeps the
 	// row, this is disk on the host: a busy host keeps one finished
 	// container per job for this long.
-	FinishedRetention time.Duration `yaml:"finished_retention"`
+	FinishedRetention    time.Duration `yaml:"finished_retention"`
+	ProcessAdmissionFile string        `yaml:"process_admission_file"`
 	// PrewarmTimeout bounds background work separately from foreground starts.
 	PrewarmTimeout time.Duration `yaml:"prewarm_timeout"`
 	PrewarmJitter  time.Duration `yaml:"prewarm_jitter"`
