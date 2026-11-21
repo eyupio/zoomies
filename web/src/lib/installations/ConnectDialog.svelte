@@ -511,7 +511,8 @@
    * more" is worth more when it is followed by the list.
    *
    * The migration wizard's three are in the list only when the operator asks
-   * for them, because asking is the only moment it is cheap: adding them
+   * for them (with the Issues read and issue_comment subscription that come
+   * with them: GitHub delivers that event only to an App with Issues access), because asking is the only moment it is cheap: adding them
    * afterwards is not a click, GitHub holds the change until the account's
    * owner accepts it, and until then the wizard cannot read a single workflow.
    * Asked for by default they were the line that sent an evaluation to a
@@ -539,9 +540,13 @@
           'contents: write, read and rewrite workflow files for the migration wizard',
           "pull_requests: write, open the migration wizard's pull request",
           'workflows: write, required by GitHub to change files under .github/workflows',
+          'issues: read, required by GitHub before it delivers issue_comment',
         ]
       : []),
     'workflow_job events, the webhook that makes scaling instant',
+    ...(migration
+      ? ["issue_comment events, the webhook that carries a maintainer's /eli comment"]
+      : []),
   ]);
 
   /**
@@ -1096,7 +1101,7 @@
             <Checkbox
               bind:checked={migration}
               label="Also let Zoomies open migration pull requests"
-              description="Adds write access to contents, pull requests and workflows, which only the migration wizard uses. Runners do not need it. Adding it later is not a click: the account's owner has to approve the change on GitHub."
+              description="Adds write access to contents, pull requests and workflows, which only the migration wizard uses, and read access to issues, which GitHub requires before it sends the webhook that carries a maintainer's /eli comment. Runners do not need it. Adding it later is not a click: the account's owner has to approve the change on GitHub."
             />
 
             <!-- The same for read access to contents, which only Kennel Club's

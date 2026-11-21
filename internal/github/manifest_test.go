@@ -68,7 +68,7 @@ func TestManifestOrgShape(t *testing.T) {
 
 	events, _ := m["default_events"].([]any)
 	if !slices.Equal(events, []any{"workflow_job"}) {
-		t.Fatalf("default_events = %v, want [workflow_job]: issue_comment needs pull_requests access, which this App does not hold", events)
+		t.Fatalf("default_events = %v, want [workflow_job]: issue_comment needs issues access, which this App does not hold", events)
 	}
 
 	// Runner administration, the read access that lets it see queued jobs and
@@ -412,14 +412,19 @@ func TestManifestAsksForMigrationPermissionsOnlyWhenWanted(t *testing.T) {
 				t.Errorf("org=%q: migration manifest asks for %s:%q, want %q", org, name, got, want)
 			}
 		}
-		// Opting in adds the three and changes nothing else.
+		// Opting in adds the three, plus the Issues read GitHub requires before
+		// it delivers issue_comment on the pull requests the wizard can now
+		// open, and changes nothing else.
+		if with["issues"] != "read" {
+			t.Errorf("org=%q: migration manifest asks for issues:%q, want read", org, with["issues"])
+		}
 		for name, level := range without {
 			if with[name] != level {
 				t.Errorf("org=%q: opting in changed %s from %q to %q", org, name, level, with[name])
 			}
 		}
-		if len(with) != len(without)+len(MigrationPermissions) {
-			t.Errorf("org=%q: opting in added %d permissions, want %d", org, len(with)-len(without), len(MigrationPermissions))
+		if len(with) != len(without)+len(MigrationPermissions)+1 {
+			t.Errorf("org=%q: opting in added %d permissions, want %d", org, len(with)-len(without), len(MigrationPermissions)+1)
 		}
 	}
 }
@@ -442,6 +447,8 @@ func TestManifestPermissionsAreMinimal(t *testing.T) {
 						}
 						if migration {
 							want["contents"], want["pull_requests"], want["workflows"] = "write", "write", "write"
+							// The read GitHub requires before it delivers issue_comment.
+							want["issues"] = "read"
 						} else if files {
 							want["contents"] = "read"
 						}
@@ -552,9 +559,15 @@ func TestManifestOnlySubscribesToEventsItsPermissionsAllow(t *testing.T) {
 				if !slices.Contains(events, any("workflow_job")) {
 					t.Errorf("org=%q migration=%v: workflow_job is not subscribed: %v", org, migration, events)
 				}
-				hasPR := perms["pull_requests"] != "" || perms["issues"] != ""
-				if got := slices.Contains(events, any("issue_comment")); got != hasPR {
-					t.Errorf("org=%q migration=%v: issue_comment subscribed = %v with permissions %v; GitHub allows it only with issues or pull_requests access", org, migration, got, perms)
+				// Issues access, not Pull requests: GitHub refused a manifest
+				// holding pull_requests:write and subscribing to issue_comment
+				// with the same error, until issues:read was added.
+				hasIssues := perms["issues"] != ""
+				if got := slices.Contains(events, any("issue_comment")); got != hasIssues {
+					t.Errorf("org=%q migration=%v: issue_comment subscribed = %v with permissions %v; GitHub allows it only with issues access", org, migration, got, perms)
+				}
+				if perms["pull_requests"] != "" && perms["issues"] != "read" {
+					t.Errorf("org=%q migration=%v: pull_requests is asked for without issues:read, so a /eli comment on those pull requests is never delivered: %v", org, migration, perms)
 				}
 			}
 		}
