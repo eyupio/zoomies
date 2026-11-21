@@ -159,3 +159,44 @@ Commit: `Share one shell between the preview pages and one between their cards`.
 - A boundary or purity test has to be loosened.
 - Part C: the shell bundle passes its budget only by moving code that was
   lazily loaded into the shell.
+
+## What was done
+
+### Part A: the four store files (done)
+
+`internal/store/queries_retained_previews.go` holds the one implementation
+(`putRetainedPreview`, `getRetainedPreview`, `approveRetainedPreview`,
+`putRetainedPublication`) and a `retainedPreviewKind` descriptor with everything the
+families differ in: sentinel, version, ID prefix, limits, the three table names and
+the audit actions. The four family files keep their exported types and method names,
+so no caller changed; each is its constants, its preview struct, one descriptor and
+four thin methods (about 103 lines instead of about 335). The table names are spliced
+into SQL, so they are compile-time constants of this package's descriptors.
+
+The pairwise diff the plan asked for found two real differences, not one: the kennel-fix
+publication does not require the base commit to equal the approved head, in the
+publication's own check and again in the validation of a stored publication. That is
+the descriptor's `baseIsApprovedHead` (true for sharding, cache and readiness; false
+for kennel-fix), and the kennel-fix doc comment already said why. Everything else was
+names. The generation was mechanical (substitute each family-specific name with its
+descriptor field), then read; reading caught one bug (an ID prefix that would have
+been followed by two underscores), which the existing tests also fail on.
+
+The types stay distinct: a family's `Approval` and `Publication` are defined types
+over the shared shapes (so a pointer converts without copying), and its `Preview`
+is its own struct because it holds pointers to those. Nothing of one family can be
+passed for another's.
+
+Tests: the seven tests the sharding, readiness and kennel-fix files shared are now
+`retained_previews_test.go`, one table over the three families whose adapters convert
+to the shared shapes. The audit actions, target kind, tables and branch prefix are
+written there as literals and not read back from the descriptors, since they are what
+other things read. The two copies that were identical are deleted, kennel-fix keeps
+its fixture and the one test that is its own, and cache keeps its file: it has six
+tests of bounds, corruption and backup beyond the common ones, and its copies of the
+common ones differ in a few assertions. Mutation check: a wrong audit literal and a
+wrong `baseIsApprovedHead` each fail a test.
+
+### Parts B and C
+
+See below.
