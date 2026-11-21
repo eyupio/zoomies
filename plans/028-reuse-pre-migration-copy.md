@@ -134,3 +134,18 @@ earlier attempt is being kept).
   in a way that matters for the copy's purpose. The controller does not
   serve until `Open` returns, so nothing should write; if you find a
   writer before the migration step, stop.
+
+## What was done
+
+`reusablePreMigrationCopy` reads the newest copy's `schema_migrations` through a
+read-only, immutable connection (so looking creates no file and takes no lock)
+and reuses it only when its ledger is exactly the live one's; a copy that cannot
+be read, or differs, means a new copy, which is what the existing test that plants
+empty directories as older copies relies on. A migration that fails after an earlier
+one has applied moves the ledger, so the next start takes one copy of where the
+database now is and the start after that reuses it: the second test pins that
+(`[1 2 2]`). The first (`[1 1 1]` copies after three starts) failed before with
+three. Known limit: the check compares ledgers, not rows, so a write made to the
+database between two failed starts (a CLI command, say) is not in the reused copy;
+nothing writes while the controller cannot start, and the copy exists to get back
+past a schema change.

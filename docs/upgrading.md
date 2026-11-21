@@ -1115,7 +1115,10 @@ So the rollback plan is a copy of the database from before the upgrade, and
 pending on an existing database, it copies the database to
 `pre-migration/zoomies-<timestamp>/` beside it before applying anything, and
 keeps the last two. It is the same layout `zoomies restore` takes, so putting
-one back is one command.
+one back is one command. A start that finds the newest copy was taken when the
+database was at the migrations it has now, which is what a restart after a failed
+migration finds, keeps that copy rather than taking another, so a migration that
+cannot apply does not fill the disk with one copy a start.
 
 Take your own as well before an upgrade you are unsure about: the automatic one
 is beside the database, and a disk that fails takes both.
