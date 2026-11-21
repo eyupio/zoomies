@@ -494,12 +494,15 @@ func (s *Store) backupIfMigrationsPending(ctx context.Context) error {
 			pending = append(pending, m.name)
 		}
 	}
-	dest, err := s.backupBeforeMigrate(ctx, pending)
+	dest, reused, err := s.backupBeforeMigrate(ctx, pending, applied)
 	if err != nil {
 		return fmt.Errorf("store: copying the database before migrating it: %w "+
 			"(the upgrade has not started; free space beside the database, or move the old copies out of the way)", err)
 	}
-	if dest != "" {
+	if reused {
+		slog.Info("kept the copy taken before an earlier attempt to migrate the database, which is still the way back to it",
+			"copy", dest, "migrations", len(pending))
+	} else if dest != "" {
 		slog.Info("copied the database before migrating it",
 			"copy", dest, "migrations", len(pending),
 			"detail", "migrations are one-way; this is what an older release could be restored onto")

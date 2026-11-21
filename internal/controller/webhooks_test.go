@@ -413,6 +413,89 @@ func TestCompletedJobReturnsAPersistentRunnerToIdle(t *testing.T) {
 	}
 }
 
+// liveRunnerOf brings one runner of the harness's only pool up the way a job's
+// arrival would, without giving it a job.
+func liveRunnerOf(t *testing.T, h *harness, hostID string, jobID int64, labels []string) *store.Runner {
+	t.Helper()
+	h.deliverJob(jobEvent{Action: "queued", JobID: jobID, Name: "test", Workflow: "CI", Labels: labels})
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	h.c.lifecycleCalls.Wait()
+	r := h.onlyRunner()
+	mustReport(t, h, hostID, r.ID, store.RunnerRegistering)
+	mustReportRunning(t, h, hostID, r.ID)
+	return h.runnerByID(t, r.ID)
+}
+
+// A delivery is verified with the webhook secret of the installation that
+// covers its repository, which says who sent it and nothing about whose runner
+// it names. Runner names are not secret (any viewer sees them, and they are in
+// the logs of a public repository), so the holder of one installation's secret
+// could sign a completed delivery naming another installation's idle runner and
+// have it removed.
+func TestADeliveryCannotMoveAnotherInstallationsRunner(t *testing.T) {
+	for _, action := range []string{"in_progress", "completed"} {
+		t.Run(action, func(t *testing.T) {
+			h := newHarness(t)
+			_, _, host := h.fleet()
+			labels := []string{"self-hosted", "linux", "x64", "demo"}
+			victim := liveRunnerOf(t, h, host.ID, 7000, labels)
+			h.installationOn("globex", store.TargetOrg)
+
+			h.deliverJob(jobEvent{Action: action, JobID: 7001, Repo: "globex/app", Name: "test", Workflow: "CI",
+				Labels: labels, RunnerName: victim.Name, Conclusion: "success"})
+
+			after := h.runnerByID(t, victim.ID)
+			// The runner may settle from registering to idle meanwhile, as the
+			// enrichment that runs with every delivery sees it registered; what a
+			// delivery for another installation must not do is give it a job or
+			// take it away.
+			if (after.State != store.RunnerRegistering && after.State != store.RunnerIdle) || after.CurrentJobID != "" || after.JobsHandled != 0 {
+				t.Fatalf("a %s delivery for globex moved acme's runner: state %q (was %q), current job %q, jobs %d",
+					action, after.State, victim.State, after.CurrentJobID, after.JobsHandled)
+			}
+			if h.hasTaskOfKind(host.ID, agent.TaskRemoveRunner) {
+				t.Fatalf("a %s delivery for globex queued the removal of acme's runner", action)
+			}
+			job, err := h.st.GetJobByGitHubID(h.ctx, 7001)
+			if err != nil {
+				t.Fatalf("the delivery's own job was not recorded: %v", err)
+			}
+			if job.RunnerID != "" {
+				t.Fatalf("the globex job was linked to acme's runner %s", job.RunnerID)
+			}
+		})
+	}
+}
+
+// The boundary is the installation that covers the repository, not the one that
+// happened to be picked. A repository can be covered twice, by an installation
+// of its own and by the organisation's, and the lookup prefers the repository's.
+// GitHub may still hand the job to an organisation runner, and that runner is
+// this fleet's own: it has to stay linked to the job it ran.
+func TestARunnerOfAnInstallationThatCoversTheRepositoryStaysLinked(t *testing.T) {
+	h := newHarness(t)
+	_, _, host := h.fleet()
+	labels := []string{"self-hosted", "linux", "x64", "demo"}
+	runner := liveRunnerOf(t, h, host.ID, 7100, labels)
+	h.installationOn("acme/widgets", store.TargetRepo)
+
+	h.deliverJob(jobEvent{Action: "in_progress", JobID: 7101, Name: "test", Workflow: "CI",
+		Labels: labels, RunnerName: runner.Name})
+
+	job, err := h.st.GetJobByGitHubID(h.ctx, 7101)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.RunnerID != runner.ID {
+		t.Fatalf("the job from acme/widgets is linked to %q; want acme's own runner %s, which covers the repository", job.RunnerID, runner.ID)
+	}
+	if got := h.runnerByID(t, runner.ID); got.State != store.RunnerBusy {
+		t.Fatalf("the runner is %q after taking the job; want busy", got.State)
+	}
+}
+
 // A delivery that verifies but is not a workflow_job event this controller can
 // read is not a failure on this side. It used to be answered with a 500, which
 // is the status that asks GitHub to redeliver, so a malformed body came back

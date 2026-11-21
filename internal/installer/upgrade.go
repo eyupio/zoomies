@@ -36,6 +36,11 @@ type UpgradeOptions struct {
 	Image      string
 	Mode       Mode
 	Check      bool
+	// KeptPrevious is the SHA-256 of the previous binary the self-update that
+	// began this run kept beside the installed one (see KeptPreviousEnv), or ""
+	// when this run replaced no binary. Only a file that matches it is put back
+	// when the service does not answer.
+	KeptPrevious string
 	// Continuation keeps the binary-download half and service half under one heading.
 	Continuation bool
 	Out          io.Writer

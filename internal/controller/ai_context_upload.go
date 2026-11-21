@@ -97,23 +97,14 @@ func (c *Controller) verifyUploadToken(ctx context.Context, rawToken, audience s
 	return nil, "", fmt.Errorf("%w: it was issued by %q, which is neither GitHub.com nor an Enterprise Server with a Zoomies-only repository here", github.ErrActionsToken, claimed)
 }
 
-// CheckAIContextUploadToken verifies an upload's token alone, so the API can
-// refuse a stranger before reading a body of up to 32 MiB. The full check runs
-// again in IngestAIContextUpload; the keys are cached, so that costs nothing.
-func (c *Controller) CheckAIContextUploadToken(ctx context.Context, rawToken, audience string) error {
-	_, _, err := c.verifyUploadToken(ctx, rawToken, audience)
-	return err
-}
-
-// IngestAIContextUpload admits a Zoomies-only snapshot. The token proves which
-// repository, branch, commit and workflow file ran; everything the Both mode
-// checks on a generated branch is then checked here too, against GitHub.
-// Nothing about the request body is trusted until all of that holds.
-func (c *Controller) IngestAIContextUpload(ctx context.Context, rawToken, audience string, body []byte) (*store.AIContextRepository, error) {
-	claims, host, err := c.verifyUploadToken(ctx, rawToken, audience)
-	if err != nil {
-		return nil, err
-	}
+// admitUpload is every check on an upload that needs nothing the request body
+// says: that the token names a repository this controller has set up for
+// Zoomies-only output, at the address the token was minted for, and that the run
+// was the managed workflow on that repository's trusted branch. It claims
+// nothing and writes nothing, so it can run before the body is read and again
+// after, which matters because a token is only proof that GitHub issued it, and
+// a workflow in any repository can have GitHub issue one for this address.
+func (c *Controller) admitUpload(ctx context.Context, claims *github.ActionsClaims, host, audience string) (*store.AIContextRepository, error) {
 	numericID, err := strconv.ParseInt(claims.RepositoryID, 10, 64)
 	if err != nil || numericID <= 0 {
 		return nil, fmt.Errorf("%w: the token names no repository", ErrAIContextUploadRefused)
@@ -142,6 +133,37 @@ func (c *Controller) IngestAIContextUpload(ctx context.Context, rawToken, audien
 	case !commitSHA.MatchString(claims.SHA):
 		return nil, fmt.Errorf("%w: the token names no commit", ErrAIContextUploadRefused)
 	}
+	return r, nil
+}
+
+// CheckAIContextUploadToken is what an upload must pass before its body is read:
+// the token, and the admission of the repository it names, so the API can refuse
+// a stranger before buffering a body of up to 32 MiB. The full check runs again
+// in IngestAIContextUpload, the one that guards the write; the keys are cached,
+// so that costs nothing.
+func (c *Controller) CheckAIContextUploadToken(ctx context.Context, rawToken, audience string) error {
+	claims, host, err := c.verifyUploadToken(ctx, rawToken, audience)
+	if err != nil {
+		return err
+	}
+	_, err = c.admitUpload(ctx, claims, host, audience)
+	return err
+}
+
+// IngestAIContextUpload admits a Zoomies-only snapshot. The token proves which
+// repository, branch, commit and workflow file ran; everything the Both mode
+// checks on a generated branch is then checked here too, against GitHub.
+// Nothing about the request body is trusted until all of that holds.
+func (c *Controller) IngestAIContextUpload(ctx context.Context, rawToken, audience string, body []byte) (*store.AIContextRepository, error) {
+	claims, host, err := c.verifyUploadToken(ctx, rawToken, audience)
+	if err != nil {
+		return nil, err
+	}
+	r, err := c.admitUpload(ctx, claims, host, audience)
+	if err != nil {
+		return nil, err
+	}
+	branch := r.Config.SourceBranch
 	if err := c.st.ClaimAIContextUploadToken(ctx, claims.ID, r.ID, claims.Expiry); err != nil {
 		if errors.Is(err, store.ErrConflict) {
 			return nil, fmt.Errorf("%w: this token has already been used", ErrAIContextUploadSuperseded)

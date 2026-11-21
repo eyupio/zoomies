@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/eyupio/zoomies/internal/analysis"
 	"net/url"
 	"strings"
 	"time"
@@ -153,12 +154,12 @@ func getShardingPreview(ctx context.Context, c API, raw json.RawMessage) ([]Cont
 	if json.Unmarshal(body, &out) != nil {
 		return nil, nil, errShardingPreviewShape
 	}
-	if out.ID != a.ID || out.InstallationID != a.Installation || out.Repository != a.Repo || out.Currentness != "not_checked" || out.Verification != "inconclusive" || !readinessSHA(out.HeadSHA, 40) || !readinessSHA(out.SourceSHA256, 64) || readinessPath(out.WorkflowPath) == "" || out.JobName == "" || out.StepName == "" || out.Line < 1 || out.Shards < 2 || out.Shards > 8 || out.Runs < 10 || out.Runs > 100 || out.TestMS <= 0 || out.SetupMS < 0 || out.Headroom < out.Shards || out.RunnerMSAfter < out.RunnerMSBefore || out.WallMSAfter > out.WallMSBefore || out.Before == "" || out.After == "" || len(out.Before) > 4096 || len(out.After) > 4096 || !utf8.ValidString(out.Before) || !utf8.ValidString(out.After) || !strings.Contains(out.After, "--shard=") || !strings.Contains(out.After, "shard: [") || out.Explanation == "" || len(out.Explanation) > 4096 || out.CreatedAt.IsZero() {
+	if out.ID != a.ID || out.InstallationID != a.Installation || out.Repository != a.Repo || out.Currentness != "not_checked" || out.Verification != "inconclusive" || !analysis.LowerHex(out.HeadSHA, 40) || !analysis.LowerHex(out.SourceSHA256, 64) || readinessPath(out.WorkflowPath) == "" || out.JobName == "" || out.StepName == "" || out.Line < 1 || out.Shards < 2 || out.Shards > 8 || out.Runs < 10 || out.Runs > 100 || out.TestMS <= 0 || out.SetupMS < 0 || out.Headroom < out.Shards || out.RunnerMSAfter < out.RunnerMSBefore || out.WallMSAfter > out.WallMSBefore || out.Before == "" || out.After == "" || len(out.Before) > 4096 || len(out.After) > 4096 || !utf8.ValidString(out.Before) || !utf8.ValidString(out.After) || !strings.Contains(out.After, "--shard=") || !strings.Contains(out.After, "shard: [") || out.Explanation == "" || len(out.Explanation) > 4096 || out.CreatedAt.IsZero() {
 		return nil, nil, errShardingPreviewShape
 	}
 	var approval *shardingApprovalProjection
 	if out.Approval != nil {
-		if out.Approval.ApprovedAt.IsZero() || out.Approval.HeadSHA != out.HeadSHA || out.Approval.SourceSHA256 != out.SourceSHA256 || !readinessSHA(out.Approval.PreviewSHA256, 64) {
+		if out.Approval.ApprovedAt.IsZero() || out.Approval.HeadSHA != out.HeadSHA || out.Approval.SourceSHA256 != out.SourceSHA256 || !analysis.LowerHex(out.Approval.PreviewSHA256, 64) {
 			return nil, nil, errShardingPreviewShape
 		}
 		approval = &shardingApprovalProjection{ApprovedAt: out.Approval.ApprovedAt, HeadSHA: out.Approval.HeadSHA, SourceSHA256: out.Approval.SourceSHA256, PreviewSHA256: out.Approval.PreviewSHA256}
@@ -166,7 +167,7 @@ func getShardingPreview(ctx context.Context, c API, raw json.RawMessage) ([]Cont
 	var publication *shardingPublicationProjection
 	if out.Publication != nil {
 		x := out.Publication
-		if out.Approval == nil || x.PublishedAt.IsZero() || x.Branch == "" || x.BaseBranch == "" || !readinessSHA(x.BaseSHA, 40) || x.HeadSHA != out.HeadSHA || x.SourceSHA256 != out.SourceSHA256 || !readinessSHA(x.PreviewSHA256, 64) || x.PullNumber <= 0 || x.PullURL == "" || len(x.PullURL) > 1024 || !strings.HasPrefix(x.PullURL, "https://") && !strings.HasPrefix(x.PullURL, "http://") {
+		if out.Approval == nil || x.PublishedAt.IsZero() || x.Branch == "" || x.BaseBranch == "" || !analysis.LowerHex(x.BaseSHA, 40) || x.HeadSHA != out.HeadSHA || x.SourceSHA256 != out.SourceSHA256 || !analysis.LowerHex(x.PreviewSHA256, 64) || x.PullNumber <= 0 || x.PullURL == "" || len(x.PullURL) > 1024 || !strings.HasPrefix(x.PullURL, "https://") && !strings.HasPrefix(x.PullURL, "http://") {
 			return nil, nil, errShardingPreviewShape
 		}
 		publication = &shardingPublicationProjection{PublishedAt: x.PublishedAt, Branch: x.Branch, BaseBranch: x.BaseBranch, BaseSHA: x.BaseSHA, HeadSHA: x.HeadSHA, SourceSHA256: x.SourceSHA256, PreviewSHA256: x.PreviewSHA256, PullNumber: x.PullNumber, PullURL: x.PullURL}

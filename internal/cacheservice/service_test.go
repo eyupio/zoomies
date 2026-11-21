@@ -6,11 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -626,6 +629,119 @@ func TestStagedBytesAreBoundedAcrossOpenUploads(t *testing.T) {
 		t.Fatal("an upload was staged beyond the bytes open uploads may hold")
 	}
 }
+
+// The room an upload may use is worked out when it starts, and what it writes
+// is recorded when it ends. Between the two the bytes are on the disk and
+// counted nowhere, so uploads that overlap each saw the same full room and each
+// wrote up to the limit: N parallel blocks wrote N times the bound onto the
+// disk the host's containers share. The room has to be handed out, not just
+// looked at.
+func TestConcurrentUploadsCannotStagePastTheBound(t *testing.T) {
+	const bound = 1000
+	for _, tc := range []struct {
+		name        string
+		reservation bool // true: a reservation of its own for each upload
+	}{
+		{"many blocks of one reservation", false},
+		{"one block each of many reservations", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t, Options{MaxBytes: bound})
+			const uploads = 8
+			urls := make([]string, uploads)
+			shared, _ := h.reserve(mainToken, "shared")
+			for i := range urls {
+				urls[i] = shared
+				if tc.reservation {
+					urls[i], _ = h.reserve(mainToken, fmt.Sprintf("key-%d", i))
+				}
+				block := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("b%d", i)))
+				urls[i] += "?comp=block&blockid=" + block
+			}
+
+			// Each body sends one byte and then waits, so every upload is inside
+			// the service, past the point where it learns its room, before any
+			// of them has written the rest.
+			gate := make(chan struct{})
+			statuses := make([]int, uploads)
+			var wg sync.WaitGroup
+			for i := range urls {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					body := io.MultiReader(bytes.NewReader([]byte("x")), readerFunc(func(p []byte) (int, error) {
+						<-gate
+						n := copy(p, bytes.Repeat([]byte("x"), min(len(p), bound-1)))
+						return n, io.EOF
+					}))
+					r, _ := http.NewRequest(http.MethodPut, urls[i], body)
+					r.Header.Set("x-ms-blob-type", "BlockBlob")
+					resp, err := http.DefaultClient.Do(r)
+					if err != nil {
+						statuses[i] = -1
+						return
+					}
+					resp.Body.Close()
+					statuses[i] = resp.StatusCode
+				}()
+			}
+			time.Sleep(300 * time.Millisecond)
+			close(gate)
+			wg.Wait()
+
+			stored := 0
+			for _, st := range statuses {
+				if st == http.StatusCreated {
+					stored++
+				}
+			}
+			var onDisk int64
+			_ = filepath.WalkDir(h.svc.pendingDir(), func(path string, d fs.DirEntry, err error) error {
+				if err == nil && !d.IsDir() {
+					if info, err := d.Info(); err == nil {
+						onDisk += info.Size()
+					}
+				}
+				return nil
+			})
+			if onDisk > bound {
+				t.Errorf("%d bytes are staged on disk against a bound of %d (statuses %v)", onDisk, bound, statuses)
+			}
+			if stored > 1 {
+				t.Errorf("%d uploads of %d bytes were accepted against a bound of %d (statuses %v)", stored, bound, bound, statuses)
+			}
+		})
+	}
+}
+
+// Handing the room out must not take away what one upload alone may use: a
+// single upload of exactly the bound is accepted, and a block that replaces
+// another is given the room the old one is about to free.
+func TestHandingOutRoomStillLetsOneUploadUseAllOfIt(t *testing.T) {
+	t.Run("an upload of exactly the bound", func(t *testing.T) {
+		h := newHarness(t, Options{MaxBytes: 1000})
+		url, _ := h.reserve(mainToken, "whole")
+		if st := h.put(url, bytes.Repeat([]byte("x"), 1000)); st != http.StatusCreated {
+			t.Fatalf("an upload of exactly the bound answered %d", st)
+		}
+	})
+	t.Run("a block replacing a smaller one", func(t *testing.T) {
+		h := newHarness(t, Options{MaxBytes: 1000})
+		url, _ := h.reserve(mainToken, "blocks")
+		block := url + "?comp=block&blockid=" + base64.StdEncoding.EncodeToString([]byte("b0"))
+		if st := h.put(block, bytes.Repeat([]byte("x"), 600)); st != http.StatusCreated {
+			t.Fatalf("the first block answered %d", st)
+		}
+		if st := h.put(block, bytes.Repeat([]byte("y"), 900)); st != http.StatusCreated {
+			t.Fatalf("a block of 900 replacing one of 600, under a bound of 1000, answered %d", st)
+		}
+	})
+}
+
+// readerFunc is an io.Reader made from a function.
+type readerFunc func(p []byte) (int, error)
+
+func (f readerFunc) Read(p []byte) (int, error) { return f(p) }
 
 func TestBytesInFlightCountAgainstTheCeilingWhenEvicting(t *testing.T) {
 	// The ceiling is 25. An upload of 10 is open, so only 15 of finished entries

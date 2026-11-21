@@ -106,6 +106,34 @@ func TestMergeRefusesBinaryConflict(t *testing.T) {
 	}
 }
 
+// The text of a conflict crosses to the controller as JSON, which replaces
+// whatever is not valid UTF-8 with U+FFFD, and every later check accepts that
+// because U+FFFD is itself valid UTF-8. A Latin-1 or Shift-JIS file would come
+// back with each of its non-ASCII characters gone, on lines nobody touched, and
+// be published as the resolution. It has to stop here, where the bytes are
+// still the file's own.
+func TestMergeRefusesAConflictInAFileThatIsNotUTF8(t *testing.T) {
+	dir := repo(t)
+	write(t, dir, "file.txt", []byte("caf\xe9\nb\nc\n"))
+	ancestor := commit(t, dir, "base")
+	mustGit(t, dir, "checkout", "-qb", "side")
+	write(t, dir, "file.txt", []byte("caf\xe9\nB\nc\n"))
+	side := commit(t, dir, "side")
+	mustGit(t, dir, "checkout", "-q", "-")
+	write(t, dir, "file.txt", []byte("caf\xe9\nb\nC\n"))
+	base := commit(t, dir, "main")
+	got, err := Merge(context.Background(), Request{Dir: dir, Ancestor: ancestor, Base: base, Head: side})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Conflicts) != 0 {
+		t.Fatalf("a conflict in a Latin-1 file was handed on as text: %+v", got.Conflicts)
+	}
+	if len(got.Unsupported) != 1 || got.Unsupported[0].Path != "file.txt" || !strings.Contains(got.Unsupported[0].Reason, "UTF-8") {
+		t.Fatalf("unsupported = %+v; want the file refused with a reason that says it is not UTF-8 text", got.Unsupported)
+	}
+}
+
 func TestMergeRefusesDeleteModify(t *testing.T) {
 	dir := repo(t)
 	write(t, dir, "file.txt", []byte("a\n"))

@@ -439,6 +439,20 @@ func (s *Store) RevokeAPITokensForUser(ctx context.Context, userID string) (int6
 	return n, nil
 }
 
+// CountAPITokensForUser is how many tokens an account owns, revoked ones
+// included. An account made ahead of somebody's first sign-in owns none, so a
+// count above nothing says it was made for automation, whatever it is now
+// allowed to do. A user id of nothing counts nothing: the tokens that belong
+// to nobody are nobody's.
+func (s *Store) CountAPITokensForUser(ctx context.Context, userID string) (int, error) {
+	if userID == "" {
+		return 0, nil
+	}
+	var n int
+	err := s.read.QueryRowContext(ctx, `SELECT COUNT(*) FROM api_tokens WHERE user_id = ?`, userID).Scan(&n)
+	return n, err
+}
+
 // ---------------------------------------------------------------------------
 // Join tokens
 // ---------------------------------------------------------------------------

@@ -1,7 +1,10 @@
 package api
 
 import (
+	"bufio"
 	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -189,6 +192,80 @@ func TestUploadsFromAnythingButTheManagedWorkflowOnItsTrustedBranchAreRefused(t 
 
 // A controller that cannot reach GitHub's signing keys says so as a 503 with
 // the host to allow, not a 401 that would send the operator to the workflow.
+// stalledUpload opens a connection that sends an upload's headers, with a body
+// of a million bytes promised and none sent, and returns what the server
+// answers within the wait, or nil when it is still waiting for the body.
+func (f *uploadFixture) stalledUpload(t *testing.T, claims map[string]any, wait time.Duration) (*http.Response, net.Conn) {
+	t.Helper()
+	conn, err := net.Dial("tcp", strings.TrimPrefix(f.h.srv.URL, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	fmt.Fprintf(conn, "POST /api/v1/ai-context/uploads HTTP/1.1\r\nHost: zoomies.test\r\nAuthorization: Bearer %s\r\nContent-Length: 1000000\r\n\r\n",
+		f.issuer.Sign(f.h.t, claims))
+	_ = conn.SetReadDeadline(time.Now().Add(wait))
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		return nil, conn
+	}
+	t.Cleanup(func() { resp.Body.Close() })
+	return resp, conn
+}
+
+// The token proves GitHub issued it, and a workflow in any repository can have
+// GitHub issue one for this controller's address. What says the upload is from a
+// repository this controller serves, on its trusted branch, is checked after the
+// body of up to 32 MiB had been read into memory: a hundred requests with one
+// stranger's token held three gigabytes before any was refused. The refusal has
+// to come before the body is read, and the way to see that is a request that
+// promises a body and never sends it.
+func TestAnUploadFromARepositoryThisControllerDoesNotServeIsRefusedWithoutItsBody(t *testing.T) {
+	f := zoomiesOnlyFixture(t)
+	for name, change := range map[string]struct {
+		claim  string
+		value  any
+		status int
+	}{
+		"another repository":    {"repository_id", "999999", http.StatusNotFound},
+		"another branch":        {"ref", "refs/heads/feature", http.StatusForbidden},
+		"a pull request run":    {"event_name", "pull_request", http.StatusForbidden},
+		"another workflow file": {"job_workflow_ref", f.repo.FullName + "/.github/workflows/ci.yml@refs/heads/" + f.repo.Config.SourceBranch, http.StatusForbidden},
+	} {
+		t.Run(name, func(t *testing.T) {
+			claims := f.claims()
+			claims[change.claim] = change.value
+			resp, _ := f.stalledUpload(t, claims, 3*time.Second)
+			if resp == nil {
+				t.Fatal("the controller was still waiting for the body of an upload it should have refused on its token alone")
+			}
+			if resp.StatusCode != change.status {
+				t.Fatalf("status = %d, want %d", resp.StatusCode, change.status)
+			}
+		})
+	}
+}
+
+// Each admitted upload holds up to 32 MiB while it arrives, so how many at once
+// is bounded, and one too many is told to come back rather than queued.
+func TestTheControllerTakesOnlySoManySnapshotsAtOnce(t *testing.T) {
+	f := zoomiesOnlyFixture(t)
+	for i := range maxConcurrentUploads {
+		claims := f.claims()
+		claims["jti"] = fmt.Sprintf("stalled-%d", i)
+		if resp, _ := f.stalledUpload(t, claims, 300*time.Millisecond); resp != nil {
+			t.Fatalf("upload %d was answered (%d) although its body never came", i+1, resp.StatusCode)
+		}
+	}
+	claims := f.claims()
+	claims["jti"] = "one-too-many"
+	r := f.upload(claims, f.snapshot)
+	r.mustStatus(t, http.StatusServiceUnavailable, "an upload with every slot taken")
+	if r.header.Get("Retry-After") == "" {
+		t.Error("the refusal does not say when to come back")
+	}
+}
+
 func TestAnUploadTheControllerCannotCheckIsUnavailableNotUnauthorised(t *testing.T) {
 	f := zoomiesOnlyFixture(t)
 	f.h.ctrl.SetActionsIssuer("http://127.0.0.1:1")

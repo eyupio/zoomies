@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/eyupio/zoomies/internal/analysis"
 	"net/url"
 	"path"
 	"strconv"
@@ -152,7 +153,7 @@ func getCheckoutPreview(ctx context.Context, c API, raw json.RawMessage) ([]Cont
 	if json.Unmarshal(body, &out) != nil {
 		return nil, nil, errCheckoutPreviewShape
 	}
-	if out.ID != a.ID || out.InstallationID != a.Installation || out.Repository != a.Repo || out.Currentness != "not_checked" || out.Preview.Version != "checkout-preview-v1" || out.Preview.Kind != "checkout_depth" || out.Preview.State != "preview_ready" || out.Preview.Verification != "inconclusive" || !checkoutPreviewSHA(out.Preview.HeadSHA, 40) || !checkoutPreviewSHA(out.Preview.SourceSHA256, 64) || !checkoutPreviewSHA(out.Preview.AfterSHA256, 64) || !checkoutPreviewDecimal(out.Preview.RunID) || out.Preview.Attempt < 1 || out.Preview.JobIndex < 0 || out.Preview.StepIndex < 0 || out.Preview.Line < 1 || out.Preview.CheckoutMS <= 0 || checkoutPreviewPath(out.Preview.Path) == "" || out.Preview.Before == "" || out.Preview.After == "" || len(out.Preview.Before) > 4096 || len(out.Preview.After) > 4096 || !utf8.ValidString(out.Preview.Before) || !utf8.ValidString(out.Preview.After) || out.Preview.Explanation == "" || len(out.Preview.Explanation) > 4096 {
+	if out.ID != a.ID || out.InstallationID != a.Installation || out.Repository != a.Repo || out.Currentness != "not_checked" || out.Preview.Version != "checkout-preview-v1" || out.Preview.Kind != "checkout_depth" || out.Preview.State != "preview_ready" || out.Preview.Verification != "inconclusive" || !analysis.LowerHex(out.Preview.HeadSHA, 40) || !analysis.LowerHex(out.Preview.SourceSHA256, 64) || !analysis.LowerHex(out.Preview.AfterSHA256, 64) || !checkoutPreviewDecimal(out.Preview.RunID) || out.Preview.Attempt < 1 || out.Preview.JobIndex < 0 || out.Preview.StepIndex < 0 || out.Preview.Line < 1 || out.Preview.CheckoutMS <= 0 || checkoutPreviewPath(out.Preview.Path) == "" || out.Preview.Before == "" || out.Preview.After == "" || len(out.Preview.Before) > 4096 || len(out.Preview.After) > 4096 || !utf8.ValidString(out.Preview.Before) || !utf8.ValidString(out.Preview.After) || out.Preview.Explanation == "" || len(out.Preview.Explanation) > 4096 {
 		return nil, nil, errCheckoutPreviewShape
 	}
 	if out.Approval != nil && out.Approval.ApprovedAt.IsZero() {
@@ -194,18 +195,6 @@ func getCheckoutPreview(ctx context.Context, c API, raw json.RawMessage) ([]Cont
 		return nil, nil, errCheckoutPreviewShape
 	}
 	return []Content{{Type: "text", Text: checkoutPreviewBoundary}, {Type: "text", Text: string(encoded)}}, p, nil
-}
-
-func checkoutPreviewSHA(s string, n int) bool {
-	if len(s) != n {
-		return false
-	}
-	for _, r := range s {
-		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f') {
-			return false
-		}
-	}
-	return true
 }
 
 func checkoutPreviewDecimal(s string) bool {

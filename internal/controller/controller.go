@@ -194,6 +194,10 @@ type Controller struct {
 	// still carrying, so another observation does not start one twice.
 	conflictMu     sync.Mutex
 	conflictClaims map[string]time.Time
+	// conflictPublishFailures counts failed publications by incident, under
+	// conflictMu, so that a resolution GitHub keeps refusing is held for a
+	// person and not retried at every observation.
+	conflictPublishFailures map[string]publishFailures
 	// hostChecks is the last request to each host to check itself; see host_check.go.
 	hostChecks hostChecks
 	relay      *logRelay
@@ -600,6 +604,7 @@ func New(opts Options) (*Controller, error) {
 		backups:                 backupState{ship: make(chan struct{}, 1)},
 		hostHealthy:             map[string]bool{},
 		conflictClaims:          map[string]time.Time{},
+		conflictPublishFailures: map[string]publishFailures{},
 		removing:                map[string]struct{}{},
 		// Generous next to what GitHub sends and mean next to what a probe
 		// wants: a real delivery never reaches this limiter, and a prober gets

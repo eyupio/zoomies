@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 var (
@@ -406,6 +407,12 @@ func side(ctx context.Context, in Request, commit, path string, total *int) (blo
 	}
 	if bytes.IndexByte(content, 0) >= 0 {
 		return blobSide{Mode: mode, Binary: true}, ""
+	}
+	// The text travels as JSON, which replaces bytes that are not valid UTF-8
+	// with U+FFFD, and every check after this accepts that. A file in another
+	// encoding would be rewritten wholesale, including lines nobody touched.
+	if !utf8.Valid(content) {
+		return blobSide{Mode: mode}, "conflict text is not UTF-8, which a model cannot be handed without changing it"
 	}
 	*total += len(content)
 	return blobSide{Mode: mode, Text: string(content)}, ""

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/backup"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -30,9 +31,13 @@ func rollbackFixture(t *testing.T) (*upgradePlan, string, *bool, *bytes.Buffer) 
 	}
 	answering := false
 	var out bytes.Buffer
+	kept, err := backup.FileSHA256(bin + PreviousSuffix)
+	if err != nil {
+		t.Fatal(err)
+	}
 	p := &upgradePlan{
 		opts: UpgradeOptions{
-			Out: &out, BinaryPath: bin,
+			Out: &out, BinaryPath: bin, KeptPrevious: kept,
 			serveTimeout: 20 * time.Millisecond, servePoll: time.Millisecond, progressEvery: time.Nanosecond,
 			run: func(_ context.Context, name string, args ...string) (string, error) {
 				if name == "systemctl" && slices.Contains(args, "restart") {
@@ -103,6 +108,41 @@ func TestAMigratedDatabaseIsNotRolledBackOnto(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(bin); string(b) != "new build" {
 		t.Fatalf("binary = %q, want it left as the new release", b)
+	}
+}
+
+// The kept binary is the one this upgrade replaced, and nothing else. Upgrades
+// that do not go through the self-update (install.sh --upgrade, --no-download,
+// "already on the latest build") still restart the service and wait for it, and
+// the file left from an earlier upgrade is a release the database may have moved
+// past: putting it back is an outage, reported as the previous release having
+// been put back.
+func TestAKeptBinaryThatThisUpgradeDidNotWriteIsNotRolledBackTo(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		marker func(string) string
+	}{
+		{"no marker, a run that replaced nothing", func(string) string { return "" }},
+		{"a marker for a different file", func(string) string { return "0000000000000000000000000000000000000000000000000000000000000000" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, bin, answering, out := rollbackFixture(t)
+			p.opts.KeptPrevious = tc.marker(bin)
+
+			err := p.waitServing(context.Background(), failingCheck(answering))
+			if err == nil {
+				t.Fatal("a controller that never answered was reported as fine")
+			}
+			if strings.Contains(err.Error(), "previous release is running again") || strings.Contains(out.String(), "putting the previous release back") {
+				t.Fatalf("a stale kept binary was put back:\n%v\n%s", err, out.String())
+			}
+			if *answering {
+				t.Fatal("the service was restarted onto a binary this upgrade did not keep")
+			}
+			if b, _ := os.ReadFile(bin); string(b) != "new build" {
+				t.Fatalf("binary = %q, want it left as the new release", b)
+			}
+		})
 	}
 }
 

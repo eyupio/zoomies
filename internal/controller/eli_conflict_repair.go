@@ -28,9 +28,18 @@ const (
 	// applied, is not retried every couple of minutes: it needs a person, and
 	// the watch still records fresh evidence while it waits.
 	conflictPermanentCooldown = time.Hour
-	conflictPrepareTimeout    = 3 * time.Minute
-	conflictModelTimeout      = 10 * time.Minute
-	conflictLoopInterval      = 2 * time.Second
+	// conflictPublishAttempts is how many times a resolution that could not be
+	// published is tried for one head and base before it is held for a person:
+	// the check repair chain allows three, and each try here is three archive
+	// downloads, a worker and a model session.
+	conflictPublishAttempts = 3
+	// conflictFailureMemory is how long a count of failed publications outlives
+	// the last one, so that an incident that stopped failing (the pull request
+	// moved on or closed) is not remembered for ever.
+	conflictFailureMemory  = 24 * time.Hour
+	conflictPrepareTimeout = 3 * time.Minute
+	conflictModelTimeout   = 10 * time.Minute
+	conflictLoopInterval   = 2 * time.Second
 )
 
 // conflictJob is the incident a prepared repository belongs to. It is kept
@@ -73,8 +82,52 @@ func (c *Controller) claimConflict(key string, until time.Time) bool {
 			delete(c.conflictClaims, held)
 		}
 	}
+	for counted, failures := range c.conflictPublishFailures {
+		if now.Sub(failures.last) > conflictFailureMemory {
+			delete(c.conflictPublishFailures, counted)
+		}
+	}
 	c.conflictClaims[key] = until
 	return true
+}
+
+// publishFailures is how often the publication of one incident's resolution has
+// failed, and when it last did.
+type publishFailures struct {
+	count int
+	last  time.Time
+}
+
+// conflictPublishFailed counts a resolution that could not be published and
+// says whether the incident is now held for a person. The first failures let the
+// claim go, so the next observation tries again; from the third the claim is
+// held for the long cooldown. The count outlives the hold, so what an hour of
+// waiting did not change costs one more attempt and not three.
+//
+// It is in memory, like the claims: a restart starts the count again, which is a
+// bounded cost (three attempts) and spares the store a table for it.
+func (c *Controller) conflictPublishFailed(key string) (held bool) {
+	c.conflictMu.Lock()
+	defer c.conflictMu.Unlock()
+	failures := c.conflictPublishFailures[key]
+	failures.count++
+	failures.last = c.Now()
+	c.conflictPublishFailures[key] = failures
+	if failures.count < conflictPublishAttempts {
+		delete(c.conflictClaims, key)
+		return false
+	}
+	c.conflictClaims[key] = c.Now().Add(conflictPermanentCooldown)
+	return true
+}
+
+// conflictPublished lets an incident go once its resolution is on the pull
+// request, and forgets the failures that came before it.
+func (c *Controller) conflictPublished(key string) {
+	c.conflictMu.Lock()
+	defer c.conflictMu.Unlock()
+	delete(c.conflictClaims, key)
+	delete(c.conflictPublishFailures, key)
 }
 
 // conflictClaimed reports whether an incident is still held, which is what
@@ -325,10 +378,14 @@ func (c *Controller) processConflictAnswer(ctx context.Context, id string) {
 			return
 		}
 		c.log.Warn("could not publish a conflict resolution", "watch", job.WatchID, "repo", job.Repo, "pull", job.PullNumber, "error", err)
-		c.releaseConflict(key)
+		if c.conflictPublishFailed(key) {
+			c.log.Warn("a conflict resolution could not be published, repeatedly, so it needs a person: Eli will not try this pull request again for an hour unless it changes",
+				"watch", job.WatchID, "repo", job.Repo, "pull", job.PullNumber, "attempts", conflictPublishAttempts,
+				"fix", "check that the pull request's branch accepts pushes from the App, then change the pull request or ask again")
+		}
 		return
 	}
-	c.releaseConflict(key)
+	c.conflictPublished(key)
 	c.log.Info("published a conflict resolution",
 		"watch", job.WatchID, "repo", job.Repo, "pull", job.PullNumber, "commit", sha,
 		"files", len(changes), "conflicts", len(answer.Result.Conflicts))

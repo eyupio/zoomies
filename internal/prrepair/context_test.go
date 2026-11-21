@@ -158,6 +158,25 @@ func TestRepeatedSourceReadsDoNotSpendTheAllowanceAgain(t *testing.T) {
 		t.Fatalf("bytes %d reads %d", s.bytes, r.reads)
 	}
 }
+
+// A window of source is as much a place for a secret as a log is: a script
+// that pulls from a registry with its password in the address, a settings file.
+func TestSourceWindowsLoseTheSecretsInThem(t *testing.T) {
+	s := newSourceContext(files{"deploy.sh": {Content: "set -e\ndocker pull https://ci:hunter2@registry.example.com/img\nexport DB_PASSWORD=supersecretvalue\necho done\n"}}, false)
+	parts, err := s.reveal(context.Background(), ReadWindow{Path: "deploy.sh", StartLine: 1, EndLine: 4})
+	if err != nil || len(parts) != 1 {
+		t.Fatalf("reveal: %+v %v", parts, err)
+	}
+	for _, secret := range []string{"hunter2", "supersecretvalue"} {
+		if strings.Contains(parts[0].Content, secret) {
+			t.Errorf("the window shown to the model still holds %q:\n%s", secret, parts[0].Content)
+		}
+	}
+	if !strings.Contains(parts[0].Content, "set -e") || !strings.Contains(parts[0].Content, "echo done") {
+		t.Errorf("the rest of the window was lost:\n%s", parts[0].Content)
+	}
+}
+
 func TestOverlappingWindowsOnlyDiscloseNewSource(t *testing.T) {
 	s := newSourceContext(files{"a": {Content: "one\ntwo\nthree\nfour\n"}}, false)
 	_, err := s.reveal(context.Background(), ReadWindow{Path: "a", StartLine: 1, EndLine: 2})

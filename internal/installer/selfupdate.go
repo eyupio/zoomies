@@ -34,6 +34,27 @@ var ErrSignature = errors.New("the release is not signed by a trusted release ke
 // ignores it instead of refusing an unknown flag.
 const SelfUpdateEnv = "ZOOMIES_NO_SELF_UPDATE"
 
+// KeptPreviousEnv carries, across the re-execution into the binary a self-update
+// just installed, the SHA-256 of the previous binary that self-update kept
+// beside it. The run that waits for the service puts that file back when the
+// service never answers, and has to be sure the file is the one this upgrade
+// kept: after an upgrade that did not go through the self-update (install.sh
+// --upgrade, --no-download) the file left is from an earlier one, and a database
+// a newer release has migrated cannot be opened by it. Like SelfUpdateEnv it is
+// an environment variable, so a release that predates it ignores it.
+const KeptPreviousEnv = "ZOOMIES_UPGRADE_KEPT_PREVIOUS"
+
+// KeptPreviousMarker is the environment entry that names the previous binary
+// kept beside binary, or "" when there is none or it cannot be read, in which
+// case nothing is rolled back to: that is the safe side.
+func KeptPreviousMarker(binary string) string {
+	sum, err := backup.FileSHA256(binary + PreviousSuffix)
+	if err != nil {
+		return ""
+	}
+	return KeptPreviousEnv + "=" + sum
+}
+
 // SelfUpdateOptions says which binary to bring up to date and from where.
 type SelfUpdateOptions struct {
 	// BinaryPath is the binary the service runs, which is what gets replaced.
@@ -233,9 +254,27 @@ func FetchRelease(ctx context.Context, opts SelfUpdateOptions) (*Candidate, Self
 	}
 	// A file that hashes right but will not run -- the wrong architecture
 	// behind a matching sums file on a mirror -- must not replace one that does.
-	if _, err := opts.run(ctx, cand.Path, "version", "--short"); err != nil {
+	reported, err := opts.run(ctx, cand.Path, "version", "--short")
+	if err != nil {
 		cand.Discard()
 		return nil, res, fmt.Errorf("the downloaded binary will not run on this host; the installed one was left in place: %w", err)
+	}
+	// Nor may one that is a different release from the one asked for. The
+	// signature covers the checksums, which name hashes and assets and no
+	// version, so a mirror (or replaced release assets) could serve an old
+	// release's genuine checksums, signature and binary under a newer tag, and
+	// the downgrade guard above would see only the tag. What the binary says it
+	// is does not come from the same place. A release reports its version
+	// without the leading v, which CompareBuilds allows for; the rolling build
+	// reports whatever it was called, so it is not held to a tag. An empty
+	// answer is refused, because CompareBuilds takes it as nothing to compare.
+	if tag != "dev" {
+		name, _, _ := strings.Cut(strings.TrimSpace(reported), " ")
+		if name == "" || version.CompareBuilds(name, tag) != version.SkewNone {
+			cand.Discard()
+			return nil, res, fmt.Errorf("the download for %s reports itself as %q, so it is not the release that was asked for; the installed binary was left in place",
+				tag, strings.TrimSpace(reported))
+		}
 	}
 	return cand, res, nil
 }
