@@ -341,7 +341,7 @@ func TestNotePermissionsNamesTheMigrationPermissionsOnlyWhenTheyAreRequested(t *
 			if !strings.Contains(body, "organization_self_hosted_runners:write") {
 				t.Errorf("the runner permission is missing:\n%s", body)
 			}
-			for _, perm := range []string{"contents:write", "pull_requests:write", "workflows:write"} {
+			for _, perm := range []string{"contents:write", "pull_requests:write", "workflows:write", "issues:read"} {
 				if got := strings.Contains(body, perm); got != tc.migration {
 					t.Errorf("mentions %s = %v, want %v\n%s", perm, got, tc.migration, body)
 				}

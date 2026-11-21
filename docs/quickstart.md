@@ -211,13 +211,14 @@ you add them later. The details below explain each grant.
     | `statuses: read` | read commit statuses for the same reason |
     | `metadata: read` | required by GitHub for any App |
     | `workflow_job` event | the webhook that makes scaling instant |
-    | `issue_comment` event | only with the migration answer below, because GitHub allows it only with pull request access: the webhook that carries a maintainer's `/eli fix` request |
+    | `issue_comment` event | only with the migration answer below, which also asks for `issues: read`, because GitHub sends this event only to an App with Issues access: the webhook that carries a maintainer's `/eli fix` request |
     | `pull_request` event | optional: tells repository-wide watching about a newly opened PR immediately. Periodic discovery still finds it within five minutes without this event. |
 
     That is the whole list, and none of it is access to your repositories' contents.
     Before it opens GitHub, Zoomies asks one more question: **Also let Zoomies open migration
     pull requests?** The answer is no unless you say otherwise. Yes adds three more
-    permissions (`contents: write`, `pull_requests: write` and `workflows: write`)
+    permissions (`contents: write`, `pull_requests: write` and `workflows: write`),
+    plus `issues: read` for the `issue_comment` event,
     so the [migration wizard](migration.md) can rewrite `runs-on` and open one pull
     request per repository. Nothing else in Zoomies writes to a repository, so a
     fleet that never migrates never needs them. Decide now if you can: adding a

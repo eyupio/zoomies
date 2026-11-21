@@ -251,6 +251,7 @@ three App permissions the rest of Zoomies has no use for:
 | Contents | read and write | To create a branch and commit the file. |
 | Pull requests | read and write | To open the pull request. |
 | Workflows | write | GitHub requires it specifically to change files under `.github/workflows`. |
+| Issues | read | Asked for with the other three: GitHub delivers the `issue_comment` event, which carries a `/eli` request, only to an App with Issues access. |
 
 An App that Zoomies creates does **not** ask for them by default. Connecting
 GitHub, in the browser or in the installer, asks "Also let Zoomies open
