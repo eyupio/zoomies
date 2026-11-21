@@ -1,5 +1,7 @@
 # Plan 016: Let only finished runners hold the roll-up
 
+> **Outcome**: see "What was done" at the end. Only the installation roll-up was narrowed; the usage roll-up's hold is deliberate and stays.
+
 > **Executor instructions**: Read "Rules for every plan" in
 > [audit-2026-11-21.md](audit-2026-11-21.md) and `internal/store/AGENTS.md`
 > first. Follow this plan step by step, run every verification, and stop on
@@ -115,3 +117,30 @@ has nothing to record yet, and waiting for it stops every prune behind it.
 - An instance that has been held for months will prune a large backlog on
   its first pass after this lands. `PruneJobs` already works in batches of
   500; no change is needed, but expect a long first maintenance pass.
+
+## What was done
+
+Step 1 found that the two roll-ups are not alike, so the plan's premise held
+for one of them only.
+
+- **Installation roll-up** (`RollUpInstallations`): counts a runner on the day
+  it finishes (`runner_sessions.finished_at`, or the row's own `finished_at`
+  while its session is pending) and reads a live runner's create-task time from
+  its own row. `finished_at` is stamped from the store's clock when a runner
+  enters `removed` or `failed`, so a live runner cannot finish on a day that is
+  already rolled. Its hold was never needed, and it gates the jobs prune.
+  Narrowed to runners in `removed` or `failed` that have no session.
+- **Usage roll-up** (`RollUpUsage`): a pure function of the sessions, and a
+  session spreads its allocation over every day from its start to its end,
+  arriving only at the end. If the roll-up passed a live runner's start day,
+  those days would be closed before its session existed and its first days
+  would be undercounted. This is the STOP condition in Step 1, and the hold
+  stays. It gates only `PruneRunnerSessions`, so a runner that lives for longer
+  than `retention.runner_sessions` (a year by default) still delays that prune;
+  it does not stop the jobs prune.
+
+Tests: `TestALiveRunnerDoesNotHoldTheInstallationRollUp` (failed before: 0 days
+rolled; after: 45 rolled and the 15 jobs older than the cutoff pruned) and
+`TestAFinishedRunnerWithNoSessionYetStillHoldsTheInstallationRollUp` (the
+finished-runner hold, unchanged). `TestTheRollUpWaitsForARunnerThatHasNoSessionYet`
+passes unchanged.

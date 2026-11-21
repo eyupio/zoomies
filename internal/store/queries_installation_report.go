@@ -226,7 +226,11 @@ func b2i(b bool) int {
 // longer change into installation_daily, and returns how many days it rolled.
 //
 // A day is held open by a job observed on it that has not completed, and by a
-// runner created on it that has no session yet. A job that will never
+// runner created on it that has finished and has no session yet. A runner that
+// is still alive holds nothing: it is counted on the day it finishes, which is
+// never before the roll-up's target, and what its jobs need from it is read from
+// its own row. Waiting for it would stop the jobs prune behind this roll-up for
+// as long as a warm or persistent runner lived. A job that will never
 // complete -- GitHub stopped telling us about it -- must not hold the roll-up
 // for ever, so one observed before settledBefore does not hold: it is about to
 // be pruned, and is counted as what it was. The caller passes the jobs prune
@@ -244,7 +248,8 @@ func (s *Store) RollUpInstallations(ctx context.Context, until, settledBefore ti
 		if err := tx.QueryRowContext(ctx, `SELECT MIN(at) FROM (
 			SELECT MIN(queued_at) AS at FROM jobs WHERE state != 'completed' AND queued_at >= ?
 			UNION ALL SELECT MIN(created_at) FROM runners r
-				WHERE NOT EXISTS (SELECT 1 FROM runner_sessions rs WHERE rs.runner_id = r.id))`, settled).Scan(&held); err != nil {
+				WHERE r.state IN ('removed', 'failed')
+				AND NOT EXISTS (SELECT 1 FROM runner_sessions rs WHERE rs.runner_id = r.id))`, settled).Scan(&held); err != nil {
 			return err
 		}
 		if held.Valid {
