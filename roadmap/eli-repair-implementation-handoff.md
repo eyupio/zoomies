@@ -547,6 +547,7 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1417](https://github.com/eyupio/zoomies/pull/1417), open, stacked on #1416 | S4 UI: repair settings lead with the three behaviours and admit repository watching on save; the hub and repair settings list each repository's effective behaviour, watched count, last successful observation, activity and attention with its pull requests underneath; one pull request shows its intended action, evidence, first failure, published commit and files and the checks now; pause one pull request, pause a repository, resume either and stop all, each saying what happens to work already under way; a failed read never shows an all-clear | UI unit, type, lint and production build pass; 26 Playwright cases on desktop and mobile for the watching spec, the repairs, setup, hub and automatic suites and the repairs accessibility audit; Go and docs tests unchanged and green; no live model, worker image or GitHub PR | Live end-to-end validation; the attempt history beside the current pull request; one row per repository; non-administrator activity; notifications |
 | [#1418](https://github.com/eyupio/zoomies/pull/1418), open, stacked on #1417 | S4 UI follow-up: the watched pull request's disclosure lists every attempt on that pull request, newest first, with how it ended, when, who began it and the commit it published, and links each to the attempt page; the list is narrowed to the watched pull request, a failed read says so, and a truncated history says older attempts may be missing | UI type, lint and production build pass; 1,335 unit cases pass including two new history-order cases; 28 Playwright cases on desktop and mobile for `repair-watching`, including the new history case; the repairs pages of the accessibility audit pass on both devices; no Go or API change | One row per repository; non-administrator activity or an explicit administrator-only statement; notifications; live end-to-end validation |
 | [#1497](https://github.com/eyupio/zoomies/pull/1497), open | Corrective, not a slice: a finished attempt stops asking in **Needs you** once its pull request no longer needs it. See "Finished attempts that no longer need anyone, 14 November 2026" | Store and controller tests named in that section, the full Go suite, vet, gofmt, UI type check and lint pass; checked against one live instance's list, read-only; no live model or GitHub write | Unchanged: the S4 items in the checkpoint table |
+| [#1535](https://github.com/eyupio/zoomies/pull/1535), open | Corrective, not a slice: fixes from the 21 November 2026 audit that touch Eli repair. See "Corrective fixes from the 21 November 2026 audit" | The tests named in that section, vet and gofmt pass; the full Go suite is run once for the whole pull request, not per fix; fakes only, no live model and nothing written to GitHub | Unchanged: the S4 items in the checkpoint table |
 | [#1392](https://github.com/eyupio/zoomies/pull/1392), open | Controller load, not a slice: the S2c due-watch claim looks on the reader pool before taking the writer, alongside the enrichment claim, the event stream's figures and the database file's mapping | Full `make test` race suite (55 packages), vet, staticcheck, gofmt and `go mod tidy -diff` pass; no UI, public API or watch behaviour change | Unchanged: S3b resolution and publication, then S4 UX |
 
 S4 attempt-history validation on 6 November 2026:
@@ -2255,3 +2256,25 @@ commit pass and the page's "checks passed" wording is Eli's own claim.
 `TestSettlingAnEliRepairLeavesOneThatHasMovedOnAlone`. Fakes only: no live
 model, and nothing was written to GitHub or to the instance the list was read
 from.
+
+## Corrective fixes from the 21 November 2026 audit
+
+Corrective PR: [#1535](https://github.com/eyupio/zoomies/pull/1535). Not a slice;
+S4's remaining items in the checkpoint table are unchanged and still the next
+unfinished step. The fixes come from `plans/audit-2026-11-21.md` and are listed
+here one at a time, as each lands.
+
+**Plan 014: the conflict commit moves the branch it was given.**
+`CommitConflictResolution` built the ref URL as
+`base+"/git/refs/heads/"+p.Branch` and sent it through `repairRequest`, which
+parses it as a URL. A branch named `main#42-fix` lost everything from `#`, so the
+update went to `refs/heads/main`; because the target's tip is the merge commit's
+second parent, that update is a fast-forward and would have published the merge
+to the target branch. `feature/#123` went to `refs/heads/feature/`, `what?now`
+to `refs/heads/what`, and `100%done` failed to parse at all, so every
+publication for it failed. The branch is now escaped one segment at a time
+(`escapeRefPath`), keeping the slashes. The other pasted values in the Eli
+requests are commit SHAs GitHub returned, and the check repair path already goes
+through the client library's `UpdateRef`, which escapes. The test is
+`TestAConflictCommitMovesTheBranchItWasGivenWhateverItsName`; it failed before
+the change for the four unsafe names.
