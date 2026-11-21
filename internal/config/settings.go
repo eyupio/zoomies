@@ -191,7 +191,10 @@ var registry = buildRegistry([]Setting{
 	// ---------------------------------------------------------------------
 	{
 		Key: "server.bind", Label: "Listen address", Env: "ZOOMIES_BIND", Kind: KindString, Scope: ScopePlatform,
-		Summary:       "The address the controller listens on. 127.0.0.1:8080 is this machine only; 0.0.0.0:8080 is every interface.",
+		Summary: "On a native install, 127.0.0.1:8080 limits access to this host. " +
+			"With Docker port publishing or a proxy in another container, keep listening on the container network (0.0.0.0:8080 by default). " +
+			"Binding to 127.0.0.1 inside the container can cut off access after restart. " +
+			"For host-only access with installer-generated Compose, set ZOOMIES_PUBLISHED_ADDR=127.0.0.1 in .env.",
 		RestartReason: "the listener is already bound, and rebinding it under live connections is how a reload becomes an outage",
 	},
 	{

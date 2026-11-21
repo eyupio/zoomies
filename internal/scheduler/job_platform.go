@@ -13,7 +13,11 @@ import (
 // Keep the native kernel even when the distro is outside the naming catalogue.
 func ExecutionPlatform(p *store.Pool, h *store.Host) (os, arch string) {
 	if p.Backend == store.BackendProcess {
-		return firstNonEmpty(h.OS, h.Distro), h.Arch
+		os := h.OS
+		if RunnerKernel(os) == "" {
+			os = h.Platform().OS
+		}
+		return os, h.Arch
 	}
 	if runtime, ok := h.BackendInfo.Find(p.Backend); ok {
 		return runtime.OS, runtime.Arch
