@@ -631,7 +631,7 @@ func (t *tick) decidePool(p *store.Pool, runners []*store.Runner, queued []*stor
 		remaining, stopped = t.decideByRepository(p, &plan, remaining, queued, eligibleJobs, live)
 		live -= stopped
 	} else {
-		t.matchPlatformSupply(p, &plan, remaining, eligibleJobs, live)
+		remaining = t.matchPlatformSupply(p, &plan, remaining, eligibleJobs, live)
 	}
 	plan.Failing, plan.FailingFault = t.holdAfterStartFailures(p, runners)
 	plan.Held = t.holdWhileRateLimited(p)

@@ -121,9 +121,11 @@ func (hs *hostSet) host(id string) *store.Host {
 	return hs.hosts[i]
 }
 
-func (t *tick) matchPlatformSupply(p *store.Pool, plan *PoolPlan, runners []*store.Runner, eligible []placementDemand, live int) {
+// matchPlatformSupply returns the runners that scale-down may consider.
+// A runner promised to a queued job must survive while that job waits.
+func (t *tick) matchPlatformSupply(p *store.Pool, plan *PoolPlan, runners []*store.Runner, eligible []placementDemand, live int) []*store.Runner {
 	if !slices.ContainsFunc(eligible, func(d placementDemand) bool { return d.platform != 0 }) {
-		return
+		return runners
 	}
 	slices.SortStableFunc(eligible, preferPlatformDemand)
 	var free []*store.Runner
@@ -145,7 +147,7 @@ func (t *tick) matchPlatformSupply(p *store.Pool, plan *PoolPlan, runners []*sto
 		plan.supply++
 	}
 	if len(plan.pending) == 0 {
-		return
+		return free
 	}
 	plan.Desired = max(plan.Desired, min(live+len(plan.pending), p.MaxRunners))
 	// An incompatible warm runner can hold the last pool slot forever.
@@ -167,4 +169,5 @@ func (t *tick) matchPlatformSupply(p *store.Pool, plan *PoolPlan, runners []*sto
 		plan.Reason = scaled(p.Name, live, live-1, reason)
 		short--
 	}
+	return free
 }

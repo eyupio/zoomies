@@ -85,6 +85,25 @@ func TestCoveredPlatformDemandStillLetsSurplusRunnersScaleDown(t *testing.T) {
 	}
 }
 
+func TestScaleDownKeepsAStartingRunnerThatCanTakeTheQueuedJob(t *testing.T) {
+	pool := testPool("ci", "ci")
+	amd := hostOn("host_a", "ubuntu", "24.04", "amd64", 4)
+	arm := hostOn("host_b", "ubuntu", "24.04", "arm64", 4)
+	idle := idleRunner("idle-x64", pool, 6*time.Minute)
+	for _, state := range []store.RunnerState{store.RunnerProvisioning, store.RunnerRegistering, store.RunnerIdle} {
+		t.Run(string(state), func(t *testing.T) {
+			matching := testRunner("arm64", pool, state, time.Minute)
+			matching.HostID = arm.ID
+			job := queued("arm", time.Minute, "arm64", "ci")
+			plan := Decide(snap([]*store.Pool{pool}, []*store.Runner{idle, matching}, []*store.Job{job}, []*store.Host{amd, arm}))
+			drains := actionsOf(plan.Actions, ActionDrain)
+			if len(drains) != 1 || drains[0].RunnerID != idle.ID {
+				t.Fatalf("want to drain only idle x64 runner %q, got %+v", idle.ID, drains)
+			}
+		})
+	}
+}
+
 func TestPersonalAccountPlacementKeepsTheRepositoryOfTheCompatibleJob(t *testing.T) {
 	pool := testPool("ci", "ci")
 	host := hostOn("host_a", "ubuntu", "24.04", "amd64", 4)
