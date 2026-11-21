@@ -71,6 +71,20 @@ func TestAnIdleRunnerForTheWrongArchitectureDoesNotCountAsSupply(t *testing.T) {
 	}
 }
 
+func TestCoveredPlatformDemandStillLetsSurplusRunnersScaleDown(t *testing.T) {
+	pool := testPool("ci", "ci")
+	host := hostOn("host_a", "ubuntu", "24.04", "arm64", 4)
+	runners := []*store.Runner{
+		idleRunner("first", pool, 6*time.Minute),
+		idleRunner("second", pool, 7*time.Minute),
+	}
+	job := queued("arm", time.Minute, "arm64", "ci")
+	plan := Decide(snap([]*store.Pool{pool}, runners, []*store.Job{job}, []*store.Host{host}))
+	if got := len(actionsOf(plan.Actions, ActionDrain)); got != 1 || plan.Pools[0].Desired != 1 {
+		t.Fatalf("one runner should stay for the job and one should drain, got %+v", plan.Pools[0])
+	}
+}
+
 func TestPersonalAccountPlacementKeepsTheRepositoryOfTheCompatibleJob(t *testing.T) {
 	pool := testPool("ci", "ci")
 	host := hostOn("host_a", "ubuntu", "24.04", "amd64", 4)

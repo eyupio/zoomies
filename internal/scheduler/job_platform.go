@@ -144,6 +144,9 @@ func (t *tick) matchPlatformSupply(p *store.Pool, plan *PoolPlan, runners []*sto
 		free = slices.Delete(free, ix, ix+1)
 		plan.supply++
 	}
+	if len(plan.pending) == 0 {
+		return
+	}
 	plan.Desired = max(plan.Desired, min(live+len(plan.pending), p.MaxRunners))
 	// An incompatible warm runner can hold the last pool slot forever.
 	// Drain an unused runner only if another host can serve that job.
