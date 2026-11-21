@@ -113,3 +113,24 @@ both pass, and `gofmt -l` on the changed directories is empty.
 - A deleted name turns out to be reached through reflection, a
   `go:embed`, a `go:generate` directive or a string.
 - A docs test in `internal/docs` names one of the files.
+
+## What was done
+
+The search the plan asks for before each deletion found uses the audit had not,
+so less was deleted than listed:
+
+- **Deleted**: `DecimalID` (only its declaration), the three `design/*-uplift-mocks.html`
+  pages (nothing mentions them), and the five unused exported types in
+  `web/src/lib/api/types.ts` (`GoDuration`, `PanelLayoutPreference`, `SettingKind`,
+  `SettingScope`, `SettingsImportAction`; the UI type check passes with none of them).
+  About 1,810 lines in all, 1,772 of them HTML.
+- **Kept, `internal/aicontext/storage.go`**: `internal/aicontext/README.md` documents
+  `DiskStorage` as a component that "is not wired into the controller yet". That is
+  deliberate staging of a feature, so removing it is the owner's decision, not dead
+  code removal.
+- **Kept, three store queries**: `CheckHostRecovery`, `EliRepairWatchForPull` and
+  `DeleteAIContextRepository` have no production caller, but tests use them as the
+  thing under test (the recovery fence's refusal, the cascade when an AI Context
+  repository is deleted) or as the probe of other behaviour (three controller tests
+  read the watch a webhook made). Replacing them is not a small change, which the
+  plan says to leave and say so.

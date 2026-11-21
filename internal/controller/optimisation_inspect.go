@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"errors"
-	"strconv"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/github"
@@ -86,5 +85,3 @@ func OptimisationHistoryReview(headSHA, sourceSHA256 string) optimisation.Histor
 	needs := false
 	return optimisation.HistoryReview{HeadSHA: headSHA, SourceSHA256: sourceSHA256, Scope: "repository_and_downstream_consumers", NeedsHistory: &needs}
 }
-
-func DecimalID(n int64) string { return strconv.FormatInt(n, 10) }

@@ -40,7 +40,7 @@ was not audited) is in [improve.md](improve.md).
 | [028](028-reuse-pre-migration-copy.md) | Reuse the pre-migration copy when a migration fails again | P2 | M | none | DONE (this branch) |
 | [029](029-admit-upload-before-body.md) | Admit an AI Context upload's repository before reading its body | P2 | M | none | DONE (this branch) |
 | [030](030-fold-copied-preview-code.md) | Fold the copied preview and comparison code into one of each | P3 | L | none (three independent parts) | TODO |
-| [031](031-delete-unused-code.md) | Delete what nothing uses | P3 | S | none | TODO |
+| [031](031-delete-unused-code.md) | Delete what nothing uses | P3 | S | none | DONE (this branch; storage.go and three store queries kept, see the plan) |
 
 Plans 012 to 031 come from a second audit, on 2026-11-21 against commit
 `8ce1be3`. Their context, the rules they share, the smaller findings that
