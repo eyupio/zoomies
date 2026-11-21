@@ -2278,3 +2278,19 @@ requests are commit SHAs GitHub returned, and the check repair path already goes
 through the client library's `UpdateRef`, which escapes. The test is
 `TestAConflictCommitMovesTheBranchItWasGivenWhateverItsName`; it failed before
 the change for the four unsafe names.
+
+**Plan 015: a conflict in a file that is not UTF-8 is not handed on.**
+`gitmerge.side` counted a blob as text when it held no NUL byte. The text then
+crossed to the controller inside JSON, where `encoding/json` replaces bytes that
+are not valid UTF-8 with U+FFFD, and every later check (`prrepair`'s text
+validation, the `utf8.Valid` in the conflict commit) accepts that because U+FFFD
+is itself valid UTF-8. A Latin-1, Windows-1252 or Shift-JIS file that conflicted
+would have been shown to the model, and published, with each of its non-ASCII
+characters gone, on lines nobody touched. `side` now refuses a blob that is not
+valid UTF-8 with the reason "conflict text is not UTF-8, which a model cannot be
+handed without changing it", and the file is reported as an unsupported conflict
+like a binary one. Clean-merged files are not affected: `Change.Content` is
+`[]byte`. The test is `TestMergeRefusesAConflictInAFileThatIsNotUTF8`; it failed
+before the change because the Latin-1 conflict came back as a supported one.
+`go test -race ./internal/gitmerge/...` passes, and the conflict and merge tests
+in `internal/controller`, `internal/conflictresolve` and `internal/agent` pass.
