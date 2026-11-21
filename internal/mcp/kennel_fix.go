@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/eyupio/zoomies/internal/analysis"
 	"net/url"
 	"strings"
 	"time"
@@ -122,12 +123,12 @@ func getKennelFix(ctx context.Context, c API, raw json.RawMessage) ([]Content, a
 	if json.Unmarshal(body, &out) != nil {
 		return nil, nil, errKennelFixShape
 	}
-	if out.ID != a.ID || out.InstallationID != a.Installation || out.Repository != a.Repo || !strings.HasPrefix(out.KennelRepositoryID, "kcr_") || out.Currentness != "not_checked" || out.CheckCode != "ci.no_timeout" || out.Verification != "recheck" || !readinessSHA(out.HeadSHA, 40) || !readinessSHA(out.SourceSHA256, 64) || readinessPath(out.WorkflowPath) == "" || out.JobName == "" || out.Minutes < 1 || out.Minutes > 1440 || out.Line < 1 || out.Branch == "" || len(out.Branch) > 255 || out.Before == "" || out.After == "" || len(out.Before) > 4096 || len(out.After) > 4096 || !utf8.ValidString(out.Before) || !utf8.ValidString(out.After) || !strings.Contains(out.After, "timeout-minutes: ") || out.Explanation == "" || len(out.Explanation) > 4096 || out.CreatedAt.IsZero() {
+	if out.ID != a.ID || out.InstallationID != a.Installation || out.Repository != a.Repo || !strings.HasPrefix(out.KennelRepositoryID, "kcr_") || out.Currentness != "not_checked" || out.CheckCode != "ci.no_timeout" || out.Verification != "recheck" || !analysis.LowerHex(out.HeadSHA, 40) || !analysis.LowerHex(out.SourceSHA256, 64) || readinessPath(out.WorkflowPath) == "" || out.JobName == "" || out.Minutes < 1 || out.Minutes > 1440 || out.Line < 1 || out.Branch == "" || len(out.Branch) > 255 || out.Before == "" || out.After == "" || len(out.Before) > 4096 || len(out.After) > 4096 || !utf8.ValidString(out.Before) || !utf8.ValidString(out.After) || !strings.Contains(out.After, "timeout-minutes: ") || out.Explanation == "" || len(out.Explanation) > 4096 || out.CreatedAt.IsZero() {
 		return nil, nil, errKennelFixShape
 	}
 	var approval *readinessApprovalProjection
 	if out.Approval != nil {
-		if out.Approval.ApprovedAt.IsZero() || out.Approval.HeadSHA != out.HeadSHA || out.Approval.SourceSHA256 != out.SourceSHA256 || !readinessSHA(out.Approval.PreviewSHA256, 64) {
+		if out.Approval.ApprovedAt.IsZero() || out.Approval.HeadSHA != out.HeadSHA || out.Approval.SourceSHA256 != out.SourceSHA256 || !analysis.LowerHex(out.Approval.PreviewSHA256, 64) {
 			return nil, nil, errKennelFixShape
 		}
 		approval = &readinessApprovalProjection{ApprovedAt: out.Approval.ApprovedAt, HeadSHA: out.Approval.HeadSHA, SourceSHA256: out.Approval.SourceSHA256, PreviewSHA256: out.Approval.PreviewSHA256}
@@ -135,7 +136,7 @@ func getKennelFix(ctx context.Context, c API, raw json.RawMessage) ([]Content, a
 	var publication *readinessPublicationProjection
 	if out.Publication != nil {
 		x := out.Publication
-		if out.Approval == nil || x.PublishedAt.IsZero() || x.Branch == "" || x.BaseBranch == "" || !readinessSHA(x.BaseSHA, 40) || x.HeadSHA != out.HeadSHA || x.SourceSHA256 != out.SourceSHA256 || !readinessSHA(x.PreviewSHA256, 64) || x.PullNumber <= 0 || x.PullURL == "" || len(x.PullURL) > 1024 || !strings.HasPrefix(x.PullURL, "https://") && !strings.HasPrefix(x.PullURL, "http://") {
+		if out.Approval == nil || x.PublishedAt.IsZero() || x.Branch == "" || x.BaseBranch == "" || !analysis.LowerHex(x.BaseSHA, 40) || x.HeadSHA != out.HeadSHA || x.SourceSHA256 != out.SourceSHA256 || !analysis.LowerHex(x.PreviewSHA256, 64) || x.PullNumber <= 0 || x.PullURL == "" || len(x.PullURL) > 1024 || !strings.HasPrefix(x.PullURL, "https://") && !strings.HasPrefix(x.PullURL, "http://") {
 			return nil, nil, errKennelFixShape
 		}
 		publication = &readinessPublicationProjection{PublishedAt: x.PublishedAt, Branch: x.Branch, BaseBranch: x.BaseBranch, BaseSHA: x.BaseSHA, HeadSHA: x.HeadSHA, SourceSHA256: x.SourceSHA256, PreviewSHA256: x.PreviewSHA256, PullNumber: x.PullNumber, PullURL: x.PullURL}

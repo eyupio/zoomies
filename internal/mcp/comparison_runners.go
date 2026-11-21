@@ -1,7 +1,6 @@
 package mcp
 
 import (
-	"encoding/hex"
 	"math"
 	"strconv"
 	"strings"
@@ -65,7 +64,7 @@ func validateComparisonRunners(e *comparisonRunnerEvidence, a, b analysis.Experi
 	if e == nil {
 		return true
 	} // Older controllers provide no runner facts.
-	if e.Version != "runner-evidence-v1" || e.Baseline == nil || e.Candidate == nil || len(a.Attempts) > 100 || len(b.Attempts) > 100 {
+	if e.Version != analysis.RunnerEvidenceVersion || e.Baseline == nil || e.Candidate == nil || len(a.Attempts) > analysis.MaxEvidenceRows || len(b.Attempts) > analysis.MaxEvidenceRows {
 		return false
 	}
 	seen := map[string]bool{}
@@ -74,11 +73,11 @@ func validateComparisonRunners(e *comparisonRunnerEvidence, a, b analysis.Experi
 		if i == 1 {
 			arm = b
 		}
-		if side.SelectedJobs == nil || side.MatchedJobs == nil || side.RecordedGrants == nil || side.RunnerObservations == nil || side.RowsOmitted == nil || side.Jobs == nil || len(side.Jobs) > 100 {
+		if side.SelectedJobs == nil || side.MatchedJobs == nil || side.RecordedGrants == nil || side.RunnerObservations == nil || side.RowsOmitted == nil || side.Jobs == nil || len(side.Jobs) > analysis.MaxEvidenceRows {
 			return false
 		}
 		n, matched, grants, observations := *side.SelectedJobs, *side.MatchedJobs, *side.RecordedGrants, *side.RunnerObservations
-		if n < len(side.Jobs) || n > len(arm.Attempts)*500 || matched < 0 || matched > n || grants < 0 || grants > matched || observations < 0 || observations > matched || *side.RowsOmitted != (n > len(side.Jobs)) {
+		if n < len(side.Jobs) || n > len(arm.Attempts)*analysis.MaxJobsPerAttempt || matched < 0 || matched > n || grants < 0 || grants > matched || observations < 0 || observations > matched || *side.RowsOmitted != (n > len(side.Jobs)) {
 			return false
 		}
 		attempts := map[string]bool{}
@@ -87,7 +86,7 @@ func validateComparisonRunners(e *comparisonRunnerEvidence, a, b analysis.Experi
 		}
 		shownMatches, shownGrants, shownObservations := 0, 0, 0
 		for _, job := range side.Jobs {
-			if !comparisonDecimalID(job.RunID) || !comparisonDecimalID(job.GitHubJobID) || job.Attempt <= 0 || !attempts[job.RunID+":"+strconv.Itoa(job.Attempt)] || seen[job.GitHubJobID] || job.FleetMatched == nil {
+			if !analysis.DecimalID(job.RunID) || !analysis.DecimalID(job.GitHubJobID) || job.Attempt <= 0 || !attempts[job.RunID+":"+strconv.Itoa(job.Attempt)] || seen[job.GitHubJobID] || job.FleetMatched == nil {
 				return false
 			}
 			seen[job.GitHubJobID] = true
@@ -119,14 +118,6 @@ func validateComparisonRunners(e *comparisonRunnerEvidence, a, b analysis.Experi
 	}
 	return true
 }
-func comparisonDecimalID(s string) bool {
-	n, err := strconv.ParseInt(s, 10, 64)
-	return err == nil && n > 0 && strconv.FormatInt(n, 10) == s
-}
-func comparisonHash(s string) bool {
-	_, err := hex.DecodeString(s)
-	return len(s) == 64 && err == nil && s == strings.ToLower(s)
-}
 func comparisonGrantSource(s string) bool {
 	switch s {
 	case "pool", "host", "profile", "reduced", "history":
@@ -139,7 +130,7 @@ func comparisonDimensions(cpu *float64, mem *int64) bool {
 }
 func validComparisonRunnerObservation(o *comparisonRunnerObservation) bool {
 	r := o.Requested
-	if !comparisonHash(o.SHA256) || o.IssuedAt.IsZero() || o.ReceivedAt.IsZero() || r == nil || r.CPUTyped == nil || r.MemoryTyped == nil || !comparisonDimensions(r.CPUs, r.MemoryMB) || r.ImageReferenceSHA256 != "" && !comparisonHash(r.ImageReferenceSHA256) || r.ResourceSource != "" && !comparisonGrantSource(r.ResourceSource) {
+	if !analysis.LowerHex(o.SHA256, 64) || o.IssuedAt.IsZero() || o.ReceivedAt.IsZero() || r == nil || r.CPUTyped == nil || r.MemoryTyped == nil || !comparisonDimensions(r.CPUs, r.MemoryMB) || r.ImageReferenceSHA256 != "" && !analysis.LowerHex(r.ImageReferenceSHA256, 64) || r.ResourceSource != "" && !comparisonGrantSource(r.ResourceSource) {
 		return false
 	}
 	switch r.Backend {
@@ -159,7 +150,7 @@ func validComparisonRunnerObservation(o *comparisonRunnerObservation) bool {
 	}
 	switch o.DigestCoverage {
 	case "reported":
-		return o.ImageDigest != nil && strings.HasPrefix(*o.ImageDigest, "sha256:") && comparisonHash(strings.TrimPrefix(*o.ImageDigest, "sha256:"))
+		return o.ImageDigest != nil && strings.HasPrefix(*o.ImageDigest, "sha256:") && analysis.LowerHex(strings.TrimPrefix(*o.ImageDigest, "sha256:"), 64)
 	case "not_reported", "unsupported":
 		return o.ImageDigest == nil
 	default:

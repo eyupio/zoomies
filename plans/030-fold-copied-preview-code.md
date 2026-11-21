@@ -197,6 +197,36 @@ tests of bounds, corruption and backup beyond the common ones, and its copies of
 common ones differ in a few assertions. Mutation check: a wrong audit literal and a
 wrong `baseIsApprovedHead` each fail a test.
 
-### Parts B and C
+### Part B: comparison evidence in the CLI and MCP (done in part, on purpose)
+
+The plan proposed moving the evidence structs and validators into `internal/analysis`
+and removing about 230 lines. Reading both sides showed why that would be wrong. The
+two decode types are separate whitelists by design, and their own comments say so
+("Independent REST whitelists keep private and future fields out of model input"):
+the MCP type is also the shape returned to the model (it carries a `shown` field the
+CLI's does not), while the CLI's only feeds human output. One shared struct would mean
+a field added for the CLI is sent to a model without anyone deciding that.
+
+So the structs and the two loops that walk them stay separate. What is shared is what
+was identical and carries no such decision, in `internal/analysis/evidence_format.go`:
+
+- `LowerHex(s, n)`, replacing eight copies of "exactly n lower-case hex digits" (they
+  were spelled three ways, `hex.DecodeString` plus lower case, a character loop, and
+  a loop plus lower case, and all accept the same strings), `DecimalID` and
+  `EventName`, with a table test that pins the edge cases (upper case, wrong length,
+  sign, leading zero, non-ASCII digits).
+- Named constants for what both sides restated in long conditions: the two evidence
+  versions, the one root-source basis, the 100-row bound, the 500-jobs-per-attempt
+  bound and the 128 KiB root-file bound. The MCP schemas use them too, so a schema's
+  `enum` cannot differ from the validator's version.
+
+About 85 lines fewer in the callers and about the same added in `analysis`, so this
+part does not shrink the tree; it makes each rule one rule. The existing 400-odd lines
+of evidence tests on both sides pass unchanged, and so does the MCP boundary test.
+If the owner wants the loops shared as well, the way to do it without coupling the
+whitelists is a shared arm type embedded by each side's own, with a test that pins the
+JSON field set of what MCP returns; that is a design decision, not a clean-up.
+
+### Part C
 
 See below.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/eyupio/zoomies/internal/analysis"
 	"net/url"
 	"path"
 	"strconv"
@@ -145,12 +146,12 @@ func getReadinessPreview(ctx context.Context, c API, raw json.RawMessage) ([]Con
 	if json.Unmarshal(body, &out) != nil {
 		return nil, nil, errReadinessPreviewShape
 	}
-	if out.ID != a.ID || out.InstallationID != a.Installation || out.Repository != a.Repo || out.Currentness != "not_checked" || out.Verification != "inconclusive" || strings.TrimSpace(out.Condition) == "" || len(out.Condition) > 1024 || strings.ContainsAny(out.Condition, "\r\n\x00") || !readinessSHA(out.HeadSHA, 40) || !readinessSHA(out.SourceSHA256, 64) || readinessPath(out.WorkflowPath) == "" || out.JobName == "" || out.StepName == "" || out.Line < 1 || out.WaitSeconds < 2 || out.WaitSeconds > 3600 || out.Runs < 2 || out.Runs > 100 || out.WaitMS <= 0 || out.Before == "" || out.After == "" || len(out.Before) > 4096 || len(out.After) > 4096 || !utf8.ValidString(out.Before) || !utf8.ValidString(out.After) || !strings.Contains(out.After, "timeout "+strconv.Itoa(out.WaitSeconds)+" sh -c") || out.Explanation == "" || len(out.Explanation) > 4096 || out.CreatedAt.IsZero() {
+	if out.ID != a.ID || out.InstallationID != a.Installation || out.Repository != a.Repo || out.Currentness != "not_checked" || out.Verification != "inconclusive" || strings.TrimSpace(out.Condition) == "" || len(out.Condition) > 1024 || strings.ContainsAny(out.Condition, "\r\n\x00") || !analysis.LowerHex(out.HeadSHA, 40) || !analysis.LowerHex(out.SourceSHA256, 64) || readinessPath(out.WorkflowPath) == "" || out.JobName == "" || out.StepName == "" || out.Line < 1 || out.WaitSeconds < 2 || out.WaitSeconds > 3600 || out.Runs < 2 || out.Runs > 100 || out.WaitMS <= 0 || out.Before == "" || out.After == "" || len(out.Before) > 4096 || len(out.After) > 4096 || !utf8.ValidString(out.Before) || !utf8.ValidString(out.After) || !strings.Contains(out.After, "timeout "+strconv.Itoa(out.WaitSeconds)+" sh -c") || out.Explanation == "" || len(out.Explanation) > 4096 || out.CreatedAt.IsZero() {
 		return nil, nil, errReadinessPreviewShape
 	}
 	var approval *readinessApprovalProjection
 	if out.Approval != nil {
-		if out.Approval.ApprovedAt.IsZero() || out.Approval.HeadSHA != out.HeadSHA || out.Approval.SourceSHA256 != out.SourceSHA256 || !readinessSHA(out.Approval.PreviewSHA256, 64) {
+		if out.Approval.ApprovedAt.IsZero() || out.Approval.HeadSHA != out.HeadSHA || out.Approval.SourceSHA256 != out.SourceSHA256 || !analysis.LowerHex(out.Approval.PreviewSHA256, 64) {
 			return nil, nil, errReadinessPreviewShape
 		}
 		approval = &readinessApprovalProjection{ApprovedAt: out.Approval.ApprovedAt, HeadSHA: out.Approval.HeadSHA, SourceSHA256: out.Approval.SourceSHA256, PreviewSHA256: out.Approval.PreviewSHA256}
@@ -158,7 +159,7 @@ func getReadinessPreview(ctx context.Context, c API, raw json.RawMessage) ([]Con
 	var publication *readinessPublicationProjection
 	if out.Publication != nil {
 		x := out.Publication
-		if out.Approval == nil || x.PublishedAt.IsZero() || x.Branch == "" || x.BaseBranch == "" || !readinessSHA(x.BaseSHA, 40) || x.HeadSHA != out.HeadSHA || x.SourceSHA256 != out.SourceSHA256 || !readinessSHA(x.PreviewSHA256, 64) || x.PullNumber <= 0 || x.PullURL == "" || len(x.PullURL) > 1024 || !strings.HasPrefix(x.PullURL, "https://") && !strings.HasPrefix(x.PullURL, "http://") {
+		if out.Approval == nil || x.PublishedAt.IsZero() || x.Branch == "" || x.BaseBranch == "" || !analysis.LowerHex(x.BaseSHA, 40) || x.HeadSHA != out.HeadSHA || x.SourceSHA256 != out.SourceSHA256 || !analysis.LowerHex(x.PreviewSHA256, 64) || x.PullNumber <= 0 || x.PullURL == "" || len(x.PullURL) > 1024 || !strings.HasPrefix(x.PullURL, "https://") && !strings.HasPrefix(x.PullURL, "http://") {
 			return nil, nil, errReadinessPreviewShape
 		}
 		publication = &readinessPublicationProjection{PublishedAt: x.PublishedAt, Branch: x.Branch, BaseBranch: x.BaseBranch, BaseSHA: x.BaseSHA, HeadSHA: x.HeadSHA, SourceSHA256: x.SourceSHA256, PreviewSHA256: x.PreviewSHA256, PullNumber: x.PullNumber, PullURL: x.PullURL}
@@ -178,18 +179,6 @@ func getReadinessPreview(ctx context.Context, c API, raw json.RawMessage) ([]Con
 		return nil, nil, errReadinessPreviewShape
 	}
 	return []Content{{Type: "text", Text: readinessPreviewBoundary}, {Type: "text", Text: string(encoded)}}, p, nil
-}
-
-func readinessSHA(s string, n int) bool {
-	if len(s) != n || s != strings.ToLower(s) {
-		return false
-	}
-	for _, r := range s {
-		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f') {
-			return false
-		}
-	}
-	return true
 }
 
 func readinessPath(p string) string {

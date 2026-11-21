@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/eyupio/zoomies/internal/analysis"
 	"net/url"
 	"strconv"
 	"strings"
@@ -118,7 +119,7 @@ func reviewPullRequest(ctx context.Context, c API, raw json.RawMessage) ([]Conte
 		} `json:"not_reviewed"`
 	}
 	if json.Unmarshal(body, &in) != nil || in.Version != 1 || in.KennelRepositoryID != a.ID || in.PullNumber != a.Pull ||
-		!readinessSHA(in.HeadSHA, 40) || !readinessSHA(in.BaseSHA, 40) || in.ReadAt.IsZero() || in.Repository == "" || len(in.Repository) > 1024 {
+		!analysis.LowerHex(in.HeadSHA, 40) || !analysis.LowerHex(in.BaseSHA, 40) || in.ReadAt.IsZero() || in.Repository == "" || len(in.Repository) > 1024 {
 		return nil, nil, errKennelReviewShape
 	}
 	good := func(s string, max int) bool { return len(s) <= max && utf8.ValidString(s) }
