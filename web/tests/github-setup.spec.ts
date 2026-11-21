@@ -160,7 +160,15 @@ test('the App asks for write access to code only when the operator ticks the box
   await page.getByRole('button', { name: 'Connect GitHub' }).first().click();
   const dialog = page.getByRole('dialog', { name: 'Connect GitHub' });
   const migration = dialog.getByRole('checkbox', { name: /migration pull requests/ });
-  const writes = ['contents: write', 'pull_requests: write', 'workflows: write'];
+  // With them come Issues read and the issue_comment subscription: GitHub
+  // refuses the event without Issues access, and the list says so.
+  const writes = [
+    'contents: write',
+    'pull_requests: write',
+    'workflows: write',
+    'issues: read',
+    'issue_comment events',
+  ];
 
   // Unticked, and the list is the runner permissions alone.
   await expect(migration).not.toBeChecked();

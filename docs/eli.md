@@ -748,6 +748,12 @@ for the relevant repositories. Subscribe to **Issue comment** alongside
 permissions. Editing `.github/workflows` also requires the appropriate GitHub
 App workflow permission, and a separate opt-in on the Zoomies policy.
 
+An App created before Zoomies asked for Issues access cannot subscribe to **Issue comment**:
+GitHub delivers that event only to an App with Issues access. In the App's settings, add
+**Issues** (read is enough for the webhook; Eli's 👀 acknowledgement needs write), have the
+installation's owner approve the permission change, then tick **Issue comment** under
+**Subscribe to events**.
+
 On a pull request, a linked maintainer can comment:
 
 ```text
