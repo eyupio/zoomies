@@ -227,6 +227,24 @@ If the owner wants the loops shared as well, the way to do it without coupling t
 whitelists is a shared arm type embedded by each side's own, with a test that pins the
 JSON field set of what MCP returns; that is a design decision, not a clean-up.
 
-### Part C
+### Part C: the UI preview pages (not done; needs a decision)
 
-See below.
+Not changed. The plan's premise was five routes and five cards that are one template
+with a different noun, and measuring them showed they are not. Against the sharding
+route, readiness differs on 154 lines (77 each side), cache on 302, checkout on 445
+and kennel-fix on 504, and what differs is behaviour, not wording: sharding sends
+`shards` and no condition, readiness requires and validates a `condition` input, the
+ID patterns, copy, header links, payload builders and which inputs exist all differ.
+A shell that took all of that as props and snippets would be a configurable engine
+about as large as the pages it replaced, and a UI change I cannot compare against the
+old pages by eye. The plan's own rule covers it: leave a page that does not fit without
+contortion, and say so.
+
+What is shared, `begin()`, `failed()` and `pick()`, is not pure: each closes over the
+route's `$state` (`error`, `busy`, `retryAt`, `operation`, `controller`, `chosen`…), so
+sharing them means a reactive class in a `.svelte.ts` module (say `PreviewFlow`) and
+editing every template reference to those variables in five files. That is the safe
+slice if this is wanted: about 40 lines out of each route, no change to what any page
+shows, checked by the Playwright specs for sharding, cache, checkout and kennel-fix
+(`make test-ui` builds the binary and drives it; Chromium is installed here). It is
+left for the owner to ask for, with a before and after screenshot of two pages.
