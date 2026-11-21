@@ -270,10 +270,11 @@ says so when it does, and a daemon that already applies limits is left alone.
   so until they are removed. Every path writes an `auth.bootstrap` audit row
   naming how the account was made.
 * **OIDC users**: optional. Linked by `sub`, and by username only for an
-  account that has no local password: adopting one that does would let whoever
-  holds that username at the identity provider take over the local account, so
-  it takes `oidc.link_by_username`. An `email` claim is used as a username only
-  when the provider says `email_verified`.
+  account that has no local password and owns no API tokens: adopting one that
+  does would let whoever holds that username at the identity provider take over
+  the local account, or the bootstrap account the provisioner's token belongs
+  to, so it takes `oidc.link_by_username`. An `email` claim is used as a
+  username only when the provider says `email_verified`.
 * **API tokens**: `zoo_<prefix>_<secret>`, sent as `Authorization: Bearer`.
   Carry a role and optionally a narrower scope list. A token can mint tokens,
   but never one wider than itself: the role is capped at the caller's, a
