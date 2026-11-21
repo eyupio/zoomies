@@ -34,6 +34,27 @@ var ErrSignature = errors.New("the release is not signed by a trusted release ke
 // ignores it instead of refusing an unknown flag.
 const SelfUpdateEnv = "ZOOMIES_NO_SELF_UPDATE"
 
+// KeptPreviousEnv carries, across the re-execution into the binary a self-update
+// just installed, the SHA-256 of the previous binary that self-update kept
+// beside it. The run that waits for the service puts that file back when the
+// service never answers, and has to be sure the file is the one this upgrade
+// kept: after an upgrade that did not go through the self-update (install.sh
+// --upgrade, --no-download) the file left is from an earlier one, and a database
+// a newer release has migrated cannot be opened by it. Like SelfUpdateEnv it is
+// an environment variable, so a release that predates it ignores it.
+const KeptPreviousEnv = "ZOOMIES_UPGRADE_KEPT_PREVIOUS"
+
+// KeptPreviousMarker is the environment entry that names the previous binary
+// kept beside binary, or "" when there is none or it cannot be read, in which
+// case nothing is rolled back to: that is the safe side.
+func KeptPreviousMarker(binary string) string {
+	sum, err := backup.FileSHA256(binary + PreviousSuffix)
+	if err != nil {
+		return ""
+	}
+	return KeptPreviousEnv + "=" + sum
+}
+
 // SelfUpdateOptions says which binary to bring up to date and from where.
 type SelfUpdateOptions struct {
 	// BinaryPath is the binary the service runs, which is what gets replaced.

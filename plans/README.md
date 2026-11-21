@@ -27,7 +27,7 @@ was not audited) is in [improve.md](improve.md).
 | [015](015-conflict-text-must-be-utf8.md) | Treat a conflicted file that is not UTF-8 as unsupported | P0 | S | none | DONE (this branch) |
 | [016](016-rollup-held-by-live-runner.md) | Let only finished runners hold the roll-up | P0 | M | none | DONE (this branch; installation roll-up only, see the plan) |
 | [017](017-restore-stage-before-moving.md) | Stage a restore's copy before moving the live database aside | P0 | M | none | DONE (this branch) |
-| [018](018-rollback-only-what-this-run-kept.md) | Roll an upgrade back only to the binary that upgrade kept | P1 | M | none | TODO |
+| [018](018-rollback-only-what-this-run-kept.md) | Roll an upgrade back only to the binary that upgrade kept | P1 | M | none | DONE (this branch) |
 | [019](019-cache-staging-in-flight-bytes.md) | Count bytes in flight against the cache service's staging bound | P0 | M | none | DONE (this branch) |
 | [020](020-webhook-runner-own-installation.md) | Act on a webhook's runner only inside its own installation | P1 | S-M | none | DONE (this branch) |
 | [021](021-update-refuses-wrong-version.md) | Refuse a downloaded release that reports another version | P1 | S | none | DONE (this branch) |

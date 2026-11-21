@@ -160,6 +160,24 @@ func TestUpgradeAcceptsADownloadThatReportsTheReleaseItWasAskedFor(t *testing.T)
 	}
 }
 
+// The upgrade re-executes itself inside the binary it just installed, and the
+// run that waits for the service has to know the kept binary is the one the
+// self-update wrote, not one left from an earlier upgrade. The marker is the
+// kept file's digest, so a file replaced since does not match it.
+func TestTheKeptBinaryMarkerNamesTheFileTheUpgradeKept(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "zoomies")
+	if got := KeptPreviousMarker(bin); got != "" {
+		t.Fatalf("marker = %q with nothing kept; want none", got)
+	}
+	if err := os.WriteFile(bin+PreviousSuffix, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	want := KeptPreviousEnv + "=" + sumOf("old")
+	if got := KeptPreviousMarker(bin); got != want {
+		t.Fatalf("marker = %q; want %q", got, want)
+	}
+}
+
 // A mirror or a truncated transfer must never replace a working binary.
 func TestUpgradeKeepsTheInstalledBinaryWhenTheChecksumDoesNotMatch(t *testing.T) {
 	srv := updateServer(t, "v1.4.0", "tampered", sumOf("what was published"))

@@ -630,7 +630,11 @@ the installed binary, the service restarts on it, and the upgrade reports that
 it failed and the previous release is running again. A migration is the one
 thing that stops this, because migrations are one-way ([there is no
 downgrade](#there-is-no-downgrade)): a release that migrated the database is
-left in place, and the upgrade names the pre-migration copy to restore. A
+left in place, and the upgrade names the pre-migration copy to restore. Only
+the binary that upgrade itself replaced is put back: an upgrade that replaced
+nothing (`install.sh --upgrade`, `--no-download`, or "already on the latest
+build") is not rolled back, because the `zoomies.previous` left beside the binary
+is from an earlier upgrade and the database may have moved past it. A
 container deployment's service is its image, which an upgrade does not keep the
 one before, so it is not rolled back by itself. What an update leaves makes the
 rest possible by hand:
