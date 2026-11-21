@@ -22,8 +22,8 @@ was not audited) is in [improve.md](improve.md).
 | [010](010-sse-identity-tick.md) | Resolve the stream's narrowing identity per heartbeat, not per frame | P3 | S | after 005 (same file) | DONE (merged, PR #1208) |
 | [011](011-state-directory-housekeeping.md) | Let the state directory look after itself: a storage report, pruning and compaction | P2 | L | none | IN PROGRESS (written 2026-11-09 against `1da1792`; three independent parts; Part 1, the storage report, and Part 2, pruning on a schedule, are built; Part 3 is not started) |
 | [012](012-scoped-token-blank-scopes.md) | Refuse a scope list that comes to nothing when a scoped token mints | P0 | S | none | DONE (this branch) |
-| [013](013-sso-adopts-token-account.md) | Stop single sign-on adopting an account that holds API tokens | P0 | S-M | none | TODO |
-| [014](014-eli-conflict-ref-escape.md) | Escape the branch in Eli's conflict ref update | P0 | S | none | TODO |
+| [013](013-sso-adopts-token-account.md) | Stop single sign-on adopting an account that holds API tokens | P0 | S-M | none | DONE (this branch) |
+| [014](014-eli-conflict-ref-escape.md) | Escape the branch in Eli's conflict ref update | P0 | S | none | DONE (this branch) |
 | [015](015-conflict-text-must-be-utf8.md) | Treat a conflicted file that is not UTF-8 as unsupported | P0 | S | none | TODO |
 | [016](016-rollup-held-by-live-runner.md) | Let only finished runners hold the roll-up | P0 | M | none | TODO |
 | [017](017-restore-stage-before-moving.md) | Stage a restore's copy before moving the live database aside | P0 | M | none | TODO |
