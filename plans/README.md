@@ -31,7 +31,7 @@ was not audited) is in [improve.md](improve.md).
 | [019](019-cache-staging-in-flight-bytes.md) | Count bytes in flight against the cache service's staging bound | P0 | M | none | DONE (this branch) |
 | [020](020-webhook-runner-own-installation.md) | Act on a webhook's runner only inside its own installation | P1 | S-M | none | DONE (this branch) |
 | [021](021-update-refuses-wrong-version.md) | Refuse a downloaded release that reports another version | P1 | S | none | DONE (this branch) |
-| [022](022-breaker-counts-never-ready.md) | Trip the provider breaker on machines that never become ready | P1 | M | none (before 023) | TODO |
+| [022](022-breaker-counts-never-ready.md) | Trip the provider breaker on machines that never become ready | P1 | M | none (before 023) | DONE (this branch) |
 | [023](023-one-machine-step-at-a-time.md) | Run one step for a machine at a time | P1 | S-M | after 022 (same file) | TODO |
 | [024](024-bound-conflict-publish-retries.md) | Bound how often a conflict repair's publication is retried | P2 | M | none | TODO |
 | [025](025-runs-on-comment-spacing.md) | Keep a space before the comment when collapsing a runs-on list | P2 | S | none | TODO |

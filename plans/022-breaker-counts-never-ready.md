@@ -126,3 +126,28 @@ pass.
   removing the per-step call leaves a stale trouble note on a healthy
   provider, keep `clearProviderTrouble` on the per-step path and move only
   the breaker reset, and say so in the commit body.
+
+## What was done
+
+- The per-step reset in `runMachineStep` is gone; a step that returns only
+  clears the provider's "last trouble" note, which is about now and goes stale
+  as soon as the provider answers. The breaker is cleared in `machineReady`,
+  which `stepEnrolling` calls at both of its moves to ready (the host already
+  linked, and the join token redeemed), and only when the move happened.
+- The four timeouts in `recoverMachine` (create, start, bootstrap, enrol) go
+  through `failMachineTimedOut`, which counts the machine against its provider.
+  `failMachine` itself does not: it is also used when a machine's resource is
+  destroyed outside Zoomies, which says nothing about the template.
+- The count has to be taken **before** `failMachine`. `RecordMachineFailure`
+  adds one to the machine's attempts and `transitionMachine` copies the row
+  back, so afterwards `noteProviderFailure` sees attempts above nothing and
+  takes the machine for a retry it has already counted. The first version of
+  this change counted after, and the tests caught it.
+- Known and accepted: every successful step resets `attempts` to 0, so a machine
+  that fails one step, retries successfully and then times out counts twice. That
+  errs towards standing the provider down, which is the safe side.
+- Test-side: the two new tests use a clock the store and the controller share
+  (`sharedClock`), because `harness.advance` moves only the controller's clock
+  and every row stamped afterwards looks as old as the whole advance. And
+  `tokenFromBootstrap` now reads the whole file before judging it, since with
+  more than one machine in the fake it could return another machine's token.

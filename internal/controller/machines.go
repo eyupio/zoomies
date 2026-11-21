@@ -1084,7 +1084,11 @@ func (c *Controller) runMachineStep(ctx context.Context, env *machineEnv, pr *ma
 		c.recordMachineFailure(ctx, env, pr, m, opID, err)
 	default:
 		c.finishMachineOperation(ctx, m, opID, store.MachineOpSucceeded, "", nil)
-		c.noteProviderSuccess(ctx, pr.row.ID)
+		// The provider answered, so what it last complained of is stale. That is
+		// all a step that returned proves: a clone that succeeds says nothing
+		// about whether the machine it made can ever join, so the breaker is not
+		// cleared here but when a machine reaches ready (machineReady).
+		c.clearProviderTrouble(pr.row.ID)
 	}
 }
 
@@ -1787,7 +1791,10 @@ func (c *Controller) noteProviderFailure(ctx context.Context, providerID string,
 
 // noteProviderSuccess clears the breaker. One machine that worked is the whole
 // of the evidence needed: the breaker exists to stop a run of failures, not to
-// punish a provider for having had one.
+// punish a provider for having had one. A machine that worked is one that
+// reached ready, not one whose clone succeeded: a template whose agent cannot
+// join clones and starts without a complaint, and clearing the count at each of
+// those steps meant it never rose.
 func (c *Controller) noteProviderSuccess(ctx context.Context, providerID string) {
 	c.clearProviderTrouble(providerID)
 	row, err := c.st.GetProvider(ctx, providerID)

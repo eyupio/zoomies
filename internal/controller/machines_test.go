@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -321,14 +322,20 @@ func (h *harness) tokenFromBootstrap(t *testing.T, m *store.Machine) string {
 			if f.Path != machineEnvPath {
 				continue
 			}
+			// The whole file is read before it is judged: the token line may come
+			// before the name line, and with more than one machine in the fake the
+			// first token seen is not necessarily this machine's.
+			vars := map[string]string{}
 			for line := range strings.SplitSeq(string(f.Content), "\n") {
-				name, value, ok := strings.Cut(line, "=")
-				if ok && name == "ZOOMIES_AGENT_NAME" && value != m.Name {
-					break
+				if name, value, ok := strings.Cut(line, "="); ok {
+					vars[name] = value
 				}
-				if ok && name == "ZOOMIES_JOIN_TOKEN" {
-					return value
-				}
+			}
+			if name, named := vars["ZOOMIES_AGENT_NAME"]; named && name != m.Name {
+				continue
+			}
+			if token := vars["ZOOMIES_JOIN_TOKEN"]; token != "" {
+				return token
 			}
 		}
 	}
@@ -507,6 +514,107 @@ func TestThreeMachinesThatNeverReachReadyStandTheProviderDown(t *testing.T) {
 	// A second before the stand-down expires, nothing may be bought from it.
 	if held := h.c.provisioningHeld(got, got.PausedUntil.Add(-time.Second)); held == "" {
 		t.Fatal("a stood-down provider is not held, so the next pass buys another machine")
+	}
+}
+
+// liveMachine is the machine that is neither failed nor deleted, buying one
+// first when the pass that failed its predecessor did not.
+func (h *harness) liveMachine(t *testing.T) *store.Machine {
+	t.Helper()
+	find := func() *store.Machine {
+		for _, m := range h.machines() {
+			if m.State != store.MachineFailed && m.State != store.MachineDeleted {
+				return m
+			}
+		}
+		return nil
+	}
+	if m := find(); m != nil {
+		return m
+	}
+	h.machinePass(t)
+	if m := find(); m != nil {
+		return m
+	}
+	t.Fatal("no machine was bought for the queue")
+	return nil
+}
+
+// sharedClock is a clock the store and the controller read alike. The
+// harness's own advance moves only the controller's, which is right for a test
+// about one machine and wrong for one that runs several in turn: every row the
+// store stamps afterwards then looks as old as the whole advance, and the next
+// machine times out the moment it is bought.
+type sharedClock struct{ ns atomic.Int64 }
+
+func newSharedClock() *sharedClock {
+	c := &sharedClock{}
+	c.ns.Store(time.Now().UnixNano())
+	return c
+}
+
+func (c *sharedClock) Now() time.Time          { return time.Unix(0, c.ns.Load()).UTC() }
+func (c *sharedClock) Advance(d time.Duration) { c.ns.Add(int64(d)) }
+
+// failEnrolment lets a machine's agent never join and waits out the window.
+func (h *harness) failEnrolment(t *testing.T, clock *sharedClock) {
+	t.Helper()
+	m := h.liveMachine(t)
+	h.drive(t, m.ID, store.MachineEnrolling, 8)
+	clock.Advance(h.cfg.Provider.EnrolTimeout + time.Minute)
+	h.machinePass(t)
+	if got := h.machineByID(t, m.ID); got.State != store.MachineFailed {
+		t.Fatalf("past its enrolment window machine %s is %s, want failed", m.ID, got.State)
+	}
+}
+
+// A template whose agent cannot join clones, starts and bootstraps without a
+// complaint, and the machine then waits out its enrolment window. Every one of
+// those steps succeeding used to zero the breaker, and the timeout never
+// counted, so the count never rose and the fleet kept renting broken, running,
+// billed machines up to the ceiling.
+func TestMachinesWhoseCloneSucceedsButNeverJoinStandTheProviderDown(t *testing.T) {
+	clock := newSharedClock()
+	h := newHarnessAt(t, clock.Now)
+	_, row := h.machineFleet(t)
+
+	for range breakerThreshold {
+		h.failEnrolment(t, clock)
+	}
+	got, err := h.st.GetProvider(h.ctx, row.ID)
+	if err != nil {
+		t.Fatalf("GetProvider: %v", err)
+	}
+	if got.ConsecutiveFailures < breakerThreshold || got.PausedUntil == nil {
+		t.Fatalf("after %d machines that never joined the provider has %d failures and paused until %v; want it stood down",
+			breakerThreshold, got.ConsecutiveFailures, got.PausedUntil)
+	}
+}
+
+// What clears the breaker is a machine that works: one that reached ready,
+// which is the evidence a template can build a machine at all. A clone that
+// succeeded is not.
+func TestAMachineThatBecomesReadyClearsTheBreaker(t *testing.T) {
+	clock := newSharedClock()
+	h := newHarnessAt(t, clock.Now)
+	_, row := h.machineFleet(t)
+
+	for range breakerThreshold - 1 {
+		h.failEnrolment(t, clock)
+	}
+	if got, _ := h.st.GetProvider(h.ctx, row.ID); got.ConsecutiveFailures != breakerThreshold-1 {
+		t.Fatalf("after %d machines that never joined the provider counts %d failures", breakerThreshold-1, got.ConsecutiveFailures)
+	}
+
+	m := h.liveMachine(t)
+	m = h.drive(t, m.ID, store.MachineEnrolling, 8)
+	h.joinAsMachine(t, m)
+	h.machinePass(t)
+	if got := h.machineByID(t, m.ID); got.State != store.MachineReady {
+		t.Fatalf("the machine is %s after its agent joined, want ready: %s", got.State, got.Message)
+	}
+	if got, _ := h.st.GetProvider(h.ctx, row.ID); got.ConsecutiveFailures != 0 || got.PausedUntil != nil {
+		t.Fatalf("a machine reached ready and the provider still counts %d failures, paused until %v", got.ConsecutiveFailures, got.PausedUntil)
 	}
 }
 
