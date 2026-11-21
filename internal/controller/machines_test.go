@@ -379,6 +379,38 @@ func TestASlowCreateDoesNotStartASecondOne(t *testing.T) {
 	h.assertOneResourcePerMachine(t)
 }
 
+// A step that blocks (a bootstrap waits for the guest agent to answer) runs in a
+// goroutine and the pass returns at once. The next pass finds the live claim of
+// the same kind and, by design, continues it, which is how an asynchronous
+// create is polled. Nothing said this process already had a goroutine on it, so
+// the step ran twice at once: each run minted a join token and revoked the
+// other's, and the guest could end up holding a deleted one and never join.
+func TestAStepStillRunningIsNotStartedAgainByTheNextPass(t *testing.T) {
+	h := newHarness(t)
+	h.machineFleet(t)
+	h.machinePass(t)
+	m := h.drive(t, h.onlyMachine(t).ID, store.MachineBootstrapping, 8)
+	h.fake.SetDelay("bootstrap", 500*time.Millisecond)
+
+	// Two passes back to back, so the second finds the first's step still out.
+	for range 2 {
+		if err := h.c.ReconcileMachines(h.ctx); err != nil {
+			t.Fatalf("ReconcileMachines: %v", err)
+		}
+	}
+	h.c.machines.calls.Wait()
+
+	if got := len(h.fake.Bootstraps()); got != 1 {
+		t.Fatalf("machine %s was bootstrapped %d times by two passes, want once", m.ID, got)
+	}
+	// Once the step has returned the machine moves on, and a later pass takes
+	// whatever it needs next: nothing is left marked as running.
+	h.machinePass(t)
+	if got := h.machineByID(t, m.ID); got.State != store.MachineEnrolling {
+		t.Fatalf("the machine is %s after its bootstrap returned, want enrolling: %s", got.State, got.Message)
+	}
+}
+
 // The machine loop must never be able to hold up the scheduling pass. A
 // hypervisor that accepts a connection and answers in four minutes would
 // otherwise stop every pool placing runners for four minutes, which is the
