@@ -2,6 +2,7 @@ package registrymirror
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -148,11 +149,19 @@ func TestABlobServedWholeEndsTheRun(t *testing.T) {
 			})
 			do(t, http.MethodGet, srv.URL+broken, nil)
 			clock.advance(time.Minute)
-			header := http.Header(nil)
+			// The client can finish reading a response with a Content-Length
+			// before the handler has read upstream EOF and recorded success.
+			req := httptest.NewRequest(http.MethodGet, "/v2/library/alpine/blobs/"+digest, nil)
+			wantStatus := http.StatusOK
 			if tc.ranged {
-				header = http.Header{"Range": {"bytes=0-99"}}
+				req.Header.Set("Range", "bytes=0-99")
+				wantStatus = http.StatusPartialContent
 			}
-			do(t, http.MethodGet, srv.URL+"/v2/library/alpine/blobs/"+digest, header)
+			resp := httptest.NewRecorder()
+			m.ServeHTTP(resp, req)
+			if resp.Code != wantStatus {
+				t.Fatalf("blob status = %d, want %d", resp.Code, wantStatus)
+			}
 			if got := m.Stats().UpstreamFailingSeconds; got != 0 {
 				t.Fatalf("failing for %d seconds after a whole blob arrived", got)
 			}
