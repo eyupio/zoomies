@@ -590,7 +590,7 @@ func (c *Controller) finishCreateRunner(ctx context.Context, inst *store.Install
 	creds, ghID, err := c.mintCredentials(ctx, inst, pool, host, name, r.Repo)
 	if err != nil {
 		msg := fmt.Sprintf("GitHub would not register %s: %v", name, err)
-		if errors.Is(err, errJITLabelLimit) {
+		if refusedBeforeGitHub(err) {
 			// Refused here, before GitHub was asked: saying GitHub refused it
 			// would send an operator looking in the wrong place.
 			msg = fmt.Sprintf("did not register %s: %v", name, err)
@@ -832,15 +832,20 @@ func (c *Controller) mintCredentials(ctx context.Context, inst *store.Installati
 // pool opts out with no_default_labels, the runner is minted with the implicit
 // set of the platform it will really be (runnerPlatform).
 //
-// GitHub refuses a request with more than github.MaxJITLabels labels, so a
-// pool whose own labels leave no room for the implicit ones is refused here,
-// by name, rather than by GitHub with an error that names neither.
+// Two things are refused here, before GitHub is asked, each with a message
+// naming the pool: a pool whose platform contradicts what the runner will
+// actually run as on this host (a macos pool whose Docker runtime runs Linux
+// containers would otherwise be offered macOS jobs), and a pool whose labels
+// come to more than GitHub accepts for one runner (github.MaxJITLabels).
 func jitLabels(pool *store.Pool, host *store.Host) ([]string, error) {
 	labels := pool.Labels
 	if !pool.NoDefaultLabels {
-		os, arch := runnerPlatform(pool, host)
+		os, arch, err := runnerPlatform(pool, host)
+		if err != nil {
+			return nil, err
+		}
 		labels = append([]string{"self-hosted"}, pool.Labels...)
-		if k := naming.Kernel(os); k != "" {
+		if k := kernelOf(os); k != "" {
 			labels = append(labels, k)
 		} else {
 			// A runner with no operating system anyone could name is a
@@ -864,43 +869,93 @@ func jitLabels(pool *store.Pool, host *store.Host) ([]string, error) {
 // labels than GitHub accepts for one just-in-time runner.
 var errJITLabelLimit = errors.New("too many labels")
 
+// errJITPlatformMismatch marks a runner jitLabels refused because the pool's
+// platform names an operating system or architecture the runner would not run
+// as on the host it was placed on.
+var errJITPlatformMismatch = errors.New("platform mismatch")
+
+// refusedBeforeGitHub reports whether a mint failed on a check Zoomies made
+// itself, so the runner's failure does not say GitHub refused it.
+func refusedBeforeGitHub(err error) bool {
+	return errors.Is(err, errJITLabelLimit) || errors.Is(err, errJITPlatformMismatch)
+}
+
 // runnerPlatform is the operating system and architecture a pool's runner on
-// host will be, for its labels. What the pool states wins. What it leaves open
-// is read from where the runner runs: a process runner is the host itself, and
-// a container runner is whatever its container runtime runs (Docker Desktop on
-// a Mac runs Linux containers), falling back to the host's architecture for an
-// agent too old to report its runtime's. With no host, only the pool speaks.
-func runnerPlatform(pool *store.Pool, host *store.Host) (os, arch string) {
+// host registers as. What the pool states is used, unless the host says the
+// runner will run as something else (executionPlatform), which is refused:
+// the labels would promise jobs a platform the runner does not have. What the
+// pool leaves open is filled from the execution platform, and an architecture
+// still unknown (an agent too old to report its container runtime's) from the
+// host's own. With no host, or nothing reported, only the pool speaks, as
+// before the execution platform was known.
+func runnerPlatform(pool *store.Pool, host *store.Host) (os, arch string, err error) {
 	os, arch = pool.Platform.OS, pool.Platform.Arch
 	if host == nil {
-		return os, arch
+		return os, arch, nil
 	}
-	if pool.Backend == store.BackendProcess {
-		if naming.Kernel(os) == "" {
-			os = host.Platform().OS
-		}
-		if naming.NormalizeArch(arch) == "" {
+	execOS, execArch := executionPlatform(pool, host)
+	declaredKernel, execKernel := kernelOf(os), kernelOf(execOS)
+	declaredArch, knownArch := naming.NormalizeArch(arch), naming.NormalizeArch(execArch)
+	if (declaredKernel != "" && execKernel != "" && declaredKernel != execKernel) ||
+		(declaredArch != "" && knownArch != "" && declaredArch != knownArch) {
+		return "", "", fmt.Errorf("%w: pool %s declares %s, but its runner on host %s would run as %s; "+
+			"change the pool's platform, or keep it off hosts that run %s",
+			errJITPlatformMismatch, pool.Name, describePlatform(os, arch), host.Name,
+			describePlatform(execOS, execArch), describePlatform(execOS, execArch))
+	}
+	if declaredKernel == "" {
+		os = execOS
+	}
+	if declaredArch == "" {
+		arch = execArch
+		if knownArch == "" && pool.Backend != store.BackendProcess {
 			arch = host.Arch
 		}
-		return os, arch
 	}
-	var runtime store.HostBackend
+	return os, arch, nil
+}
+
+// executionPlatform is what a pool's runner on host will run as, as far as the
+// host has said: the host itself for a process runner, and for a container
+// runner the platform its container runtime reported (Docker Desktop on a Mac
+// runs Linux containers). A field is empty where the host has not said, which
+// is every container field from an agent that predates the report.
+func executionPlatform(pool *store.Pool, host *store.Host) (os, arch string) {
+	if pool.Backend == store.BackendProcess {
+		return host.Platform().OS, host.Arch
+	}
 	for _, b := range host.BackendInfo {
 		if b.Kind == pool.Backend {
-			runtime = b
-			break
+			return b.OS, b.Arch
 		}
 	}
-	if naming.Kernel(os) == "" {
-		os = runtime.OS
+	return "", ""
+}
+
+// kernelOf is naming.Kernel, which knows distributions, macOS and Windows,
+// that also reads the bare kernel name a host or a container runtime reports
+// ("linux", Go's GOOS and Docker's OSType) as itself.
+func kernelOf(os string) string {
+	if strings.EqualFold(strings.TrimSpace(os), "linux") {
+		return "linux"
 	}
-	if naming.NormalizeArch(arch) == "" {
-		arch = runtime.Arch
-		if naming.NormalizeArch(arch) == "" {
-			arch = host.Arch
-		}
+	return naming.Kernel(os)
+}
+
+// describePlatform names a platform for a message as os/arch, leaving out a
+// part that is not known.
+func describePlatform(os, arch string) string {
+	var parts []string
+	if o := kernelOf(os); o != "" {
+		parts = append(parts, o)
 	}
-	return os, arch
+	if a := naming.NormalizeArch(arch); a != "" {
+		parts = append(parts, a)
+	}
+	if len(parts) == 0 {
+		return "any platform"
+	}
+	return strings.Join(parts, "/")
 }
 
 // RunnerImage returns the image a pool's runners use.

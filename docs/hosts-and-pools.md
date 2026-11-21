@@ -1212,7 +1212,11 @@ labels. The operating system and architecture are the pool's platform where it
 states them, and otherwise what the runner really is on the host it lands on:
 the host itself for a process runner, and the platform its container runtime
 runs for a container runner (Docker Desktop on a Mac runs `linux` containers).
-GitHub accepts at most 100 labels for one such runner, these included, so a
+A pool whose stated platform contradicts what its runner would run as on the
+host it was placed on (a `macos` pool whose Docker runs Linux containers) has
+that runner refused before it is registered, with a message naming the pool and
+both platforms; a host whose agent has not reported its runtime's platform is
+taken at the pool's word, as before. GitHub accepts at most 100 labels for one such runner, these included, so a
 pool with more fails each runner it starts with a message naming the pool and
 the limit. Existing pools keep the default labels; the setting is off until you
 turn it on.

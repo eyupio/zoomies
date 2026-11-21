@@ -257,3 +257,107 @@ func TestAJITRunnerStaysWithinGitHubsLabelLimit(t *testing.T) {
 		})
 	}
 }
+
+// A pool's stated platform is a promise to GitHub about the machine. Where the
+// host says its runner will run as something else, the runner is refused
+// before it is registered, naming the pool and both platforms, rather than
+// minted with labels that would bring it jobs it cannot run. Where the host
+// has said nothing (an agent that predates the report), the pool's platform is
+// used as before.
+func TestAJITRunnerWhosePoolContradictsItsHostIsRefused(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		platform  store.Platform
+		hostOS    string
+		hostArch  string
+		runtime   store.HostBackend
+		jobLabels []string
+		want      []string // registered labels, when the runner is not refused
+		refusal   []string // what the failure must say, when it is
+	}{
+		{
+			name:     "macos pool on a Mac whose Docker runs Linux containers",
+			platform: store.Platform{OS: "macos", Arch: "arm64"}, hostOS: "darwin", hostArch: "arm64",
+			runtime:   store.HostBackend{Kind: store.BackendDocker, Available: true, OS: "linux", Arch: "arm64"},
+			jobLabels: []string{"self-hosted", "macos", "arm64", "ci"},
+			refusal:   []string{"declares macos/arm64", "would run as linux/arm64"},
+		},
+		{
+			name:     "amd64 pool on a runtime that runs arm64",
+			platform: store.Platform{Arch: "amd64"}, hostOS: "linux", hostArch: "amd64",
+			runtime:   store.HostBackend{Kind: store.BackendDocker, Available: true, OS: "linux", Arch: "arm64"},
+			jobLabels: []string{"self-hosted", "linux", "x64", "ci"},
+			refusal:   []string{"declares amd64", "would run as linux/arm64"},
+		},
+		{
+			name:     "macos pool on an agent that does not report its runtime's platform",
+			platform: store.Platform{OS: "macos", Arch: "arm64"}, hostOS: "darwin", hostArch: "arm64",
+			runtime:   store.HostBackend{Kind: store.BackendDocker, Available: true},
+			jobLabels: []string{"self-hosted", "macos", "arm64", "ci"},
+			want:      []string{"arm64", "ci", "macos", "self-hosted"},
+		},
+		{
+			name:     "a stated platform the runtime agrees with",
+			platform: store.Platform{OS: "ubuntu", Arch: "amd64"}, hostOS: "linux", hostArch: "amd64",
+			runtime:   store.HostBackend{Kind: store.BackendDocker, Available: true, OS: "linux", Arch: "amd64"},
+			jobLabels: []string{"self-hosted", "linux", "x64", "ci"},
+			want:      []string{"ci", "linux", "self-hosted", "x64"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			inst := h.installation()
+			pool := &store.Pool{
+				Name:           "ci",
+				InstallationID: inst.ID,
+				Labels:         []string{"ci"},
+				Backend:        store.BackendDocker,
+				Image:          "ghcr.io/example/custom-runner:test",
+				MaxRunners:     2,
+				IdleTimeout:    store.Duration(5 * time.Minute),
+				Ephemeral:      true,
+				DockerMode:     store.DockerNone,
+				Enabled:        true,
+				Platform:       tc.platform,
+			}
+			if err := h.st.CreatePool(h.ctx, pool); err != nil {
+				t.Fatalf("CreatePool: %v", err)
+			}
+			jitHost(h, "host-1", tc.hostOS, tc.hostArch, store.HostBackends{tc.runtime}, store.StringMap{})
+			h.deliverJob(jobEvent{Action: "queued", JobID: 1, Labels: tc.jobLabels})
+			if err := h.c.Reconcile(h.ctx); err != nil {
+				t.Fatalf("Reconcile: %v", err)
+			}
+			h.c.lifecycleCalls.Wait()
+
+			runners := h.gh.Runners()
+			if tc.refusal == nil {
+				if len(runners) != 1 {
+					t.Fatalf("registered %d runners with GitHub, want 1", len(runners))
+				}
+				if got := store.NormalizeLabels(runners[0].Labels); !slices.Equal(got, tc.want) {
+					t.Fatalf("runner registered with labels %v, want %v", got, tc.want)
+				}
+				return
+			}
+			if len(runners) != 0 {
+				t.Fatalf("registered %d runners with GitHub (labels %v), want none", len(runners), runners[0].Labels)
+			}
+			rows, err := h.st.ListRunnersForPool(h.ctx, pool.ID)
+			if err != nil {
+				t.Fatalf("ListRunnersForPool: %v", err)
+			}
+			if len(rows) != 1 || rows[0].State != store.RunnerFailed {
+				t.Fatalf("want one failed runner row, got %+v", rows)
+			}
+			for _, want := range append([]string{"pool " + pool.Name, "host host-1"}, tc.refusal...) {
+				if !strings.Contains(rows[0].Message, want) {
+					t.Fatalf("failure %q does not say %q", rows[0].Message, want)
+				}
+			}
+			if strings.Contains(rows[0].Message, "GitHub would not register") {
+				t.Fatalf("failure %q blames GitHub for a check Zoomies made", rows[0].Message)
+			}
+		})
+	}
+}
