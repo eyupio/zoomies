@@ -775,7 +775,7 @@ func (c *Controller) mintCredentials(ctx context.Context, inst *store.Installati
 		}
 		jit, err := client.CreateJITConfig(ctx, github.JITRequest{
 			Name:          name,
-			Labels:        pool.Labels,
+			Labels:        jitLabels(pool),
 			RunnerGroupID: group,
 			Repo:          repo,
 		})
@@ -799,6 +799,36 @@ func (c *Controller) mintCredentials(ctx context.Context, inst *store.Installati
 		Labels:            pool.Labels,
 		NoDefaultLabels:   pool.NoDefaultLabels,
 	}, 0, nil
+}
+
+// jitLabels is what an ephemeral runner registers with.
+//
+// A JIT configuration carries exactly the labels it is minted with. GitHub
+// adds none of the self-hosted, OS and architecture labels that config.sh
+// gives a runner it registers, so a runner minted with the pool's labels alone
+// is never offered a job whose runs-on lists self-hosted, linux or x64. The
+// scheduler treats those labels as implicit (store.ImplicitLabels) and keeps
+// starting runners for such a job, which then sit idle beside it. Unless the
+// pool opts out with no_default_labels, the implicit set its platform implies
+// is minted with it. An architecture the pool leaves open is not guessed.
+func jitLabels(pool *store.Pool) []string {
+	if pool.NoDefaultLabels {
+		return pool.Labels
+	}
+	labels := append([]string{"self-hosted"}, pool.Labels...)
+	switch pool.Platform.OS {
+	case "windows", "macos":
+		labels = append(labels, pool.Platform.OS)
+	default:
+		labels = append(labels, "linux")
+	}
+	switch pool.Platform.Arch {
+	case "amd64":
+		labels = append(labels, "x64")
+	case "arm64":
+		labels = append(labels, "arm64")
+	}
+	return store.NormalizeLabels(labels)
 }
 
 // RunnerImage returns the image a pool's runners use.

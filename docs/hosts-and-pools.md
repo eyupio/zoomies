@@ -1204,11 +1204,12 @@ pool only if the pool lists that label itself. A job naming only the pool's own
 labels matches as before.
 
 Only a pool with `ephemeral` off can do this. An ephemeral runner registers with
-a just-in-time configuration, and GitHub adds `self-hosted`, the operating
-system and the architecture to every one of those itself (the request has no
-way to ask otherwise) so the API refuses the combination rather than keep a
-pool whose runners advertise labels the scheduler thinks they do not. Existing
-pools keep the default labels; the setting is off until you turn it on.
+a just-in-time configuration, which carries exactly the labels it is minted
+with: GitHub adds no `self-hosted`, operating system or architecture label to
+one. Zoomies mints every one of those runners with them, from the pool's
+platform, so that they advertise what the scheduler assumes, and the API keeps
+ephemeral pools on the default labels. Existing pools keep the default labels;
+the setting is off until you turn it on.
 
 ### A pool belongs to one installation
 
