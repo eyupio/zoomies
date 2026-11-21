@@ -922,7 +922,11 @@ func runnerPlatform(pool *store.Pool, host *store.Host) (os, arch string, err er
 // is every container field from an agent that predates the report.
 func executionPlatform(pool *store.Pool, host *store.Host) (os, arch string) {
 	if pool.Backend == store.BackendProcess {
-		return host.Platform().OS, host.Arch
+		os := host.OS
+		if kernelOf(os) == "" {
+			os = host.Platform().OS
+		}
+		return os, host.Arch
 	}
 	for _, b := range host.BackendInfo {
 		if b.Kind == pool.Backend {
