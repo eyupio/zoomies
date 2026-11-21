@@ -503,6 +503,39 @@ func TestRepairFailuresSkipsFailedJobsWithNoLog(t *testing.T) {
 	}
 }
 
+// A failed job's log goes to the model as evidence, and GitHub masks only the
+// secrets it was given: a password a script put in an address is in it as written.
+func TestRepairFailuresDoNotSendTheSecretsInALogToTheModel(t *testing.T) {
+	var base string
+	c := repairTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/repos/acme/repo/actions/runs":
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"workflow_runs":[{"id":7,"head_sha":"old","status":"completed"}]}`))
+		case r.URL.Path == "/repos/acme/repo/actions/runs/7/jobs":
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"jobs":[{"id":2,"name":"deploy","conclusion":"failure"}]}`))
+		case r.URL.Path == "/repos/acme/repo/actions/jobs/2/logs":
+			http.Redirect(w, r, base+"/_logs/2", http.StatusFound)
+		case r.URL.Path == "/_logs/2":
+			w.Write([]byte("2026-10-30T20:00:00.0000000Z ##[error]pull failed for https://ci:hunter2@registry.example.com/img\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	base = strings.TrimSuffix(c.asInstallation.BaseURL(), "/")
+	got, err := c.RepairFailures(t.Context(), "acme/repo", RepairPull{Number: 1, HeadSHA: "old"}, 0)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("evidence = %q, %v", got, err)
+	}
+	if strings.Contains(got[0], "hunter2") {
+		t.Fatalf("the evidence sent to the model holds the password: %q", got[0])
+	}
+	if !strings.Contains(got[0], "pull failed") {
+		t.Fatalf("the failure itself was lost: %q", got[0])
+	}
+}
+
 func TestRepairOpenPullsReadsOpenPullIdentityAndDraftState(t *testing.T) {
 	c := repairTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

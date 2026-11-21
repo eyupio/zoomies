@@ -2323,3 +2323,37 @@ The tests are `TestAConflictPublicationThatKeepsFailingIsHeldForAPerson`,
 the real publication path for both a refusal and a moved pull request.
 `TestAConflictPublishFailureIsLetGoForTheNextObservation` is unchanged: one failure
 still releases the claim. `go test ./internal/controller/` passes.
+
+**Plan 026: what Eli sends a model is redacted by shape, not by one pattern.**
+One pattern in `internal/prrepair` did two jobs and was wrong in both directions.
+It hides credentials in the text sent to the model, and a file that matches it may
+not be rewritten. Its `sk-` alternative had no word boundary, so
+`task-queue-worker-pool`, `disk-usage-threshold` and `-webkit-mask-box-image-source`
+read as keys: the model was shown `ta[redacted credential]`, and any fix touching
+such a file was refused with "a file containing credentials cannot be rewritten by
+Eli". Now `\bsk-`. Its private-key alternative ended in `|$`, and the whole
+snapshot is redacted as one JSON document, so a key header with no footer (a
+constant in code, a pull request body) matched to the end of it, took the failures
+the model is there to read and left something that was not JSON. Neither form of
+the key may cross a quote now: a key never holds one, and a quote is where the
+string it is in ends. And the pattern knew four shapes, so a failed job's log with
+a password in an address, a bearer token, a Slack, Google or npm token, or a
+setting that says it is a secret reached the provider as written; GitHub masks only
+the secrets it was given. `prrepair.Scrub` is `Redact` followed by
+`internal/redact.Text`, applied to one piece of text at a time (the pull request's
+title and body, the diff, each failed job's log and each window of source). It is
+not applied to the whole snapshot, where the wider rules would read escaped quotes
+as the text's own, so that pass stays `Redact`; and the refusal to rewrite a file
+that holds a credential stays on the narrow pattern, so the wider rules can block
+no edit. A multi-line key is still replaced by one line, so line numbers inside a
+window that held one are off by the lines it had, as they already were.
+
+The tests are `TestOrdinaryHyphenatedWordsAreNotCredentials`,
+`TestAnUnterminatedPrivateKeyDoesNotSwallowWhatFollows`,
+`TestEverythingBoundForTheModelLosesTheCommonSecretShapes`,
+`TestSourceWindowsLoseTheSecretsInThem` (in `internal/prrepair`) and
+`TestRepairFailuresDoNotSendTheSecretsInALogToTheModel` (in `internal/github`), each
+failed before the change. `go test -race` over `internal/prrepair`,
+`internal/github` and `internal/redact`, and the Eli tests in
+`internal/controller`, pass. This landed as one commit rather than the three the
+plan suggested, because the pattern and `Scrub` overlap in `repair.go`.

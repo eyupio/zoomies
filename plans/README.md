@@ -35,7 +35,7 @@ was not audited) is in [improve.md](improve.md).
 | [023](023-one-machine-step-at-a-time.md) | Run one step for a machine at a time | P1 | S-M | after 022 (same file) | DONE (this branch) |
 | [024](024-bound-conflict-publish-retries.md) | Bound how often a conflict repair's publication is retried | P2 | M | none | DONE (this branch) |
 | [025](025-runs-on-comment-spacing.md) | Keep a space before the comment when collapsing a runs-on list | P2 | S | none | DONE (this branch) |
-| [026](026-eli-credential-redaction.md) | Tighten Eli's credential pattern and redact model input fully | P2 | M | none | TODO |
+| [026](026-eli-credential-redaction.md) | Tighten Eli's credential pattern and redact model input fully | P2 | M | none | DONE (this branch; one commit for the three parts) |
 | [027](027-entrypoint-clean-environment.md) | Take the runner credentials out of PID 1's environment | P2 | M | none | TODO |
 | [028](028-reuse-pre-migration-copy.md) | Reuse the pre-migration copy when a migration fails again | P2 | M | none | TODO |
 | [029](029-admit-upload-before-body.md) | Admit an AI Context upload's repository before reading its body | P2 | M | none | TODO |
