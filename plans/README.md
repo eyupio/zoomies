@@ -38,7 +38,7 @@ was not audited) is in [improve.md](improve.md).
 | [026](026-eli-credential-redaction.md) | Tighten Eli's credential pattern and redact model input fully | P2 | M | none | DONE (this branch; one commit for the three parts) |
 | [027](027-entrypoint-clean-environment.md) | Take the runner credentials out of PID 1's environment | P2 | M | none | DONE (this branch; image check and shellcheck not run, see the plan) |
 | [028](028-reuse-pre-migration-copy.md) | Reuse the pre-migration copy when a migration fails again | P2 | M | none | DONE (this branch) |
-| [029](029-admit-upload-before-body.md) | Admit an AI Context upload's repository before reading its body | P2 | M | none | TODO |
+| [029](029-admit-upload-before-body.md) | Admit an AI Context upload's repository before reading its body | P2 | M | none | DONE (this branch) |
 | [030](030-fold-copied-preview-code.md) | Fold the copied preview and comparison code into one of each | P3 | L | none (three independent parts) | TODO |
 | [031](031-delete-unused-code.md) | Delete what nothing uses | P3 | S | none | TODO |
 

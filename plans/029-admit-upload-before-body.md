@@ -131,3 +131,24 @@ passes.
 - The admission method needs something only known after the body is read.
 - `FindAIContextUploadTarget` writes, or is expensive enough that calling
   it twice per upload matters (read it first).
+
+## What was done
+
+`admitUpload` is the body-independent half of `IngestAIContextUpload` (repository,
+upload address, ref, event, workflow, commit shape); it claims nothing and writes
+nothing. `CheckAIContextUploadToken` now runs it, and `IngestAIContextUpload` runs it
+again, since the configuration can change between the two. The handler's error
+mapping moved into `failUpload` so both halves answer with the same statuses (the
+existing table of refusals passes unchanged). The concurrency limit is a
+per-`Server` channel of four slots (`maxConcurrentUploads`) rather than a package
+variable, so parallel tests do not share it; a fifth admitted upload gets a 503
+with `Retry-After`.
+
+The tests are black box, over a raw connection that sends valid headers, promises
+a million bytes and sends none: before the change the controller waited for the body
+of every refused upload (the test's three-second read timed out) and took a fifth
+concurrent upload; after, it answers at once and answers 503. `make openapi` was run
+(npm was available): `api/openapi.yaml` gains the second 503 reason and the note
+that the repository is checked before the body is read, and both generated copies
+are committed. The `openapi_spec.go` diff is large because it is a gzipped,
+base64-encoded constant, so a small edit re-compresses everything after it.

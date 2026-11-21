@@ -490,7 +490,10 @@ paths:
         manual run, for the commit that is still the branch head; each token is
         accepted once. Every file is then matched to the regular blob at that path
         in the commit before the snapshot is stored. The body is the snapshot JSON,
-        at most 32 MiB. Answers 404 when server.external_url is not an https address.
+        at most 32 MiB. The repository the token names, and the branch and workflow
+        it came from, are checked before the body is read, so a token for a
+        repository this controller does not serve is refused (404 or 403) without
+        its body. Answers 404 when server.external_url is not an https address.
       security: []
       requestBody:
         required: true
@@ -514,7 +517,12 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "503":
-          description: GitHub's Actions signing keys could not be fetched, so the token was not checked; the controller needs outbound https to token.actions.githubusercontent.com
+          description: >-
+            GitHub's Actions signing keys could not be fetched, so the token was not
+            checked (the controller needs outbound https to
+            token.actions.githubusercontent.com), or the controller is already
+            receiving as many snapshots as it takes at once; Retry-After says when
+            to run the workflow again
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
