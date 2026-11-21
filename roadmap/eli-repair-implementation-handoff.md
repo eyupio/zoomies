@@ -2294,3 +2294,32 @@ like a binary one. Clean-merged files are not affected: `Change.Content` is
 before the change because the Latin-1 conflict came back as a supported one.
 `go test -race ./internal/gitmerge/...` passes, and the conflict and merge tests
 in `internal/controller`, `internal/conflictresolve` and `internal/agent` pass.
+
+**Plan 024: a conflict publication that keeps failing is held for a person.**
+When `CommitConflictResolution` failed for any reason other than the pull request
+having moved, the claim was released, so the next observation, two to five minutes
+later, started again: three archive downloads, a worker container and a full model
+session of up to twelve steps. Nothing counted attempts, unlike the three-attempt
+check repair chain, so a publication that could never succeed (a protected branch,
+a permission the App lacks, a branch GitHub refuses) billed a model session every
+few minutes until somebody read the logs. `conflictPublishFailed` now counts the
+failures of one incident (watch, head, base and merge base): the first two release
+the claim as before, and from the third the claim is held for
+`conflictPermanentCooldown`, an hour, with a warning that says what to check. The
+count survives the hold, so after an hour one more failure holds it again straight
+away instead of allowing three more; a published resolution forgets it
+(`conflictPublished`), and a count nobody has added to for a day
+(`conflictFailureMemory`) is swept by the next claim. A pull request that moved
+(`ErrSetupConflict`) is not a failed publication and does not count.
+
+Known limit: the count is in memory beside the claims, so a restart starts it
+again, which costs at most three attempts. Putting it in the store would need a
+table for a figure that is only worth keeping while a controller is up.
+
+The tests are `TestAConflictPublicationThatKeepsFailingIsHeldForAPerson`,
+`TestAPublishedConflictForgetsEarlierFailures`,
+`TestAConflictFailureCountDoesNotOutliveItsIncident` and
+`TestARepeatedlyRefusedPublicationHoldsTheIncidentForAPerson`, the last through
+the real publication path for both a refusal and a moved pull request.
+`TestAConflictPublishFailureIsLetGoForTheNextObservation` is unchanged: one failure
+still releases the claim. `go test ./internal/controller/` passes.
