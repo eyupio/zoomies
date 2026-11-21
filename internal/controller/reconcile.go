@@ -845,7 +845,7 @@ func jitLabels(pool *store.Pool, host *store.Host) ([]string, error) {
 			return nil, err
 		}
 		labels = append([]string{"self-hosted"}, pool.Labels...)
-		if k := kernelOf(os); k != "" {
+		if k := scheduler.RunnerKernel(os); k != "" {
 			labels = append(labels, k)
 		} else {
 			// A runner with no operating system anyone could name is a
@@ -882,7 +882,7 @@ func refusedBeforeGitHub(err error) bool {
 
 // runnerPlatform is the operating system and architecture a pool's runner on
 // host registers as. What the pool states is used, unless the host says the
-// runner will run as something else (executionPlatform), which is refused:
+// runner will run as something else (scheduler.ExecutionPlatform), which is refused:
 // the labels would promise jobs a platform the runner does not have. What the
 // pool leaves open is filled from the execution platform, and an architecture
 // still unknown (an agent too old to report its container runtime's) from the
@@ -893,8 +893,8 @@ func runnerPlatform(pool *store.Pool, host *store.Host) (os, arch string, err er
 	if host == nil {
 		return os, arch, nil
 	}
-	execOS, execArch := executionPlatform(pool, host)
-	declaredKernel, execKernel := kernelOf(os), kernelOf(execOS)
+	execOS, execArch := scheduler.ExecutionPlatform(pool, host)
+	declaredKernel, execKernel := scheduler.RunnerKernel(os), scheduler.RunnerKernel(execOS)
 	declaredArch, knownArch := naming.NormalizeArch(arch), naming.NormalizeArch(execArch)
 	if (declaredKernel != "" && execKernel != "" && declaredKernel != execKernel) ||
 		(declaredArch != "" && knownArch != "" && declaredArch != knownArch) {
@@ -915,38 +915,11 @@ func runnerPlatform(pool *store.Pool, host *store.Host) (os, arch string, err er
 	return os, arch, nil
 }
 
-// executionPlatform is what a pool's runner on host will run as, as far as the
-// host has said: the host itself for a process runner, and for a container
-// runner the platform its container runtime reported (Docker Desktop on a Mac
-// runs Linux containers). A field is empty where the host has not said, which
-// is every container field from an agent that predates the report.
-func executionPlatform(pool *store.Pool, host *store.Host) (os, arch string) {
-	if pool.Backend == store.BackendProcess {
-		return host.Platform().OS, host.Arch
-	}
-	for _, b := range host.BackendInfo {
-		if b.Kind == pool.Backend {
-			return b.OS, b.Arch
-		}
-	}
-	return "", ""
-}
-
-// kernelOf is naming.Kernel, which knows distributions, macOS and Windows,
-// that also reads the bare kernel name a host or a container runtime reports
-// ("linux", Go's GOOS and Docker's OSType) as itself.
-func kernelOf(os string) string {
-	if strings.EqualFold(strings.TrimSpace(os), "linux") {
-		return "linux"
-	}
-	return naming.Kernel(os)
-}
-
 // describePlatform names a platform for a message as os/arch, leaving out a
 // part that is not known.
 func describePlatform(os, arch string) string {
 	var parts []string
-	if o := kernelOf(os); o != "" {
+	if o := scheduler.RunnerKernel(os); o != "" {
 		parts = append(parts, o)
 	}
 	if a := naming.NormalizeArch(arch); a != "" {
