@@ -412,6 +412,22 @@ func (p *OIDCProvider) EnsureUser(ctx context.Context, st *store.Store, claims *
 			return nil, fmt.Errorf("an account named %q already exists and signs in with a password, so this single sign-on identity was not linked to it; "+
 				"an administrator can set oidc.link_by_username for the migration, or create an SSO account under another name", username)
 		}
+		// An account with no password is not always one made for single
+		// sign-on: the one ZOOMIES_BOOTSTRAP_ADMIN makes has none either, and
+		// holds the platform role and the automation's token. An account made
+		// ahead of somebody's first sign-in has never had a credential issued
+		// for it, so one that owns tokens is adopted only when the operator
+		// has asked for exactly that.
+		if u.OIDCSubject == "" && !p.cfg.LinkByUsername {
+			tokens, err := st.CountAPITokensForUser(ctx, u.ID)
+			if err != nil {
+				return nil, fmt.Errorf("checking whether the account is used by automation: %w", err)
+			}
+			if tokens > 0 {
+				return nil, fmt.Errorf("the account %q is used by API tokens and has never signed in with single sign-on, so this identity was not linked to it; "+
+					"an administrator can set oidc.link_by_username to link it, or create an SSO account under another name", username)
+			}
+		}
 		u.OIDCSubject = claims.Subject
 		return p.sync(ctx, st, u, claims, username)
 	case !errors.Is(err, store.ErrNotFound):

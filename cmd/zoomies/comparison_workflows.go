@@ -1,11 +1,9 @@
 package main
 
 import (
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strconv"
-	"strings"
 
 	"github.com/eyupio/zoomies/internal/analysis"
 )
@@ -43,7 +41,7 @@ func validCLIWorkflows(e *cliWorkflowEvidence, a, b analysis.ExperimentArm) bool
 	if e == nil {
 		return true
 	}
-	if e.Version != "workflow-evidence-v1" || e.Baseline == nil || e.Candidate == nil || len(a.Attempts) > 100 || len(b.Attempts) > 100 {
+	if e.Version != analysis.WorkflowEvidenceVersion || e.Baseline == nil || e.Candidate == nil || len(a.Attempts) > analysis.MaxEvidenceRows || len(b.Attempts) > analysis.MaxEvidenceRows {
 		return false
 	}
 	seen := map[string]bool{}
@@ -52,7 +50,7 @@ func validCLIWorkflows(e *cliWorkflowEvidence, a, b analysis.ExperimentArm) bool
 		if i == 1 {
 			arm = b
 		}
-		if side.SelectedAttempts == nil || side.RootSources == nil || side.RowsOmitted == nil || side.Attempts == nil || len(side.Attempts) > 100 {
+		if side.SelectedAttempts == nil || side.RootSources == nil || side.RowsOmitted == nil || side.Attempts == nil || len(side.Attempts) > analysis.MaxEvidenceRows {
 			return false
 		}
 		n, roots := *side.SelectedAttempts, *side.RootSources
@@ -68,18 +66,18 @@ func validCLIWorkflows(e *cliWorkflowEvidence, a, b analysis.ExperimentArm) bool
 		for _, row := range side.Attempts {
 			key := row.RunID + ":" + strconv.Itoa(row.Attempt)
 			revision, ok := revisions[key]
-			if !cliWorkflowDecimalID(row.RunID) || row.Attempt <= 0 || !ok || seen[key] {
+			if !analysis.DecimalID(row.RunID) || row.Attempt <= 0 || !ok || seen[key] {
 				return false
 			}
 			seen[key] = true
-			if row.Event != nil && !cliWorkflowEvent(*row.Event) {
+			if row.Event != nil && !analysis.EventName(*row.Event) {
 				return false
 			}
-			if row.WorkflowPathSHA256 != nil && !cliRunnerHash(*row.WorkflowPathSHA256) {
+			if row.WorkflowPathSHA256 != nil && !analysis.LowerHex(*row.WorkflowPathSHA256, 64) {
 				return false
 			}
 			if s := row.RootSource; s != nil {
-				if row.Event == nil || *row.Event != "push" || row.WorkflowPathSHA256 == nil || s.Basis != "push_head_sha_root_file" || !cliWorkflowSHA(s.CommitSHA) || s.CommitSHA != revision || !cliWorkflowSHA(s.BlobSHA) || !cliRunnerHash(s.ContentSHA256) || s.Bytes < 1 || s.Bytes > 128*1024 {
+				if row.Event == nil || *row.Event != "push" || row.WorkflowPathSHA256 == nil || s.Basis != analysis.RootSourceBasis || !analysis.LowerHex(s.CommitSHA, 40) || s.CommitSHA != revision || !analysis.LowerHex(s.BlobSHA, 40) || !analysis.LowerHex(s.ContentSHA256, 64) || s.Bytes < 1 || s.Bytes > analysis.MaxRootSourceBytes {
 					return false
 				}
 				if !analysis.ValidRootDependencies(s.Dependencies, s.ContentSHA256) {
@@ -100,21 +98,6 @@ func validCLIWorkflows(e *cliWorkflowEvidence, a, b analysis.ExperimentArm) bool
 	}
 	return true
 }
-func cliWorkflowSHA(s string) bool {
-	_, err := hex.DecodeString(s)
-	return len(s) == 40 && err == nil && s == strings.ToLower(s)
-}
-func cliWorkflowEvent(s string) bool {
-	if len(s) == 0 || len(s) > 64 {
-		return false
-	}
-	for _, r := range s {
-		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_') {
-			return false
-		}
-	}
-	return true
-}
 
 var errCLIWorkflowEvidence = errors.New("this controller returned unsupported or inconsistent workflow evidence; inspect --output json and check the controller version")
 
@@ -127,10 +110,6 @@ func parseCLIWorkflowEvidence(raw json.RawMessage, a, b analysis.ExperimentArm) 
 		return nil, errCLIWorkflowEvidence
 	}
 	return &e, nil
-}
-func cliWorkflowDecimalID(s string) bool {
-	n, err := strconv.ParseInt(s, 10, 64)
-	return err == nil && n > 0 && strconv.FormatInt(n, 10) == s
 }
 func cliWorkflowNullable(s *string) string {
 	if s == nil {

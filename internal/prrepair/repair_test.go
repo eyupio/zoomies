@@ -2,6 +2,7 @@ package prrepair
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -179,6 +180,75 @@ func TestRepairRedactionRemovesTheWholePrivateKeyRatherThanJustItsHeader(t *test
 	}
 	if strings.Contains(Redact("-----BEGIN PRIVATE KEY-----\nPRIVATE_CONTENT"), "PRIVATE_CONTENT") {
 		t.Fatal("unterminated key leaked")
+	}
+}
+
+// The pattern for an API key has to find keys and not words. It had no word
+// boundary, so "task-queue-worker-pool" held what looked like one ("sk-queue-
+// worker-pool" is twelve characters of letters and hyphens): the model was shown
+// "ta[redacted credential]", and any fix that touched the file was refused as one
+// containing credentials.
+func TestOrdinaryHyphenatedWordsAreNotCredentials(t *testing.T) {
+	for _, word := range []string{"task-queue-worker-pool", "disk-usage-threshold", "-webkit-mask-box-image-source", "risk-assessment-framework"} {
+		if got := Redact("use " + word + " here"); got != "use "+word+" here" {
+			t.Errorf("Redact(%q) = %q; want it left alone", word, got)
+		}
+		if credential.MatchString(word) {
+			t.Errorf("a file containing %q is refused as one containing credentials", word)
+		}
+	}
+	for _, key := range []string{"sk-proj-abcdefghijklmnopqrstuv", "sk-abcdefghijklmnopqrstuv", "key=sk-abcdefghijklmnopqrstuv"} {
+		if got := Redact(key); strings.Contains(got, "abcdefghijkl") {
+			t.Errorf("Redact(%q) = %q; the key was not removed", key, got)
+		}
+	}
+}
+
+// The text is redacted as one JSON document, and a private key with no end
+// matched to the end of it: the fields after the key, which hold the failures the
+// model is there to read, went with it, and what was left was not a document.
+func TestAnUnterminatedPrivateKeyDoesNotSwallowWhatFollows(t *testing.T) {
+	body, err := json.Marshal(Snapshot{
+		Title: "t", Body: "see -----BEGIN RSA PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQE",
+		Failures: []string{"test: boom"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := Redact(string(body))
+	if strings.Contains(got, "MIIEvQIBADAN") {
+		t.Errorf("the key's own text was left in:\n%s", got)
+	}
+	var back Snapshot
+	if err := json.Unmarshal([]byte(got), &back); err != nil {
+		t.Fatalf("what was left is not a snapshot any more (%v):\n%s", err, got)
+	}
+	if len(back.Failures) != 1 || back.Failures[0] != "test: boom" {
+		t.Errorf("the failures after the key were lost: %+v", back.Failures)
+	}
+}
+
+// What a model is sent has to lose the shapes credentials take in a failed job's
+// log, not only the four the repair's own pattern knows. GitHub masks only the
+// secrets it holds, so a registry password in a URL, a bearer token a test
+// printed or a setting a script echoed arrives as it was written.
+func TestEverythingBoundForTheModelLosesTheCommonSecretShapes(t *testing.T) {
+	for name, tc := range map[string]struct{ text, secret string }{
+		"a password in an address": {"pulling https://ci:hunter2@registry.example.com/img", "hunter2"},
+		"a bearer token":           {"Authorization: Bearer eyJhbGciOiJIUzI1NiJ9abcdefghijkl", "eyJhbGciOiJIUzI1NiJ9abcdefghijkl"},
+		"a Slack token":            {"posting with xoxb-1234567890-abcdefghij", "xoxb-1234567890-abcdefghij"},
+		"a Google API key":         {"key " + "AIza" + strings.Repeat("a", 35), strings.Repeat("a", 35)},
+		"an npm token":             {"//registry:_authToken=npm_" + strings.Repeat("a", 36), strings.Repeat("a", 36)},
+		"a setting that says so":   {"DB_PASSWORD=supersecretvalue", "supersecretvalue"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := Scrub(tc.text); strings.Contains(got, tc.secret) {
+				t.Fatalf("Scrub(%q) = %q; the secret is still in it", tc.text, got)
+			}
+		})
+	}
+	if got := Scrub("run task-queue-worker-pool"); got != "run task-queue-worker-pool" {
+		t.Errorf("Scrub took a word for a secret: %q", got)
 	}
 }
 

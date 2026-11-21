@@ -389,6 +389,53 @@ func (o *deliveryOwner) of(ctx context.Context, repo string) (*store.Installatio
 	return inst, err
 }
 
+// runnerServesDelivery says whether the runner a delivery names may be linked
+// to the job it describes. The delivery was verified with the secret of the
+// installation that covers its repository, which says who sent it and nothing
+// about whose runner it names; runner names are not secret, so without this the
+// holder of one installation's secret could mark another's runners busy, or
+// have them removed, by naming them.
+//
+// A runner belongs to its pool's installation. That is the job's installation
+// in the usual case, and it needs no lookup. Failing that, the runner's
+// installation may still cover the repository: a repository can be covered by an
+// installation of its own and by its organisation's, the lookup prefers the
+// repository's, and GitHub may hand the job to a runner of the other. A job no
+// installation covers can have no runner of ours, and a runner whose pool is
+// gone is nobody's.
+func (c *Controller) runnerServesDelivery(ctx context.Context, r *store.Runner, pools []*store.Pool, job *store.Job) bool {
+	if job.InstallationID == "" {
+		return false
+	}
+	var owner string
+	for _, p := range pools {
+		if p.ID == r.PoolID {
+			owner = p.InstallationID
+			break
+		}
+	}
+	switch owner {
+	case "":
+		return false
+	case job.InstallationID:
+		return true
+	}
+	inst, err := c.st.GetInstallation(ctx, owner)
+	if err != nil {
+		return false
+	}
+	return installationCovers(inst, job.Repo)
+}
+
+// installationCovers is the rule FindInstallationByTarget applies, for one
+// installation: its target is the repository itself or the repository's owner.
+func installationCovers(inst *store.Installation, repo string) bool {
+	repo = strings.ToLower(repo)
+	owner, _, _ := strings.Cut(repo, "/")
+	target := store.NormalizeTarget(inst.Target)
+	return target == repo || target == owner
+}
+
 // handleWorkflowJob is the path that actually scales the fleet.
 // errMalformedDelivery marks a verified delivery whose body is not a
 // workflow_job event, which is answered with a 400 rather than a 500 so that
@@ -448,8 +495,13 @@ func (c *Controller) applyWorkflowJob(ctx context.Context, e *github.WorkflowJob
 	var runner *store.Runner
 	if e.RunnerName != "" {
 		if r, err := c.st.GetRunnerByName(ctx, e.RunnerName); err == nil {
-			job.RunnerID = r.ID
-			runner = r
+			if c.runnerServesDelivery(ctx, r, claimable, job) {
+				job.RunnerID = r.ID
+				runner = r
+			} else {
+				c.log.Warn("a delivery names a runner that does not belong to the installation covering its repository; the runner was left alone",
+					"runner", r.ID, "pool", r.PoolID, "repo", job.Repo, "job", e.JobID, "installation", job.InstallationID)
+			}
 		}
 	}
 

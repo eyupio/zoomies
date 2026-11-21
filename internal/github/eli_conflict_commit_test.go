@@ -114,6 +114,53 @@ func TestConflictCommitHasTwoParentsAndNeverForcesTheBranch(t *testing.T) {
 	}
 }
 
+// A branch name is somebody else's text. Pasted into the ref URL unescaped, a
+// "#" starts a fragment and the update goes to whatever precedes it: for
+// main#42-fix that is main, which the merge commit fast-forwards because the
+// target's tip is its second parent. The branch has to arrive whole.
+func TestAConflictCommitMovesTheBranchItWasGivenWhateverItsName(t *testing.T) {
+	for _, branch := range []string{"feature", "main#42-fix", "feature/#123", "what?now", "100%done"} {
+		t.Run(branch, func(t *testing.T) {
+			pull, err := json.Marshal(map[string]any{
+				"number": 1, "state": "open",
+				"head": map[string]any{"ref": branch, "sha": "head", "repo": map[string]any{"full_name": "acme/repo", "default_branch": "main"}},
+				"base": map[string]any{"ref": "main", "sha": "base"},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			patched := ""
+			c := repairTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch {
+				case r.Method == http.MethodGet && r.URL.Path == "/repos/acme/repo/pulls/1":
+					_, _ = w.Write(pull)
+				case r.Method == http.MethodGet && r.URL.Path == "/repos/acme/repo/git/commits/head":
+					_, _ = w.Write([]byte(`{"sha":"head","tree":{"sha":"head-tree"}}`))
+				case r.Method == http.MethodPost && r.URL.Path == "/repos/acme/repo/git/trees":
+					_, _ = w.Write([]byte(`{"sha":"merged-tree"}`))
+				case r.Method == http.MethodPost && r.URL.Path == "/repos/acme/repo/git/commits":
+					_, _ = w.Write([]byte(`{"sha":"merge-commit"}`))
+				case r.Method == http.MethodPatch:
+					patched = r.URL.Path
+					_, _ = w.Write([]byte(`{"ref":"refs/heads/x","object":{"sha":"merge-commit"}}`))
+				default:
+					http.NotFound(w, r)
+				}
+			})
+			_, err = c.CommitConflictResolution(context.Background(), "acme/repo",
+				RepairPull{Number: 1, Branch: branch, HeadSHA: "head", BaseSHA: "base"}, "base",
+				[]ConflictChange{{Path: "a.txt", Mode: "100644", Content: []byte("x\n")}})
+			if err != nil {
+				t.Fatalf("CommitConflictResolution: %v", err)
+			}
+			if want := "/repos/acme/repo/git/refs/heads/" + branch; patched != want {
+				t.Fatalf("the ref update went to %q; want %q, the branch the pull request is on", patched, want)
+			}
+		})
+	}
+}
+
 func TestConflictCommitRefusesAChangedHeadBeforeWriting(t *testing.T) {
 	c := repairTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

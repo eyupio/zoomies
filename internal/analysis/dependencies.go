@@ -38,22 +38,11 @@ type RootDependencyReference struct {
 
 const RootDependencyRows = 50
 
-func dependencyHex(s string, n int) bool {
-	if len(s) != n {
-		return false
-	}
-	for _, r := range s {
-		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f') {
-			return false
-		}
-	}
-	return true
-}
 func ValidRootDependencies(e *RootDependencies, digest string) bool {
 	if e == nil {
 		return true
 	}
-	if e.Version != "root-dependencies-v1" || e.Basis != "root_uses_declarations" || e.SourceSHA256 != digest || !dependencyHex(digest, 64) || e.RowsOmitted == nil || e.References == nil || len(e.References) > RootDependencyRows {
+	if e.Version != "root-dependencies-v1" || e.Basis != "root_uses_declarations" || e.SourceSHA256 != digest || !LowerHex(digest, 64) || e.RowsOmitted == nil || e.References == nil || len(e.References) > RootDependencyRows {
 		return false
 	}
 	if e.Coverage == "unsupported" {
@@ -81,7 +70,7 @@ func ValidRootDependencies(e *RootDependencies, digest string) bool {
 	seen := map[string]bool{}
 	shown := map[string]int{}
 	for _, r := range e.References {
-		if r.JobIndex == nil || r.StepIndex == nil || r.Line == nil || *r.JobIndex < 0 || *r.JobIndex > 20000 || *r.StepIndex < -1 || *r.StepIndex > 20000 || *r.Line < 1 || *r.Line > 262144 || !dependencyHex(r.ReferenceSHA256, 64) {
+		if r.JobIndex == nil || r.StepIndex == nil || r.Line == nil || *r.JobIndex < 0 || *r.JobIndex > 20000 || *r.StepIndex < -1 || *r.StepIndex > 20000 || *r.Line < 1 || *r.Line > 262144 || !LowerHex(r.ReferenceSHA256, 64) {
 			return false
 		}
 		key := strconv.Itoa(*r.JobIndex) + ":" + strconv.Itoa(*r.StepIndex)
@@ -117,11 +106,11 @@ func ValidRootDependencies(e *RootDependencies, digest string) bool {
 			return false
 		}
 		if r.Pin == "commit" {
-			if r.Revision == nil || !dependencyHex(*r.Revision, 40) {
+			if r.Revision == nil || !LowerHex(*r.Revision, 40) {
 				return false
 			}
 		} else if r.Pin == "digest" {
-			if r.Revision == nil || !strings.HasPrefix(*r.Revision, "sha256:") || !dependencyHex(strings.TrimPrefix(*r.Revision, "sha256:"), 64) {
+			if r.Revision == nil || !strings.HasPrefix(*r.Revision, "sha256:") || !LowerHex(strings.TrimPrefix(*r.Revision, "sha256:"), 64) {
 				return false
 			}
 		} else if r.Revision != nil {

@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/backup"
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -302,15 +302,22 @@ func (p *upgradePlan) answerWait(ctx context.Context, check *serveCheck, timeout
 }
 
 // canRollback says whether the previous release can be put back: a native
-// service that runs the binary selfUpdate replaced, and only when that binary
-// was actually kept beside it. A container's service is its image, which this
-// upgrade does not keep the one before.
+// service that runs the binary selfUpdate replaced, and only when the binary
+// kept beside it is the one this upgrade wrote. A container's service is its
+// image, which this upgrade does not keep the one before.
+//
+// The kept file is checked against the digest the self-update left (see
+// KeptPreviousEnv). Its existing is not enough: an upgrade that replaced
+// nothing (install.sh --upgrade, --no-download, "already on the latest
+// build") still restarts the service and waits for it, and the file left from
+// an earlier upgrade is a release the database may since have been migrated
+// past.
 func (p *upgradePlan) canRollback() bool {
-	if p.record.Deployment.Containerised() || p.opts.BinaryPath == "" {
+	if p.record.Deployment.Containerised() || p.opts.BinaryPath == "" || p.opts.KeptPrevious == "" {
 		return false
 	}
-	_, err := os.Stat(p.opts.BinaryPath + PreviousSuffix)
-	return err == nil
+	sum, err := backup.FileSHA256(p.opts.BinaryPath + PreviousSuffix)
+	return err == nil && sum == p.opts.KeptPrevious
 }
 
 // migratedCopy is the pre-migration copy this upgrade made, or "" when it

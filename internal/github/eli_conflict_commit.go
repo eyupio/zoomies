@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"unicode/utf8"
 )
@@ -128,13 +129,26 @@ func (c *appClient) CommitConflictResolution(ctx context.Context, repo string, p
 	if err := c.conflictUnchanged(ctx, repo, p, baseSHA); err != nil {
 		return "", err
 	}
-	if err := c.repairRequest(ctx, http.MethodPatch, base+"/git/refs/heads/"+p.Branch, map[string]any{
+	if err := c.repairRequest(ctx, http.MethodPatch, base+"/git/refs/heads/"+escapeRefPath(p.Branch), map[string]any{
 		"sha":   commit.SHA,
 		"force": false,
 	}, nil); err != nil {
 		return "", err
 	}
 	return commit.SHA, nil
+}
+
+// escapeRefPath makes a branch name safe to put in a request path, one segment
+// at a time so the slashes that make a branch hierarchical stay slashes. The
+// name is somebody else's text: left as it is, a "#" or "?" starts a fragment
+// or a query and the update goes to whatever comes before it (main#42-fix moves
+// main), and a "%" that is not an escape fails to parse at all.
+func escapeRefPath(branch string) string {
+	parts := strings.Split(branch, "/")
+	for i, part := range parts {
+		parts[i] = url.PathEscape(part)
+	}
+	return strings.Join(parts, "/")
 }
 
 // conflictUnchanged reads the pull request again and refuses a head, branch or

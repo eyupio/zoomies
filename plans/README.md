@@ -21,6 +21,35 @@ was not audited) is in [improve.md](improve.md).
 | [009](009-controller-package-split.md) | Extract the Kennel Club loop from the controller package, as the first seam | P3 | L | after 004, 005 | OPEN (not executed: the one large refactor, and the owner's call) |
 | [010](010-sse-identity-tick.md) | Resolve the stream's narrowing identity per heartbeat, not per frame | P3 | S | after 005 (same file) | DONE (merged, PR #1208) |
 | [011](011-state-directory-housekeeping.md) | Let the state directory look after itself: a storage report, pruning and compaction | P2 | L | none | IN PROGRESS (written 2026-11-09 against `1da1792`; three independent parts; Part 1, the storage report, and Part 2, pruning on a schedule, are built; Part 3 is not started) |
+| [012](012-scoped-token-blank-scopes.md) | Refuse a scope list that comes to nothing when a scoped token mints | P0 | S | none | DONE (this branch) |
+| [013](013-sso-adopts-token-account.md) | Stop single sign-on adopting an account that holds API tokens | P0 | S-M | none | DONE (this branch) |
+| [014](014-eli-conflict-ref-escape.md) | Escape the branch in Eli's conflict ref update | P0 | S | none | DONE (this branch) |
+| [015](015-conflict-text-must-be-utf8.md) | Treat a conflicted file that is not UTF-8 as unsupported | P0 | S | none | DONE (this branch) |
+| [016](016-rollup-held-by-live-runner.md) | Let only finished runners hold the roll-up | P0 | M | none | DONE (this branch; installation roll-up only, see the plan) |
+| [017](017-restore-stage-before-moving.md) | Stage a restore's copy before moving the live database aside | P0 | M | none | DONE (this branch) |
+| [018](018-rollback-only-what-this-run-kept.md) | Roll an upgrade back only to the binary that upgrade kept | P1 | M | none | DONE (this branch) |
+| [019](019-cache-staging-in-flight-bytes.md) | Count bytes in flight against the cache service's staging bound | P0 | M | none | DONE (this branch) |
+| [020](020-webhook-runner-own-installation.md) | Act on a webhook's runner only inside its own installation | P1 | S-M | none | DONE (this branch) |
+| [021](021-update-refuses-wrong-version.md) | Refuse a downloaded release that reports another version | P1 | S | none | DONE (this branch) |
+| [022](022-breaker-counts-never-ready.md) | Trip the provider breaker on machines that never become ready | P1 | M | none (before 023) | DONE (this branch) |
+| [023](023-one-machine-step-at-a-time.md) | Run one step for a machine at a time | P1 | S-M | after 022 (same file) | DONE (this branch) |
+| [024](024-bound-conflict-publish-retries.md) | Bound how often a conflict repair's publication is retried | P2 | M | none | DONE (this branch) |
+| [025](025-runs-on-comment-spacing.md) | Keep a space before the comment when collapsing a runs-on list | P2 | S | none | DONE (this branch) |
+| [026](026-eli-credential-redaction.md) | Tighten Eli's credential pattern and redact model input fully | P2 | M | none | DONE (this branch; one commit for the three parts) |
+| [027](027-entrypoint-clean-environment.md) | Take the runner credentials out of PID 1's environment | P2 | M | none | DONE (this branch; image check and shellcheck not run, see the plan) |
+| [028](028-reuse-pre-migration-copy.md) | Reuse the pre-migration copy when a migration fails again | P2 | M | none | DONE (this branch) |
+| [029](029-admit-upload-before-body.md) | Admit an AI Context upload's repository before reading its body | P2 | M | none | DONE (this branch) |
+| [030](030-fold-copied-preview-code.md) | Fold the copied preview and comparison code into one of each | P3 | L | none (three independent parts) | PARTLY DONE (A done; B single-sourced the rules, structs kept apart on purpose; C not done, see the plan) |
+| [031](031-delete-unused-code.md) | Delete what nothing uses | P3 | S | none | DONE (this branch; storage.go and three store queries kept, see the plan) |
+
+Plans 012 to 031 come from a second audit, on 2026-11-21 against commit
+`8ce1be3`. Their context, the rules they share, the smaller findings that
+were left without a plan and what was not audited are in
+[audit-2026-11-21.md](audit-2026-11-21.md); read its "Rules for every plan"
+before starting one. Suggested order: the P0 rows first (012, 013, 014, 015,
+016, 017, 019), then P1, P2 and P3. Each is written to be executed on its
+own, test first, by an executor that follows its steps and stops on its STOP
+conditions.
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
 REJECTED (with one-line rationale).

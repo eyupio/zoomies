@@ -69,6 +69,11 @@ type Service struct {
 	budget  *Budget
 	entries map[string]*entry   // finished entries by id
 	pending map[string]*pending // reservations by id
+	// inflight is the room handed to writes that have started and not been
+	// recorded, guarded by mu. Without it uploads that overlap each learn the
+	// same free room and each write up to it, so N parallel blocks stage N
+	// times the bound. A write holds its grant until record applies its bytes.
+	inflight int64
 }
 
 // Budget is one size ceiling shared by several services. It is how a pool with
@@ -192,9 +197,11 @@ func (s *Service) maxPendingBytes() int64 {
 }
 
 // pendingTotalsLocked counts the open reservations and the bytes they have
-// staged, across the group.
+// staged, across the group, with the room handed to writes still in flight:
+// those bytes are as good as staged, they have only not finished arriving.
 func (s *Service) pendingTotalsLocked() (n int, bytes int64) {
 	for _, m := range s.group() {
+		bytes += m.inflight
 		for _, p := range m.pending {
 			n++
 			bytes += p.stagedBytes()

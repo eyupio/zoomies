@@ -272,7 +272,7 @@ export interface paths {
         put?: never;
         /**
          * Receive a Zoomies-only snapshot from the managed workflow
-         * @description Called by the managed GitHub Actions workflow, never by a person. The only credential is the run's GitHub Actions OIDC token, minted with this controller's upload address as its audience. The token must come from the repository's managed workflow file, on its trusted branch, from a push or manual run, for the commit that is still the branch head; each token is accepted once. Every file is then matched to the regular blob at that path in the commit before the snapshot is stored. The body is the snapshot JSON, at most 32 MiB. Answers 404 when server.external_url is not an https address.
+         * @description Called by the managed GitHub Actions workflow, never by a person. The only credential is the run's GitHub Actions OIDC token, minted with this controller's upload address as its audience. The token must come from the repository's managed workflow file, on its trusted branch, from a push or manual run, for the commit that is still the branch head; each token is accepted once. Every file is then matched to the regular blob at that path in the commit before the snapshot is stored. The body is the snapshot JSON, at most 32 MiB. The repository the token names, and the branch and workflow it came from, are checked before the body is read, so a token for a repository this controller does not serve is refused (404 or 403) without its body. Answers 404 when server.external_url is not an https address.
          */
         post: operations["uploadAIContext"];
         delete?: never;
@@ -15324,7 +15324,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description GitHub's Actions signing keys could not be fetched, so the token was not checked; the controller needs outbound https to token.actions.githubusercontent.com */
+            /** @description GitHub's Actions signing keys could not be fetched, so the token was not checked (the controller needs outbound https to token.actions.githubusercontent.com), or the controller is already receiving as many snapshots as it takes at once; Retry-After says when to run the workflow again */
             503: {
                 headers: {
                     [name: string]: unknown;
