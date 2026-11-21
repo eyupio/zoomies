@@ -453,7 +453,10 @@ So they all happen before anything is moved.
 * **An existing database.** `--replace` is required, and it moves the database
   that was there to `zoomies.db.before-restore-<timestamp>` rather than
   deleting it, with its `-wal` and `-shm`, which belong to that database and
-  would otherwise be replayed into the restored one.
+  would otherwise be replayed into the restored one. The backup is copied
+  beside the database and synced first, and only then are the two moved, so a
+  copy that fails (a full disk, say) leaves the database exactly where it was;
+  if the last move fails, the database that was set aside is put back.
 
 ### What it invalidates
 
