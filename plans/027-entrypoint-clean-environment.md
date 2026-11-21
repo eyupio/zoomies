@@ -167,3 +167,31 @@ is available, build the image and run it; if not, say so in the report.
   a tmpfs the job cannot read, which removes them from the container's
   configuration too (`docker inspect` on the host still shows them
   today). That changes the backend contract and is the owner's call.
+
+## What was done
+
+- The re-exec is at the very top of `deploy/runner-entrypoint.sh`, right after
+  `set -euo pipefail`, so nothing runs twice. The plan's sketch used an
+  environment variable (`ZOOMIES_ENTRYPOINT_CLEAN`) to tell the two passes
+  apart; the script tells them apart by whether file descriptor 9 is open
+  instead, so no variable an operator could set in a container's environment
+  can skip the re-exec and leave the second pass reading nothing. The script
+  re-executes with `"$BASH" "$0"`, which works both as the image's
+  `ENTRYPOINT` and when a test runs it as `bash <path>`.
+- A run with none of the four variables set (a debug shell) does not re-execute.
+- PID 1 is the script itself: the image's `ENTRYPOINT` is the exec form and the
+  backend sets no init, so there is no `tini` whose environment would still hold
+  the values.
+- Verified: `TestTheEntrypointsCredentialsAreNotInItsOwnEnvironment` fails before
+  (the entrypoint's `/proc/<pid>/environ` held the credential, on both the JIT and
+  the registration-token path) and passes after; the existing entrypoint tests and
+  `internal/docs` pass. `docs/security.md` said the variables were unset, which
+  was half the story, and now says what happens.
+- **Not verified here**: no Docker daemon was available, so `test/runner-image/check.sh`
+  was not run against a built image, and `shellcheck` is not installed (`bash -n`
+  passes). Both are worth running in CI before this is released.
+- Residual, not changed: the credential is still an argument of `run.sh
+  --jitconfig` and of `config.sh --token` while those run, visible in
+  `/proc/<pid>/cmdline`. `config.sh` finishes before any job starts, and a JIT
+  configuration is spent by registration, so the exposure is short; moving them to
+  a file the runner reads would be the stronger fix and is the owner's call.

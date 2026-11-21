@@ -74,7 +74,7 @@ on its own runners, and cannot read pools, jobs, users or the audit log.
 | --- | --- |
 | A malicious job tries to read another job's secrets or source | Ephemeral runners: the container that ran the previous job no longer exists |
 | A malicious job tries to reach the host | Container isolation, non-root user, dropped capabilities, no `docker.sock` by default |
-| A malicious job steals the runner registration credential and registers its own runner | JIT configurations are single-use and expire; there is no reusable PAT on the host. The entrypoint also unsets both the JIT configuration and the registration token before it starts `run.sh`, so neither is in the environment a workflow step inherits, which matters most on a pool with `ephemeral: false`, where the credential is an organisation-scoped registration token good for an hour rather than a single-use one |
+| A malicious job steals the runner registration credential and registers its own runner | JIT configurations are single-use and expire; there is no reusable PAT on the host. The entrypoint also starts itself again without the JIT configuration and the registration token, handing them to the second run on a file descriptor it closes before anything is started, so neither is in the environment a workflow step inherits and neither is in the entrypoint's own `/proc/<pid>/environ`, which a step running as the same user could otherwise read; this matters most on a pool with `ephemeral: false`, where the credential is an organisation-scoped registration token good for an hour rather than a single-use one |
 | Someone forges a webhook to make Zoomies create runners | HMAC-SHA256 signature verification on every delivery, constant-time comparison |
 | Someone reaches the controller's API | Authentication required by default; the listener binds to loopback unless told otherwise |
 | Someone reaches a freshly deployed controller before its owner does | The first-run endpoint needs the setup token printed in the controller's log, not merely an empty database |
@@ -1026,6 +1026,7 @@ kept; a rule that could not be made to fail did not ship.
 | Secrets are absent from responses, error bodies, audit rows, event frames, metrics and the controller's log | `TestSecretsAreNeverInAResponse`, `TestSecretsAreNeverInAFailure` (`internal/api`) |
 | A task carries the runner's registration credential and no controller secret | `TestACreateTaskCarriesNoControllerSecret` (`internal/controller`) |
 | A `process` runner's environment is built, not inherited | `TestProcessChildEnvironmentIsBuiltNotInherited` (`internal/backend`) |
+| The runner entrypoint's credentials are in neither its environment nor its children's | `TestTheEntrypointsCredentialsAreNotInItsOwnEnvironment` (`internal/backend`) |
 | Disabling an account ends its sessions, not merely its access | `TestDisablingAUserEndsItsSessionsAtTheAPI` (`internal/api`) |
 | A cross-origin sign-in is refused, and a non-browser client is not | `TestCSRFRefusesACrossOriginLogin` (`internal/api`) |
 | Signing in ends the session the browser was holding | `TestSigningInEndsTheSessionTheBrowserWasHolding` (`internal/api`) |
