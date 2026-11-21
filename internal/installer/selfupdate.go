@@ -233,9 +233,27 @@ func FetchRelease(ctx context.Context, opts SelfUpdateOptions) (*Candidate, Self
 	}
 	// A file that hashes right but will not run -- the wrong architecture
 	// behind a matching sums file on a mirror -- must not replace one that does.
-	if _, err := opts.run(ctx, cand.Path, "version", "--short"); err != nil {
+	reported, err := opts.run(ctx, cand.Path, "version", "--short")
+	if err != nil {
 		cand.Discard()
 		return nil, res, fmt.Errorf("the downloaded binary will not run on this host; the installed one was left in place: %w", err)
+	}
+	// Nor may one that is a different release from the one asked for. The
+	// signature covers the checksums, which name hashes and assets and no
+	// version, so a mirror (or replaced release assets) could serve an old
+	// release's genuine checksums, signature and binary under a newer tag, and
+	// the downgrade guard above would see only the tag. What the binary says it
+	// is does not come from the same place. A release reports its version
+	// without the leading v, which CompareBuilds allows for; the rolling build
+	// reports whatever it was called, so it is not held to a tag. An empty
+	// answer is refused, because CompareBuilds takes it as nothing to compare.
+	if tag != "dev" {
+		name, _, _ := strings.Cut(strings.TrimSpace(reported), " ")
+		if name == "" || version.CompareBuilds(name, tag) != version.SkewNone {
+			cand.Discard()
+			return nil, res, fmt.Errorf("the download for %s reports itself as %q, so it is not the release that was asked for; the installed binary was left in place",
+				tag, strings.TrimSpace(reported))
+		}
 	}
 	return cand, res, nil
 }
