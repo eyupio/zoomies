@@ -308,7 +308,7 @@ func TestManifestAsksForTheLeastItCan(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if !slices.Equal(m.DefaultEvents, []string{"workflow_job"}) {
-		t.Errorf("events = %v, want workflow_job only: GitHub refuses issue_comment without pull_requests access", m.DefaultEvents)
+		t.Errorf("events = %v, want workflow_job only: GitHub refuses issue_comment without issues access", m.DefaultEvents)
 	}
 	if m.Public {
 		t.Error("a fleet controller's App has no business being installable by strangers")

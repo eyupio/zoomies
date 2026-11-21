@@ -141,13 +141,16 @@ func Manifest(o ManifestOptions) ([]byte, error) {
 
 	// workflow_job queues jobs, and every other delivery would be parsed and
 	// dropped. issue_comment carries a maintainer's /eli fix request, and GitHub
-	// refuses a manifest that subscribes to it without Issues or Pull requests
-	// access ("Default events are not supported by permissions: issue_comment"),
-	// which would stop an App being created at all. Eli's repairs already need
-	// pull_requests:write, so the event is asked for exactly when that is held
-	// and an App without it loses nothing it could have used.
+	// refuses a manifest that subscribes to it without Issues access ("Default
+	// events are not supported by permissions: issue_comment"), which would stop
+	// an App being created at all. Pull requests access does not count, although
+	// the event also covers comments on pull requests: GitHub's webhook reference
+	// asks for at least read-level access to the Issues permission, and a
+	// manifest holding pull_requests:write without it is refused.
+	// manifestPermissions adds Issues read wherever Pull requests is asked for,
+	// so the event is subscribed exactly when Issues is held.
 	events := []string{"workflow_job"}
-	if perms["pull_requests"] != "" || perms["issues"] != "" {
+	if perms["issues"] != "" {
 		events = append(events, "issue_comment")
 	}
 
@@ -225,6 +228,13 @@ func manifestPermissions(o ManifestOptions) map[string]string {
 		p["contents"] = "write"
 		p["pull_requests"] = "write"
 		p["workflows"] = "write"
+	}
+	if p["pull_requests"] != "" {
+		// Read access to Issues is what GitHub requires before it delivers
+		// issue_comment, the event that carries a /eli request on the pull
+		// requests this App can already open. Read only: nothing here writes an
+		// issue.
+		p["issues"] = "read"
 	}
 	if o.KennelFiles && p["contents"] == "" {
 		// Write, which the migration wizard holds, includes read, so only an App
