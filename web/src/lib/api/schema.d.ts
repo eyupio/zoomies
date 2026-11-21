@@ -11178,6 +11178,16 @@ export interface components {
             /** @description When unavailable */
             detail?: string;
             supports_dind?: boolean;
+            /**
+             * @description The operating system the runtime runs containers as (its OSType). A container runner registers with this platform's label when its pool leaves the operating system open. Empty from an agent too old to report it and from a backend that is not a container runtime.
+             * @example linux
+             */
+            os?: string;
+            /**
+             * @description The architecture the runtime runs containers as, amd64 or arm64. A container runner registers with this architecture's label when its pool leaves the architecture open. Empty where the runtime did not say.
+             * @example amd64
+             */
+            arch?: string;
             /** @description Where the host daemon's socket lives */
             host_socket_path?: string;
             /** @description What the daemon said it can enforce. A runner is given a default limit only on a field the daemon can apply, and host.limits_unenforceable names the fields it cannot; `known` is false from an agent too old to have asked, which defaults nothing. */
