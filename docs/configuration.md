@@ -797,7 +797,7 @@ the validator says so with `limits.loopback`.
 | --- | --- | --- | --- |
 | `server.allow_indexing` | `ZOOMIES_ALLOW_INDEXING` | next restart | Allow search engine indexing: Invite search engines into the UI. Off by default: a controller is somebody's infrastructure rather than somebody's website. |
 | `server.allowed_origins` | `ZOOMIES_ALLOWED_ORIGINS` | next restart | Allowed browser origins: Extra browser origins allowed to make state-changing requests. Empty means same-origin only, which is what the built-in UI needs. |
-| `server.bind` | `ZOOMIES_BIND` | next restart | Listen address: The address the controller listens on. 127.0.0.1:8080 is this machine only; 0.0.0.0:8080 is every interface. |
+| `server.bind` | `ZOOMIES_BIND` | next restart | Address the controller listens on. On a native install, `127.0.0.1:8080` limits access to the host. With Docker port publishing or a proxy in another container, keep listening on the container network (`0.0.0.0:8080` by default). See [Compose listener and published address](compose.md#listener-and-published-address). |
 | `server.external_url` | `ZOOMIES_EXTERNAL_URL` | next restart | External URL: How GitHub and browsers reach this controller. It forms the webhook URL, so webhooks need it. |
 | `server.idle_timeout` | `ZOOMIES_IDLE_TIMEOUT` | next restart | Idle timeout: How long an idle keep-alive connection is held open. |
 | `server.read_timeout` | `ZOOMIES_READ_TIMEOUT` | next restart | Read timeout: How long a client may take to send its request. |
