@@ -575,6 +575,10 @@ func MintWithin(by *Identity, role store.Role, scopes []string) error {
 	if len(by.Scopes) == 0 {
 		return nil
 	}
+	// What is stored is the normalised list, which drops blanks, so the
+	// decision is made on that list: a request for [""] would otherwise count
+	// as scoped here and be stored as no scopes at all, the whole role.
+	scopes = normalizeScopes(scopes)
 	if len(scopes) == 0 {
 		return Invalid("this token is limited to %s, so the tokens it mints need scopes within that; an unscoped token would carry the whole role",
 			strings.Join(by.Scopes, ", "))

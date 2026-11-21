@@ -1,9 +1,7 @@
 package mcp
 
 import (
-	"encoding/hex"
 	"strconv"
-	"strings"
 
 	"github.com/eyupio/zoomies/internal/analysis"
 )
@@ -41,7 +39,7 @@ func validateComparisonWorkflows(e *comparisonWorkflowEvidence, a, b analysis.Ex
 	if e == nil {
 		return true
 	}
-	if e.Version != "workflow-evidence-v1" || e.Baseline == nil || e.Candidate == nil || len(a.Attempts) > 100 || len(b.Attempts) > 100 {
+	if e.Version != analysis.WorkflowEvidenceVersion || e.Baseline == nil || e.Candidate == nil || len(a.Attempts) > analysis.MaxEvidenceRows || len(b.Attempts) > analysis.MaxEvidenceRows {
 		return false
 	}
 	seen := map[string]bool{}
@@ -50,7 +48,7 @@ func validateComparisonWorkflows(e *comparisonWorkflowEvidence, a, b analysis.Ex
 		if i == 1 {
 			arm = b
 		}
-		if side.SelectedAttempts == nil || side.RootSources == nil || side.RowsOmitted == nil || side.Attempts == nil || len(side.Attempts) > 100 {
+		if side.SelectedAttempts == nil || side.RootSources == nil || side.RowsOmitted == nil || side.Attempts == nil || len(side.Attempts) > analysis.MaxEvidenceRows {
 			return false
 		}
 		n, roots := *side.SelectedAttempts, *side.RootSources
@@ -66,18 +64,18 @@ func validateComparisonWorkflows(e *comparisonWorkflowEvidence, a, b analysis.Ex
 		for _, row := range side.Attempts {
 			key := row.RunID + ":" + strconv.Itoa(row.Attempt)
 			revision, ok := revisions[key]
-			if !comparisonDecimalID(row.RunID) || row.Attempt <= 0 || !ok || seen[key] {
+			if !analysis.DecimalID(row.RunID) || row.Attempt <= 0 || !ok || seen[key] {
 				return false
 			}
 			seen[key] = true
-			if row.Event != nil && !comparisonWorkflowEvent(*row.Event) {
+			if row.Event != nil && !analysis.EventName(*row.Event) {
 				return false
 			}
-			if row.WorkflowPathSHA256 != nil && !comparisonHash(*row.WorkflowPathSHA256) {
+			if row.WorkflowPathSHA256 != nil && !analysis.LowerHex(*row.WorkflowPathSHA256, 64) {
 				return false
 			}
 			if s := row.RootSource; s != nil {
-				if row.Event == nil || *row.Event != "push" || row.WorkflowPathSHA256 == nil || s.Basis != "push_head_sha_root_file" || !comparisonWorkflowSHA(s.CommitSHA) || s.CommitSHA != revision || !comparisonWorkflowSHA(s.BlobSHA) || !comparisonHash(s.ContentSHA256) || s.Bytes < 1 || s.Bytes > 128*1024 {
+				if row.Event == nil || *row.Event != "push" || row.WorkflowPathSHA256 == nil || s.Basis != analysis.RootSourceBasis || !analysis.LowerHex(s.CommitSHA, 40) || s.CommitSHA != revision || !analysis.LowerHex(s.BlobSHA, 40) || !analysis.LowerHex(s.ContentSHA256, 64) || s.Bytes < 1 || s.Bytes > analysis.MaxRootSourceBytes {
 					return false
 				}
 				if !analysis.ValidRootDependencies(s.Dependencies, s.ContentSHA256) {
@@ -97,21 +95,6 @@ func validateComparisonWorkflows(e *comparisonWorkflowEvidence, a, b analysis.Ex
 		}
 		// Shown describes the locally selected rows, never an upstream assertion.
 		side.Shown = len(side.Attempts)
-	}
-	return true
-}
-func comparisonWorkflowSHA(s string) bool {
-	_, err := hex.DecodeString(s)
-	return len(s) == 40 && err == nil && s == strings.ToLower(s)
-}
-func comparisonWorkflowEvent(s string) bool {
-	if len(s) == 0 || len(s) > 64 {
-		return false
-	}
-	for _, r := range s {
-		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_') {
-			return false
-		}
 	}
 	return true
 }

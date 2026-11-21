@@ -76,6 +76,14 @@ type machineRuntime struct {
 	sweepRetry         map[string]time.Time
 	operationCount     int
 	providerOperations map[string]int
+	// stepping is the machines this process has a step running for, guarded by
+	// mu like the counters. A claim in the database says a step was issued, and
+	// a later pass continues a live claim of the right kind on purpose, which is
+	// how an asynchronous create is polled; it does not say whether this process
+	// is still inside the call. Without this, a step that blocks (a bootstrap
+	// waiting for the guest agent) was started a second time by the next pass,
+	// and each run minted a join token and revoked the other's.
+	stepping map[string]struct{}
 	// testMu holds a request for a test machine together, from the checks that
 	// read what exists to the reservation that writes. It is not mu: a pass
 	// holds that across provider calls, and a button must never wait on them.
@@ -933,6 +941,10 @@ func (c *Controller) stepMachines(ctx context.Context, env *machineEnv) {
 		if kind == store.MachineOpNone {
 			continue
 		}
+		if _, running := c.machines.stepping[m.ID]; running {
+			// This process is still inside the step it issued for this machine.
+			continue
+		}
 		if c.machines.operationCount >= 8 || c.machines.providerOperations[row.ID] >= 4 {
 			continue
 		}
@@ -947,8 +959,12 @@ func (c *Controller) stepMachines(ctx context.Context, env *machineEnv) {
 		if c.machines.providerOperations == nil {
 			c.machines.providerOperations = map[string]int{}
 		}
+		if c.machines.stepping == nil {
+			c.machines.stepping = map[string]struct{}{}
+		}
 		c.machines.operationCount++
 		c.machines.providerOperations[row.ID]++
+		c.machines.stepping[m.ID] = struct{}{}
 		c.machines.calls.Add(1)
 		go func(m *store.Machine) {
 			defer c.machines.calls.Done()
@@ -956,6 +972,7 @@ func (c *Controller) stepMachines(ctx context.Context, env *machineEnv) {
 				c.machines.mu.Lock()
 				c.machines.operationCount--
 				c.machines.providerOperations[m.ProviderID]--
+				delete(c.machines.stepping, m.ID)
 				c.machines.mu.Unlock()
 			}()
 			defer c.recoverDetached("machine-step")
@@ -1084,7 +1101,11 @@ func (c *Controller) runMachineStep(ctx context.Context, env *machineEnv, pr *ma
 		c.recordMachineFailure(ctx, env, pr, m, opID, err)
 	default:
 		c.finishMachineOperation(ctx, m, opID, store.MachineOpSucceeded, "", nil)
-		c.noteProviderSuccess(ctx, pr.row.ID)
+		// The provider answered, so what it last complained of is stale. That is
+		// all a step that returned proves: a clone that succeeds says nothing
+		// about whether the machine it made can ever join, so the breaker is not
+		// cleared here but when a machine reaches ready (machineReady).
+		c.clearProviderTrouble(pr.row.ID)
 	}
 }
 
@@ -1787,7 +1808,10 @@ func (c *Controller) noteProviderFailure(ctx context.Context, providerID string,
 
 // noteProviderSuccess clears the breaker. One machine that worked is the whole
 // of the evidence needed: the breaker exists to stop a run of failures, not to
-// punish a provider for having had one.
+// punish a provider for having had one. A machine that worked is one that
+// reached ready, not one whose clone succeeded: a template whose agent cannot
+// join clones and starts without a complaint, and clearing the count at each of
+// those steps meant it never rose.
 func (c *Controller) noteProviderSuccess(ctx context.Context, providerID string) {
 	c.clearProviderTrouble(providerID)
 	row, err := c.st.GetProvider(ctx, providerID)

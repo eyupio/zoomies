@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"math"
@@ -69,7 +68,7 @@ func parseCLIRunnerEvidence(raw json.RawMessage, a, b analysis.ExperimentArm) (*
 		return nil, nil
 	}
 	var e cliRunnerEvidence
-	if json.Unmarshal(raw, &e) != nil || e.Version != "runner-evidence-v1" || e.Baseline == nil || e.Candidate == nil || len(a.Attempts) > 100 || len(b.Attempts) > 100 {
+	if json.Unmarshal(raw, &e) != nil || e.Version != analysis.RunnerEvidenceVersion || e.Baseline == nil || e.Candidate == nil || len(a.Attempts) > analysis.MaxEvidenceRows || len(b.Attempts) > analysis.MaxEvidenceRows {
 		return nil, errCLIRunnerEvidence
 	}
 	seen := map[string]bool{}
@@ -78,11 +77,11 @@ func parseCLIRunnerEvidence(raw json.RawMessage, a, b analysis.ExperimentArm) (*
 		if i == 1 {
 			arm = b
 		}
-		if side.SelectedJobs == nil || side.MatchedJobs == nil || side.RecordedGrants == nil || side.RunnerObservations == nil || side.RowsOmitted == nil || side.Jobs == nil || len(side.Jobs) > 100 {
+		if side.SelectedJobs == nil || side.MatchedJobs == nil || side.RecordedGrants == nil || side.RunnerObservations == nil || side.RowsOmitted == nil || side.Jobs == nil || len(side.Jobs) > analysis.MaxEvidenceRows {
 			return nil, errCLIRunnerEvidence
 		}
 		n, m, g, o := *side.SelectedJobs, *side.MatchedJobs, *side.RecordedGrants, *side.RunnerObservations
-		if n < len(side.Jobs) || n > len(arm.Attempts)*500 || m < 0 || m > n || g < 0 || g > m || o < 0 || o > m || *side.RowsOmitted != (n > len(side.Jobs)) {
+		if n < len(side.Jobs) || n > len(arm.Attempts)*analysis.MaxJobsPerAttempt || m < 0 || m > n || g < 0 || g > m || o < 0 || o > m || *side.RowsOmitted != (n > len(side.Jobs)) {
 			return nil, errCLIRunnerEvidence
 		}
 		attempts := map[string]bool{}
@@ -130,13 +129,9 @@ func cliRunnerSource(s string) bool {
 func cliRunnerSizeValid(c *float64, m *int64) bool {
 	return (c == nil || *c > 0 && !math.IsNaN(*c) && !math.IsInf(*c, 0)) && (m == nil || *m > 0)
 }
-func cliRunnerHash(s string) bool {
-	_, err := hex.DecodeString(s)
-	return len(s) == 64 && err == nil && s == strings.ToLower(s)
-}
 func cliRunnerObservationValid(o *cliRunnerObservation) bool {
 	r := o.Requested
-	if r == nil || r.CPUTyped == nil || r.MemoryTyped == nil || o.IssuedAt.IsZero() || o.ReceivedAt.IsZero() || !cliRunnerHash(o.SHA256) || !cliRunnerSizeValid(r.CPUs, r.MemoryMB) || r.ImageReferenceSHA256 != "" && !cliRunnerHash(r.ImageReferenceSHA256) || r.ResourceSource != "" && !cliRunnerSource(r.ResourceSource) {
+	if r == nil || r.CPUTyped == nil || r.MemoryTyped == nil || o.IssuedAt.IsZero() || o.ReceivedAt.IsZero() || !analysis.LowerHex(o.SHA256, 64) || !cliRunnerSizeValid(r.CPUs, r.MemoryMB) || r.ImageReferenceSHA256 != "" && !analysis.LowerHex(r.ImageReferenceSHA256, 64) || r.ResourceSource != "" && !cliRunnerSource(r.ResourceSource) {
 		return false
 	}
 	switch r.Backend {
@@ -156,7 +151,7 @@ func cliRunnerObservationValid(o *cliRunnerObservation) bool {
 	}
 	switch o.DigestCoverage {
 	case "reported":
-		return o.ImageDigest != nil && strings.HasPrefix(*o.ImageDigest, "sha256:") && cliRunnerHash(strings.TrimPrefix(*o.ImageDigest, "sha256:"))
+		return o.ImageDigest != nil && strings.HasPrefix(*o.ImageDigest, "sha256:") && analysis.LowerHex(strings.TrimPrefix(*o.ImageDigest, "sha256:"), 64)
 	case "unsupported", "not_reported":
 		return o.ImageDigest == nil
 	}

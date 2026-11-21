@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/eyupio/zoomies/internal/analysis"
 	"net/url"
 	"path"
 	"strings"
@@ -148,12 +149,12 @@ func getCachePreview(ctx context.Context, c API, raw json.RawMessage) ([]Content
 	if json.Unmarshal(body, &out) != nil {
 		return nil, nil, errCachePreviewShape
 	}
-	if out.ID != a.ID || out.InstallationID != a.Installation || out.Repository != a.Repo || out.Currentness != "not_checked" || out.Verification != "inconclusive" || !cacheSHA(out.HeadSHA, 40) || !cacheSHA(out.SourceSHA256, 64) || !cacheSHA(out.AfterSHA256, 64) || !cacheSHA(out.LockfileSHA256, 64) || cachePath(out.WorkflowPath) == "" || !cacheLockfilePath(out.LockfilePath) || (out.PackageManager != "npm" && out.PackageManager != "yarn" && out.PackageManager != "pnpm") || out.JobName == "" || out.StepName == "" || out.Line < 1 || out.Runs < 2 || out.Runs > 100 || out.SetupMS <= 0 || out.Before == "" || out.After == "" || len(out.Before) > 4096 || len(out.After) > 4096 || !utf8.ValidString(out.Before) || !utf8.ValidString(out.After) || out.Explanation == "" || len(out.Explanation) > 4096 || out.CreatedAt.IsZero() {
+	if out.ID != a.ID || out.InstallationID != a.Installation || out.Repository != a.Repo || out.Currentness != "not_checked" || out.Verification != "inconclusive" || !analysis.LowerHex(out.HeadSHA, 40) || !analysis.LowerHex(out.SourceSHA256, 64) || !analysis.LowerHex(out.AfterSHA256, 64) || !analysis.LowerHex(out.LockfileSHA256, 64) || cachePath(out.WorkflowPath) == "" || !cacheLockfilePath(out.LockfilePath) || (out.PackageManager != "npm" && out.PackageManager != "yarn" && out.PackageManager != "pnpm") || out.JobName == "" || out.StepName == "" || out.Line < 1 || out.Runs < 2 || out.Runs > 100 || out.SetupMS <= 0 || out.Before == "" || out.After == "" || len(out.Before) > 4096 || len(out.After) > 4096 || !utf8.ValidString(out.Before) || !utf8.ValidString(out.After) || out.Explanation == "" || len(out.Explanation) > 4096 || out.CreatedAt.IsZero() {
 		return nil, nil, errCachePreviewShape
 	}
 	var approval *cacheApprovalProjection
 	if out.Approval != nil {
-		if out.Approval.ApprovedAt.IsZero() || out.Approval.HeadSHA != out.HeadSHA || out.Approval.SourceSHA256 != out.SourceSHA256 || out.Approval.PreviewSHA256 == "" || !cacheSHA(out.Approval.PreviewSHA256, 64) {
+		if out.Approval.ApprovedAt.IsZero() || out.Approval.HeadSHA != out.HeadSHA || out.Approval.SourceSHA256 != out.SourceSHA256 || out.Approval.PreviewSHA256 == "" || !analysis.LowerHex(out.Approval.PreviewSHA256, 64) {
 			return nil, nil, errCachePreviewShape
 		}
 		approval = &cacheApprovalProjection{ApprovedAt: out.Approval.ApprovedAt, HeadSHA: out.Approval.HeadSHA, SourceSHA256: out.Approval.SourceSHA256, PreviewSHA256: out.Approval.PreviewSHA256}
@@ -161,7 +162,7 @@ func getCachePreview(ctx context.Context, c API, raw json.RawMessage) ([]Content
 	var publication *cachePublicationProjection
 	if out.Publication != nil {
 		x := out.Publication
-		if x.PublishedAt.IsZero() || x.Branch == "" || x.BaseBranch == "" || !cacheSHA(x.BaseSHA, 40) || x.HeadSHA != out.HeadSHA || x.SourceSHA256 != out.SourceSHA256 || x.PreviewSHA256 == "" || !cacheSHA(x.PreviewSHA256, 64) || x.PullNumber <= 0 || x.PullURL == "" || len(x.PullURL) > 1024 || !strings.HasPrefix(x.PullURL, "https://") && !strings.HasPrefix(x.PullURL, "http://") {
+		if x.PublishedAt.IsZero() || x.Branch == "" || x.BaseBranch == "" || !analysis.LowerHex(x.BaseSHA, 40) || x.HeadSHA != out.HeadSHA || x.SourceSHA256 != out.SourceSHA256 || x.PreviewSHA256 == "" || !analysis.LowerHex(x.PreviewSHA256, 64) || x.PullNumber <= 0 || x.PullURL == "" || len(x.PullURL) > 1024 || !strings.HasPrefix(x.PullURL, "https://") && !strings.HasPrefix(x.PullURL, "http://") {
 			return nil, nil, errCachePreviewShape
 		}
 		publication = &cachePublicationProjection{PublishedAt: x.PublishedAt, Branch: x.Branch, BaseBranch: x.BaseBranch, BaseSHA: x.BaseSHA, HeadSHA: x.HeadSHA, SourceSHA256: x.SourceSHA256, PreviewSHA256: x.PreviewSHA256, PullNumber: x.PullNumber, PullURL: x.PullURL}
@@ -182,18 +183,6 @@ func getCachePreview(ctx context.Context, c API, raw json.RawMessage) ([]Content
 		return nil, nil, errCachePreviewShape
 	}
 	return []Content{{Type: "text", Text: cachePreviewBoundary}, {Type: "text", Text: string(encoded)}}, p, nil
-}
-
-func cacheSHA(s string, n int) bool {
-	if len(s) != n {
-		return false
-	}
-	for _, r := range s {
-		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f') {
-			return false
-		}
-	}
-	return true
 }
 
 func cachePath(p string) string {

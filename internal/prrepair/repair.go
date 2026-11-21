@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/eyupio/zoomies/internal/redact"
 )
 
 const MaxFileBytes = 32 << 10
@@ -122,10 +124,33 @@ type Plan struct {
 }
 
 var ErrCannotFix = errors.New("an Eli repair could not produce a supported fix")
-var credential = regexp.MustCompile(`(?i)(gh[pousr]_[a-z0-9_]{10,}|github_pat_[a-z0-9_]{10,}|sk-(?:proj-)?[a-z0-9_-]{12,}|(?:AKIA|ASIA)[A-Z0-9]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$))`)
+var credential = regexp.MustCompile(`(?i)(gh[pousr]_[a-z0-9_]{10,}|github_pat_[a-z0-9_]{10,}|\bsk-(?:proj-)?[a-z0-9_-]{12,}|(?:AKIA|ASIA)[A-Z0-9]{16}|` + privateKey + `)`)
+
+// privateKey is a PEM private key, header to footer, and neither form may cross a
+// quote. The text is redacted as one JSON document, and a header with no footer
+// matched to the end of it, taking the fields after the key and leaving what was
+// not a document. A key never holds a quote, and a quote is where the JSON string
+// the key is in ends, so the span stops there: a key with no footer takes the rest
+// of its own string, and one footer in another field is not reached.
+const privateKey = `-----BEGIN [A-Z ]*PRIVATE KEY-----(?:[^"]*?-----END [A-Z ]*PRIVATE KEY-----|[^"]*)`
 
 // Logs, issue text and repository files are untrusted and may contain credentials.
 func Redact(s string) string { return credential.ReplaceAllString(s, "[redacted credential]") }
+
+// Scrub is Redact and the wider rules of internal/redact: for any one piece of
+// text that goes to a model, a failed job's log, a diff, a window of source, the
+// text of a pull request. Redact knows four shapes, which is enough to decide a
+// file may not be rewritten and not enough for what a script echoes into a log
+// (a password in an address, a bearer token, a setting that says it is a secret),
+// which GitHub masks only if it was given the secret.
+//
+// It is for one piece of text at a time. Over a whole JSON document the wider
+// rules would read escaped quotes as the text's own, so the document as a whole
+// goes through Redact, as it always did.
+func Scrub(s string) string {
+	scrubbed, _ := redact.Text(Redact(s))
+	return scrubbed
+}
 func AllowedPath(p string, workflows bool) bool {
 	if p == "" || len(p) > 240 || !utf8.ValidString(p) || path.Clean(p) != p || strings.HasPrefix(p, "/") || strings.ContainsAny(p, "\\\x00\r\n") || p == ".." || strings.HasPrefix(p, "../") {
 		return false

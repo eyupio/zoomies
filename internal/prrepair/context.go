@@ -199,7 +199,7 @@ func (s *sourceContext) reveal(ctx context.Context, w ReadWindow) ([]File, error
 	s.bytes += size
 	out := []File{}
 	for _, v := range fresh {
-		out = append(out, File{Path: w.Path, Content: Redact(f.Content[v.start:v.end]), StartLine: 1 + strings.Count(f.Content[:v.start], "\n"), Partial: v.start != 0 || v.end != len(f.Content)})
+		out = append(out, File{Path: w.Path, Content: Scrub(f.Content[v.start:v.end]), StartLine: 1 + strings.Count(f.Content[:v.start], "\n"), Partial: v.start != 0 || v.end != len(f.Content)})
 	}
 	spans := append(s.shown[w.Path], fresh...)
 	sort.Slice(spans, func(i, j int) bool { return spans[i].start < spans[j].start })
