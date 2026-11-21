@@ -121,3 +121,22 @@ theirs.
   installation can still mark another's queued job completed by reusing
   its id. Refusing that merge needs the owner's view on repository
   transfers between installations.
+
+## What was done
+
+The rule is not strict equality, which the plan's Step 3 sketched. A repository
+can be covered by an installation of its own and by its organisation's;
+`FindInstallationByTarget` prefers the repository's, and GitHub may still hand
+the job to a runner of the organisation's installation. Strict equality would
+have unlinked that runner, and `docs/hosts-and-pools.md` ("A pool belongs to one
+installation") describes pools of both as legitimate. The runner is therefore
+linked when its pool's installation is the job's installation (no lookup), or
+when that installation's target covers the job's repository (one
+`GetInstallation`, only in the second case). A job no installation covers, and a
+runner whose pool is gone, link nothing.
+
+Tests: `TestADeliveryCannotMoveAnotherInstallationsRunner` (for `in_progress`
+and `completed`; before the change a globex delivery made acme's runner busy and
+removed it) and `TestARunnerOfAnInstallationThatCoversTheRepositoryStaysLinked`
+(the overlap, which passes before and after and guards against over-blocking).
+The whole `internal/controller` package passes.

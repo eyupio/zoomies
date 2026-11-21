@@ -29,7 +29,7 @@ was not audited) is in [improve.md](improve.md).
 | [017](017-restore-stage-before-moving.md) | Stage a restore's copy before moving the live database aside | P0 | M | none | DONE (this branch) |
 | [018](018-rollback-only-what-this-run-kept.md) | Roll an upgrade back only to the binary that upgrade kept | P1 | M | none | TODO |
 | [019](019-cache-staging-in-flight-bytes.md) | Count bytes in flight against the cache service's staging bound | P0 | M | none | DONE (this branch) |
-| [020](020-webhook-runner-own-installation.md) | Act on a webhook's runner only inside its own installation | P1 | S-M | none | TODO |
+| [020](020-webhook-runner-own-installation.md) | Act on a webhook's runner only inside its own installation | P1 | S-M | none | DONE (this branch) |
 | [021](021-update-refuses-wrong-version.md) | Refuse a downloaded release that reports another version | P1 | S | none | TODO |
 | [022](022-breaker-counts-never-ready.md) | Trip the provider breaker on machines that never become ready | P1 | M | none (before 023) | TODO |
 | [023](023-one-machine-step-at-a-time.md) | Run one step for a machine at a time | P1 | S-M | after 022 (same file) | TODO |
