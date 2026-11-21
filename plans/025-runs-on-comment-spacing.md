@@ -119,3 +119,15 @@ nothing.
 
 - Step 3 needs more than a parent-key check (the file has no notion of
   the enclosing mapping). Report it and land Steps 1 and 2 alone.
+
+## What was done
+
+Step 3 was not hypothetical: a matrix axis named `runs-on` was rewritten into a
+scalar in both its flow and block forms, and so was an `include` entry, which
+made the common pattern `runs-on: ${{ matrix.runs-on }}` produce an invalid
+matrix (the job's own line was skipped as an expression while its axis was
+rewritten). `underMatrix` now recognises a key whose ancestors include `matrix`
+directly under `strategy` (a job merely called `matrix` is not one) and the
+rewriter skips it with a reason that says it is a matrix axis. The comment
+spacing is fixed in the block-sequence collapse. `docs/migration.md` lists the new
+form among the things the tool leaves alone.
