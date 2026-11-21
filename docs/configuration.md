@@ -1549,6 +1549,12 @@ image: the JSON `{"username":"...","password":"..."}` that `docker login`
 writes, base64url-encoded. Empty means anonymous pulls, which is right for
 public images.
 
+Include `serveraddress` (for example `ghcr.io`). The credential is then sent only
+when an image comes from that registry, and every other pull, such as the
+default docker-in-docker sidecar from Docker Hub, is anonymous. Without it the
+credential goes with every pull, which a second registry may refuse, and the
+token is sent to registries it was not made for.
+
 Set it when a pool's image lives in a private registry. Without it such a pool
 cannot use `pull_policy: pinned-only` at all; the pull it needs is the one the
 registry refuses, and the runner never starts.
@@ -1972,7 +1978,10 @@ from a source you trust.
 The image is pulled under the host's pull policy, not the pool's, which governs
 the runner image only, so `pinned-only` does not check the sidecar image.
 Pulls use the one credential in `agent.registry_auth`, so a private sidecar
-image has to be on a registry that credential covers. The images a job pulls
+image has to be on a registry that credential covers. A credential that names
+its registry in `serveraddress` is sent only to that registry, so the default
+`docker:27-dind` still pulls anonymously from Docker Hub beside a private runner
+image on ghcr.io. The images a job pulls
 inside the sidecar do not: the nested daemon never sees `agent.registry_auth`,
 so a private job image needs a `docker login` in the workflow, or credentials in
 the sidecar image's own `/root/.docker/config.json`. Prewarming prepares the

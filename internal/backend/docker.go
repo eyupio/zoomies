@@ -352,7 +352,10 @@ type DockerBackend struct {
 	pull    PullPolicy
 	dind    string
 	auth    string
-	extraCA string
+	// authServer is the registry auth names in its serveraddress, or "" when
+	// it names none and is sent with every pull.
+	authServer string
+	extraCA    string
 	// sharedDir is DockerOptions.SharedDir, and sharedProblem its
 	// SharedDirProblem.
 	sharedDir     string
@@ -472,14 +475,15 @@ func newContainerBackend(opts DockerOptions, fl flavor, detect func() []string, 
 	}
 
 	b := &DockerBackend{
-		api:     api,
-		fl:      fl,
-		network: strings.TrimSpace(opts.Network),
-		workDir: strings.TrimSpace(opts.WorkDir),
-		pull:    pull,
-		dind:    dind,
-		auth:    opts.RegistryAuth,
-		extraCA: strings.TrimSpace(opts.ExtraCAFile),
+		api:        api,
+		fl:         fl,
+		network:    strings.TrimSpace(opts.Network),
+		workDir:    strings.TrimSpace(opts.WorkDir),
+		pull:       pull,
+		dind:       dind,
+		auth:       opts.RegistryAuth,
+		authServer: credentialServer(opts.RegistryAuth),
+		extraCA:    strings.TrimSpace(opts.ExtraCAFile),
 
 		sharedDir:     strings.TrimSpace(opts.SharedDir),
 		sharedProblem: opts.SharedDirProblem,
@@ -1613,7 +1617,7 @@ func (b *DockerBackend) prepareImage(ctx context.Context, image string, policy s
 	var duration *time.Duration
 	if pull {
 		started := time.Now()
-		if err := b.api.ImagePull(ctx, image, b.auth); err != nil {
+		if err := b.api.ImagePull(ctx, image, b.authFor(image)); err != nil {
 			return "", "", false, nil, imageErr(fmt.Errorf("backend: pulling %s: %w", image, err))
 		}
 		d := time.Since(started)
@@ -1755,7 +1759,7 @@ func (b *DockerBackend) ensureImage(ctx context.Context, image string) (bool, er
 
 func (b *DockerBackend) applyPullPolicy(ctx context.Context, image string) (bool, error) {
 	if b.pull == PullAlways {
-		if err := b.api.ImagePull(ctx, image, b.auth); err != nil {
+		if err := b.api.ImagePull(ctx, image, b.authFor(image)); err != nil {
 			return false, imageErr(fmt.Errorf("backend: pulling %s: %w", image, err))
 		}
 		return true, nil
@@ -1771,7 +1775,7 @@ func (b *DockerBackend) applyPullPolicy(ctx context.Context, image string) (bool
 	if b.pull == PullNever {
 		return false, imageErr(fmt.Errorf("backend: image %s is not on this host and the pull policy is %q; pull it here first (docker pull %s) or set the pull policy to if-missing", image, b.pull, image))
 	}
-	if err := b.api.ImagePull(ctx, image, b.auth); err != nil {
+	if err := b.api.ImagePull(ctx, image, b.authFor(image)); err != nil {
 		return false, imageErr(fmt.Errorf("backend: pulling %s: %w", image, err))
 	}
 	return true, nil
