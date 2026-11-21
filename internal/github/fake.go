@@ -851,6 +851,10 @@ func (f *FakeGitHub) generateJITConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "Validation Failed: name and labels are required")
 		return
 	}
+	if len(req.Labels) > MaxJITLabels {
+		writeError(w, http.StatusUnprocessableEntity, "Validation Failed: labels must contain at most 100 items")
+		return
+	}
 
 	f.mu.Lock()
 	defer f.mu.Unlock()

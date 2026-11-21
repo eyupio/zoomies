@@ -134,11 +134,19 @@ var ErrInvalid = errors.New("github: refused as invalid")
 var ErrRunnerBusy = errors.New("github: runner is still running a job")
 
 // JITRequest asks GitHub for a just-in-time runner configuration.
+// MaxJITLabels is the most labels GitHub accepts in one request to create a
+// just-in-time runner configuration (the labels parameter of
+// "Create configuration for a just-in-time runner", organisation and
+// repository alike).
+const MaxJITLabels = 100
+
 type JITRequest struct {
 	// Name must be unique within the target. GitHub rejects reuse.
 	Name string
-	// Labels are the custom labels this runner advertises, without the
-	// implicit self-hosted/os/arch set.
+	// Labels are every label this runner advertises. A just-in-time
+	// configuration carries exactly these: GitHub adds no self-hosted, OS or
+	// architecture label of its own, so the caller includes them. At most
+	// MaxJITLabels after de-duplication.
 	Labels []string
 	// RunnerGroupID is 1 (Default) unless the pool names a group.
 	RunnerGroupID int64

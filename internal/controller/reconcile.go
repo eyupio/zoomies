@@ -13,6 +13,7 @@ import (
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/github"
+	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -577,9 +578,23 @@ func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, host *s
 // GitHub answers. It runs apart from the pass that wrote the row -- see
 // createRunner -- so its own errors end here rather than back in apply().
 func (c *Controller) finishCreateRunner(ctx context.Context, inst *store.Installation, pool *store.Pool, r *store.Runner, a scheduler.Action, name string, resources store.Resources, source string) {
-	creds, ghID, err := c.mintCredentials(ctx, inst, pool, name, r.Repo)
+	// The host decides the operating system and architecture labels of a
+	// pool that leaves them open (jitLabels). One that cannot be read leaves
+	// the runner with what the pool itself says, as before.
+	host, herr := c.st.GetHost(ctx, a.HostID)
+	if herr != nil {
+		c.log.Warn("could not read the host to label the runner by its platform; using the pool's platform alone",
+			"pool", pool.Name, "host", a.HostID, "error", herr)
+		host = nil
+	}
+	creds, ghID, err := c.mintCredentials(ctx, inst, pool, host, name, r.Repo)
 	if err != nil {
 		msg := fmt.Sprintf("GitHub would not register %s: %v", name, err)
+		if errors.Is(err, errJITLabelLimit) {
+			// Refused here, before GitHub was asked: saying GitHub refused it
+			// would send an operator looking in the wrong place.
+			msg = fmt.Sprintf("did not register %s: %v", name, err)
+		}
 		if failed, ferr := c.st.FailRunner(ctx, r.ID, msg, store.FaultRegistration); ferr == nil {
 			c.publishRunner(ctx, events.KindRunnerUpdated, failed)
 			if !errors.Is(err, github.ErrRateLimited) {
@@ -753,7 +768,8 @@ func wireSource(source string, pool *store.Pool) string {
 //
 // repo is the repository the runner is registered on when the installation is a
 // personal account, which has nowhere else to put one; it is empty otherwise.
-func (c *Controller) mintCredentials(ctx context.Context, inst *store.Installation, pool *store.Pool, name, repo string) (creds backend.Credentials, id int64, err error) {
+// host is where the runner will start, nil when it is not known.
+func (c *Controller) mintCredentials(ctx context.Context, inst *store.Installation, pool *store.Pool, host *store.Host, name, repo string) (creds backend.Credentials, id int64, err error) {
 	if c.githubHeld(inst.ID, c.Now()) {
 		return backend.Credentials{}, 0, errRegistrationHeld
 	}
@@ -768,6 +784,10 @@ func (c *Controller) mintCredentials(ctx context.Context, inst *store.Installati
 	}
 
 	if pool.Ephemeral {
+		labels, err := jitLabels(pool, host)
+		if err != nil {
+			return backend.Credentials{}, 0, err
+		}
 		group, unresolved, publicBlocked := c.clients.runnerGroupID(ctx, inst, client, pool.RunnerGroup)
 		c.noteRunnerGroup(pool, pool.RunnerGroup, unresolved, publicBlocked)
 		if c.githubHeld(inst.ID, c.Now()) {
@@ -775,7 +795,7 @@ func (c *Controller) mintCredentials(ctx context.Context, inst *store.Installati
 		}
 		jit, err := client.CreateJITConfig(ctx, github.JITRequest{
 			Name:          name,
-			Labels:        jitLabels(pool),
+			Labels:        labels,
 			RunnerGroupID: group,
 			Repo:          repo,
 		})
@@ -809,26 +829,78 @@ func (c *Controller) mintCredentials(ctx context.Context, inst *store.Installati
 // is never offered a job whose runs-on lists self-hosted, linux or x64. The
 // scheduler treats those labels as implicit (store.ImplicitLabels) and keeps
 // starting runners for such a job, which then sit idle beside it. Unless the
-// pool opts out with no_default_labels, the implicit set its platform implies
-// is minted with it. An architecture the pool leaves open is not guessed.
-func jitLabels(pool *store.Pool) []string {
-	if pool.NoDefaultLabels {
-		return pool.Labels
+// pool opts out with no_default_labels, the runner is minted with the implicit
+// set of the platform it will really be (runnerPlatform).
+//
+// GitHub refuses a request with more than github.MaxJITLabels labels, so a
+// pool whose own labels leave no room for the implicit ones is refused here,
+// by name, rather than by GitHub with an error that names neither.
+func jitLabels(pool *store.Pool, host *store.Host) ([]string, error) {
+	labels := pool.Labels
+	if !pool.NoDefaultLabels {
+		os, arch := runnerPlatform(pool, host)
+		labels = append([]string{"self-hosted"}, pool.Labels...)
+		if k := naming.Kernel(os); k != "" {
+			labels = append(labels, k)
+		} else {
+			// A runner with no operating system anyone could name is a
+			// Linux container: the backends that run anything else (a process
+			// runner on Windows or macOS, a Windows container) say so.
+			labels = append(labels, "linux")
+		}
+		if a := naming.ArchLabel(arch); a != "" {
+			labels = append(labels, a)
+		}
 	}
-	labels := append([]string{"self-hosted"}, pool.Labels...)
-	switch pool.Platform.OS {
-	case "windows", "macos":
-		labels = append(labels, pool.Platform.OS)
-	default:
-		labels = append(labels, "linux")
+	labels = store.NormalizeLabels(labels)
+	if len(labels) > github.MaxJITLabels {
+		return nil, fmt.Errorf("%w: pool %s: its runners would register with %d labels, and GitHub accepts at most %d for a just-in-time runner; "+
+			"remove at least %d of the pool's labels", errJITLabelLimit, pool.Name, len(labels), github.MaxJITLabels, len(labels)-github.MaxJITLabels)
 	}
-	switch pool.Platform.Arch {
-	case "amd64":
-		labels = append(labels, "x64")
-	case "arm64":
-		labels = append(labels, "arm64")
+	return labels, nil
+}
+
+// errJITLabelLimit marks a runner jitLabels refused because its pool has more
+// labels than GitHub accepts for one just-in-time runner.
+var errJITLabelLimit = errors.New("too many labels")
+
+// runnerPlatform is the operating system and architecture a pool's runner on
+// host will be, for its labels. What the pool states wins. What it leaves open
+// is read from where the runner runs: a process runner is the host itself, and
+// a container runner is whatever its container runtime runs (Docker Desktop on
+// a Mac runs Linux containers), falling back to the host's architecture for an
+// agent too old to report its runtime's. With no host, only the pool speaks.
+func runnerPlatform(pool *store.Pool, host *store.Host) (os, arch string) {
+	os, arch = pool.Platform.OS, pool.Platform.Arch
+	if host == nil {
+		return os, arch
 	}
-	return store.NormalizeLabels(labels)
+	if pool.Backend == store.BackendProcess {
+		if naming.Kernel(os) == "" {
+			os = host.Platform().OS
+		}
+		if naming.NormalizeArch(arch) == "" {
+			arch = host.Arch
+		}
+		return os, arch
+	}
+	var runtime store.HostBackend
+	for _, b := range host.BackendInfo {
+		if b.Kind == pool.Backend {
+			runtime = b
+			break
+		}
+	}
+	if naming.Kernel(os) == "" {
+		os = runtime.OS
+	}
+	if naming.NormalizeArch(arch) == "" {
+		arch = runtime.Arch
+		if naming.NormalizeArch(arch) == "" {
+			arch = host.Arch
+		}
+	}
+	return os, arch
 }
 
 // RunnerImage returns the image a pool's runners use.

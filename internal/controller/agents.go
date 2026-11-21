@@ -2208,6 +2208,8 @@ func hostBackends(infos []backend.Info) store.HostBackends {
 			SupportsDinD: i.SupportsDinD,
 			CPUs:         i.CPUs,
 			MemoryMB:     i.MemoryMB,
+			OS:           i.OS,
+			Arch:         i.Arch,
 			Limits:       i.Limits,
 			SharedFolder: i.SharedFolder,
 		})
