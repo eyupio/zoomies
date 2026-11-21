@@ -23,24 +23,22 @@ const (
 	wrapScript    = "../../deploy/runner-node-wrap.sh"
 )
 
-// buildWrapper compiles deploy/node-wrapper.go as the image build does, for the
-// host when goos is empty and for that system otherwise, and says where it put
-// it. It is built without cgo and with -trimpath so the same source gives the
-// same bytes wherever it is built.
-func buildWrapper(t *testing.T, goos, goarch string) string {
+// buildNodeProgram builds the wrapper or its test stand-in without cgo and with
+// -trimpath, as the image builds the wrapper. An empty goos means the host.
+func buildNodeProgram(t *testing.T, source, goos, goarch string) string {
 	t.Helper()
 	goTool, err := exec.LookPath("go")
 	if err != nil {
-		t.Fatalf("the wrapper tests compile the wrapper and found no go on the path: %v", err)
+		t.Fatalf("the wrapper tests need go on the path: %v", err)
 	}
-	out := filepath.Join(t.TempDir(), "runner-node-wrapper")
-	cmd := exec.Command(goTool, "build", "-trimpath", "-ldflags=-s -w", "-o", out, wrapperSource)
+	out := filepath.Join(t.TempDir(), strings.TrimSuffix(filepath.Base(source), ".go"))
+	cmd := exec.Command(goTool, "build", "-trimpath", "-ldflags=-s -w", "-o", out, source)
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if goos != "" {
 		cmd.Env = append(cmd.Env, "GOOS="+goos, "GOARCH="+goarch)
 	}
 	if b, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("building the wrapper: %v\n%s", err, b)
+		t.Fatalf("building %s: %v\n%s", source, err, b)
 	}
 	return out
 }
@@ -72,7 +70,7 @@ func fakeRunner(t *testing.T) string {
 
 func wrap(t *testing.T, runner string) ([]byte, error) {
 	t.Helper()
-	cmd := exec.Command("sh", wrapScript, runner, buildWrapper(t, "", ""))
+	cmd := exec.Command("sh", wrapScript, runner, buildNodeProgram(t, wrapperSource, "", ""))
 	return cmd.CombinedOutput()
 }
 
@@ -225,11 +223,16 @@ func TestTheWrapperKeepsEnvironmentVariablesWhoseNamesAreNotShellNames(t *testin
 	// outright, and checkout quietly fell back to its defaults. It is a program
 	// now, which has no such limit, and this holds it there.
 	//
-	// The real node here is a copy of env, not a script, so nothing between the
-	// wrapper and the check is a shell that could drop the name by itself.
-	envBinary, err := exec.LookPath("env")
+	// Use a standalone stand-in for Node so neither a shell nor the host's
+	// coreutils can interfere. Ubuntu's multicall env needs its original name
+	// to select an applet, and the installer renames the stand-in to node.real.
+	if runtime.GOOS == "windows" {
+		t.Skip("the runner image's node wrapper uses Unix exec")
+	}
+	reportEnv := buildNodeProgram(t, "testdata/print-env.go", "", "")
+	body, err := os.ReadFile(reportEnv)
 	if err != nil {
-		t.Skip("no env to stand in for node: " + err.Error())
+		t.Fatal(err)
 	}
 	inputs := []string{"INPUT_GO-VERSION-FILE=go.mod", "INPUT_PYTHON-VERSION=3.12", "INPUT_TOKEN=x"}
 	redirect := preload(t)
@@ -239,10 +242,6 @@ func TestTheWrapperKeepsEnvironmentVariablesWhoseNamesAreNotShellNames(t *testin
 			"ZOOMIES_CACHE_REDIRECT_FILE=" + redirect, "ACTIONS_CACHE_SERVICE_V2=true"},
 	} {
 		runner := fakeRunner(t)
-		body, err := os.ReadFile(envBinary)
-		if err != nil {
-			t.Fatal(err)
-		}
 		if err := os.WriteFile(filepath.Join(runner, "externals", "node20", "bin", "node"), body, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -289,7 +288,7 @@ func TestTheInstallerWrapsTheGlibcNodesAndLeavesTheAlpineOnesAlone(t *testing.T)
 	if out, err := wrap(t, runner); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	want, err := os.ReadFile(buildWrapper(t, "", ""))
+	want, err := os.ReadFile(buildNodeProgram(t, wrapperSource, "", ""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -339,7 +338,7 @@ func TestTheWrapperIsAStaticProgramSoAJobImageNeedsNoShellOrLibc(t *testing.T) {
 	// wrapper depends on none of them: it is statically linked and starts no
 	// shell. Both architectures the image ships are held to it.
 	for _, arch := range []string{"amd64", "arm64"} {
-		f, err := elf.Open(buildWrapper(t, "linux", arch))
+		f, err := elf.Open(buildNodeProgram(t, wrapperSource, "linux", arch))
 		if err != nil {
 			t.Fatalf("%s: %v", arch, err)
 		}
