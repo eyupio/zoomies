@@ -5,13 +5,13 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>{{.Label}}</string>
+	<string>{{xml .Label}}</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>{{.ExecPath}}</string>
-		<string>{{.Command}}</string>
+		<string>{{xml .ExecPath}}</string>
+		<string>{{xml .Command}}</string>
 		<string>--config</string>
-		<string>{{.ConfigFile}}</string>
+		<string>{{xml .ConfigFile}}</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>
@@ -21,20 +21,20 @@
 		<false/>
 	</dict>
 	<key>WorkingDirectory</key>
-	<string>{{.StateDir}}</string>
+	<string>{{xml .StateDir}}</string>
 	<key>StandardOutPath</key>
-	<string>{{.LogFile}}</string>
+	<string>{{xml .LogFile}}</string>
 	<key>StandardErrorPath</key>
-	<string>{{.LogFile}}</string>
+	<string>{{xml .LogFile}}</string>
 	<key>ProcessType</key>
 	<string>Background</string>
 	<key>EnvironmentVariables</key>
 	<dict>
 		<key>HOME</key>
-		<string>{{.Home}}</string>
+		<string>{{xml .Home}}</string>
 {{- if .Path}}
 		<key>PATH</key>
-		<string>{{.Path}}</string>
+		<string>{{xml .Path}}</string>
 {{- end}}
 	</dict>
 </dict>

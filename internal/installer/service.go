@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"embed"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"os"
@@ -32,6 +33,7 @@ var unitTemplates = template.Must(template.New("").Funcs(template.FuncMap{
 	"execArg":  systemdExecArg,
 	"pathList": systemdPathListEntry,
 	"setting":  systemdSetting,
+	"xml":      xmlText,
 }).ParseFS(templateFS, "templates/*.tmpl"))
 
 // A unit file is read by systemd, which splits a command line and a list of
@@ -39,6 +41,15 @@ var unitTemplates = template.Must(template.New("").Funcs(template.FuncMap{
 // operator chose cannot be written as it was typed. Each of the three helpers
 // below is one place a path goes, and none of them touches a path that needs
 // nothing, so the unit an ordinary install writes is the one it always was.
+
+// xmlText is text for between the tags of the plist, which is XML and so cannot
+// be given a path as it was typed: an ampersand in a directory name made a file
+// launchd refuses to load.
+func xmlText(s string) string {
+	var b strings.Builder
+	_ = xml.EscapeText(&b, []byte(s))
+	return b.String()
+}
 
 // needsUnitQuoting reports whether a word would be split or unescaped by
 // systemd's command-line rules.

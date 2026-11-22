@@ -2,8 +2,10 @@ package installer
 
 import (
 	"context"
+	"encoding/xml"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -918,6 +920,54 @@ func TestAUnitIsNotWrittenForAPathWithALineBreakInIt(t *testing.T) {
 			t.Errorf("a unit was rendered with a line break in %s", field)
 		} else if !strings.Contains(err.Error(), "line break") {
 			t.Errorf("the refusal for %s does not say what is wrong: %v", field, err)
+		}
+	}
+}
+
+// The plist is XML, and its template wrote a path between the tags as it was
+// typed, so a directory called "Dev & Test" produced a file launchd refuses to
+// load, which on a development Mac shows only as a controller that never starts.
+// Whatever a path holds, it has to read back as that path.
+func TestAPlistReadsBackTheOperatorsPathsWhateverTheyHold(t *testing.T) {
+	spec := controllerSpec()
+	spec.ExecPath = "/Users/me/Dev & Test/zoomies"
+	spec.ConfigFile = "/Users/me/<cfg>/zoomies.yaml"
+	spec.StateDir = `/Users/me/"state" & 'more'`
+	spec.Home = "/Users/me/Dev & Test"
+	spec.Path = "/usr/local/bin:/Users/me/a&b/bin"
+	out, err := RenderLaunchdPlist(spec)
+	if err != nil {
+		t.Fatalf("RenderLaunchdPlist: %v", err)
+	}
+
+	dec := xml.NewDecoder(strings.NewReader(out))
+	var strs []string
+	var inString bool
+	for {
+		tok, err := dec.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("the plist is not well-formed XML: %v\n%s", err, out)
+		}
+		switch el := tok.(type) {
+		case xml.StartElement:
+			inString = el.Name.Local == "string"
+			if inString {
+				strs = append(strs, "")
+			}
+		case xml.EndElement:
+			inString = false
+		case xml.CharData:
+			if inString {
+				strs[len(strs)-1] += string(el)
+			}
+		}
+	}
+	for _, want := range []string{spec.ExecPath, spec.ConfigFile, spec.StateDir, spec.Home, spec.Path} {
+		if !slices.Contains(strs, want) {
+			t.Errorf("the plist does not read back %q; its strings are %q", want, strs)
 		}
 	}
 }
