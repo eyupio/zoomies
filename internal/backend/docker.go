@@ -352,11 +352,8 @@ type DockerBackend struct {
 	workDir string
 	pull    PullPolicy
 	dind    string
-	auth    string
-	// authServer is the registry auth names in its serveraddress, or "" when
-	// it names none and is sent with every pull.
-	authServer string
-	extraCA    string
+	creds   registryCredentials
+	extraCA string
 	// sharedDir is DockerOptions.SharedDir, and sharedProblem its
 	// SharedDirProblem.
 	sharedDir     string
@@ -476,15 +473,14 @@ func newContainerBackend(opts DockerOptions, fl flavor, detect func() []string, 
 	}
 
 	b := &DockerBackend{
-		api:        api,
-		fl:         fl,
-		network:    strings.TrimSpace(opts.Network),
-		workDir:    strings.TrimSpace(opts.WorkDir),
-		pull:       pull,
-		dind:       dind,
-		auth:       opts.RegistryAuth,
-		authServer: credentialServer(opts.RegistryAuth),
-		extraCA:    strings.TrimSpace(opts.ExtraCAFile),
+		api:     api,
+		fl:      fl,
+		network: strings.TrimSpace(opts.Network),
+		workDir: strings.TrimSpace(opts.WorkDir),
+		pull:    pull,
+		dind:    dind,
+		creds:   newRegistryCredentials(opts.RegistryAuth),
+		extraCA: strings.TrimSpace(opts.ExtraCAFile),
 
 		sharedDir:     strings.TrimSpace(opts.SharedDir),
 		sharedProblem: opts.SharedDirProblem,

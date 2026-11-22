@@ -1555,6 +1555,18 @@ default docker-in-docker sidecar from Docker Hub, is anonymous. Without it the
 credential goes with every pull, which a second registry may refuse, and the
 token is sent to registries it was not made for.
 
+To use a different credential for each registry, give the `auths` map of a
+`~/.docker/config.json` instead, base64-encoded:
+
+```json
+{"auths": {"ghcr.io": {"auth": "<base64 of user:token>"},
+           "registry.example.com:5000": {"username": "bot", "password": "..."}}}
+```
+
+Each pull then gets the credential for its own registry, and an image on a
+registry the map does not list pulls anonymously. An entry may use `auth`,
+`username` with `password`, or `identitytoken`.
+
 Set it when a pool's image lives in a private registry. Without it such a pool
 cannot use `pull_policy: pinned-only` at all; the pull it needs is the one the
 registry refuses, and the runner never starts.
@@ -1977,12 +1989,12 @@ from a source you trust.
 
 The image is pulled under the host's pull policy, not the pool's, which governs
 the runner image only, so `pinned-only` does not check the sidecar image.
-Pulls use the one credential in `agent.registry_auth`, so a private sidecar
-image has to be on a registry that credential covers. A credential that names
+Pulls use the credential in `agent.registry_auth` for the image's own registry,
+so a private sidecar image has to be on a registry that setting covers. A credential that names
 its registry in `serveraddress` is sent only to that registry, so the default
 `docker:27-dind` still pulls anonymously from Docker Hub beside a private runner
 image on ghcr.io. The images a job pulls
-inside the sidecar do not: the nested daemon never sees `agent.registry_auth`,
+inside the sidecar do not use it: the nested daemon never sees `agent.registry_auth`,
 so a private job image needs a `docker login` in the workflow, or credentials in
 the sidecar image's own `/root/.docker/config.json`. Prewarming prepares the
 host's image only; a pool's own image is pulled when its first runner starts. An agent

@@ -2,6 +2,7 @@ package backend
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"testing"
 )
 
@@ -32,7 +33,7 @@ func TestAuthForSendsACredentialOnlyToTheRegistryItNames(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			b := &DockerBackend{auth: tt.auth, authServer: credentialServer(tt.auth)}
+			b := &DockerBackend{creds: newRegistryCredentials(tt.auth)}
 			got := b.authFor(tt.image)
 			if tt.sent && got != tt.auth {
 				t.Fatalf("authFor(%q) = %q, want the credential", tt.image, got)
@@ -47,5 +48,52 @@ func TestAuthForSendsACredentialOnlyToTheRegistryItNames(t *testing.T) {
 func TestAuthForWithNoCredentialIsAnonymous(t *testing.T) {
 	if got := (&DockerBackend{}).authFor("ghcr.io/org/x"); got != "" {
 		t.Fatalf("authFor = %q, want empty", got)
+	}
+}
+
+func dockerConfig(auths string) string {
+	return base64.StdEncoding.EncodeToString([]byte(`{"auths":` + auths + `}`))
+}
+
+func headerFields(t *testing.T, header string) map[string]string {
+	t.Helper()
+	var f map[string]string
+	if err := json.Unmarshal(decodeBase64(header), &f); err != nil {
+		t.Fatalf("header %q is not base64 JSON: %v", header, err)
+	}
+	return f
+}
+
+func TestEachRegistryGetsItsOwnCredentialFromADockerConfig(t *testing.T) {
+	userPass := base64.StdEncoding.EncodeToString([]byte("bot:ghcr-token"))
+	b := &DockerBackend{creds: newRegistryCredentials(dockerConfig(`{
+		"ghcr.io": {"auth": "` + userPass + `"},
+		"https://index.docker.io/v1/": {"username": "hubuser", "password": "hubpass"},
+		"registry.example.com:5000": {"identitytoken": "tok"},
+		"empty.example.com": {}
+	}`))}
+
+	ghcr := headerFields(t, b.authFor("ghcr.io/org/runner:1"))
+	if ghcr["username"] != "bot" || ghcr["password"] != "ghcr-token" || ghcr["serveraddress"] != "ghcr.io" {
+		t.Fatalf("ghcr.io credential = %v", ghcr)
+	}
+	hub := headerFields(t, b.authFor("docker:27-dind"))
+	if hub["username"] != "hubuser" || hub["serveraddress"] != "docker.io" {
+		t.Fatalf("Docker Hub credential = %v", hub)
+	}
+	if tok := headerFields(t, b.authFor("registry.example.com:5000/img:1")); tok["identitytoken"] != "tok" {
+		t.Fatalf("identity token credential = %v", tok)
+	}
+	for _, image := range []string{"quay.io/org/img:1", "empty.example.com/img:1"} {
+		if got := b.authFor(image); got != "" {
+			t.Fatalf("authFor(%q) sent a credential, want an anonymous pull", image)
+		}
+	}
+}
+
+func TestAnEmptyAuthsMapPullsEverythingAnonymously(t *testing.T) {
+	b := &DockerBackend{creds: newRegistryCredentials(dockerConfig(`{}`))}
+	if got := b.authFor("ghcr.io/org/runner:1"); got != "" {
+		t.Fatalf("authFor sent %q, want an anonymous pull", got)
 	}
 }
