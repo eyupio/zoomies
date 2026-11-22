@@ -309,7 +309,11 @@ first boot, and the controller answers only if both of these hold:
   the container's hostname, set by Zoomies to the machine's own name; and
 * the request comes **from the address Proxmox reports for that container**,
   which the controller reads from the node itself, not from anything the
-  container says.
+  container says; and
+* the resource at that identifier is the one Zoomies made, by the same check a
+  delete waits for: its name and its ownership record are the machine's own.
+  A container destroyed by hand and its number reused by something else is
+  refused, not trusted because it has an address.
 
 What it is then given is exactly what a VM is given: a single-use join token,
 valid for minutes, that enrols one host under that one name and nothing else.

@@ -20,6 +20,9 @@ type claimingFake struct {
 	noAddress bool
 	// pushed counts payloads the controller tried to push into a machine.
 	pushed *int
+	// tamper changes what Inspect reports, after the machine exists, which is how
+	// a test puts somebody else's resource at a machine's identifier.
+	tamper *func(*provider.Machine)
 }
 
 func (c claimingFake) Claims(provider.MachineRef) bool { return true }
@@ -54,6 +57,9 @@ func (c claimingFake) Inspect(ctx context.Context, ref provider.MachineRef) (pro
 	if c.noAddress {
 		m.Address = ""
 	}
+	if c.tamper != nil && *c.tamper != nil {
+		(*c.tamper)(&m)
+	}
 	return m, err
 }
 
@@ -68,12 +74,18 @@ func (h *harness) claimingMachine(t *testing.T, noAddress bool) (*store.Machine,
 
 func (h *harness) claimingMachinePushes(t *testing.T, noAddress bool) (*store.Machine, string, *int) {
 	t.Helper()
+	m, addr, pushed, _ := h.claimingMachineTamperable(t, noAddress)
+	return m, addr, pushed
+}
+
+func (h *harness) claimingMachineTamperable(t *testing.T, noAddress bool) (*store.Machine, string, *int, *func(*provider.Machine)) {
+	t.Helper()
 	// Discovery goes too: the wrapper embeds the fake as an interface, which
 	// carries none of its optional methods, and the registry holds a provider's
 	// declared capabilities to its method set.
 	inner := provider.NewFake(provider.FakeWithoutBootstrap(), provider.FakeWithoutDiscovery())
-	pushed := new(int)
-	h.fakeFactory.fake = claimingFake{Fake: inner, noAddress: noAddress, pushed: pushed}
+	pushed, tamper := new(int), new(func(*provider.Machine))
+	h.fakeFactory.fake = claimingFake{Fake: inner, noAddress: noAddress, pushed: pushed, tamper: tamper}
 	h.machineFleet(t)
 	h.machinePass(t)
 	m := h.drive(t, h.onlyMachine(t).ID, store.MachineEnrolling, 8)
@@ -81,7 +93,7 @@ func (h *harness) claimingMachinePushes(t *testing.T, noAddress bool) (*store.Ma
 	if len(machines) != 1 {
 		t.Fatalf("the provider holds %d machines, want 1", len(machines))
 	}
-	return m, machines[0].Address, pushed
+	return m, machines[0].Address, pushed, tamper
 }
 
 // Nothing is pushed into a machine that claims, and nothing is minted for it
@@ -218,5 +230,38 @@ func TestAFencedFleetAnswersNoClaim(t *testing.T) {
 	}
 	if got := h.machineByID(t, m.ID); got.JoinTokenID != "" {
 		t.Error("a credential was minted while the fleet was fenced")
+	}
+}
+
+// The address alone proves a caller is at the machine's VMID, not that what is
+// there is the machine. A container destroyed out of band and its VMID reused
+// answers at an address of its own, and whoever is inside it can read the
+// machine's name off the console: the same check that stands between a sweep and
+// a delete has to stand between a claim and a credential.
+func TestAClaimIsRefusedWhenTheResourceAtTheMachinesIdentifierIsSomebodyElses(t *testing.T) {
+	for name, tamper := range map[string]func(*provider.Machine){
+		"a resource with another name": func(m *provider.Machine) { m.Ref.Name = "somebody-elses-container" },
+		"a resource marked as another machine's": func(m *provider.Machine) {
+			m.Owner = provider.Owner{MachineID: "mach_someone_else", ProviderID: m.Owner.ProviderID}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			m, addr, _, hook := h.claimingMachineTamperable(t, false)
+			*hook = tamper
+
+			if _, err := h.c.Join(h.ctx, joinRequest(m.Name, agent.ClaimToken), addr); !errors.Is(err, auth.ErrInvalidInput) {
+				t.Fatalf("a claim from somebody else's resource returned %v, want a refusal", err)
+			}
+			got := h.machineByID(t, m.ID)
+			if got.JoinTokenID != "" || got.HostID != "" {
+				t.Errorf("a refused claim left a credential or a host behind: %+v", got)
+			}
+			// Refused rather than acted on: an anonymous request does not get to
+			// quarantine a machine, which is the machine loop's own call.
+			if got.State == store.MachineQuarantined {
+				t.Error("a claim quarantined the machine; only a pass of the machine loop may")
+			}
+		})
 	}
 }

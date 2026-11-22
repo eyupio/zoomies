@@ -261,6 +261,14 @@ func (c *Controller) claimJoinToken(ctx context.Context, name, ip string) (strin
 	if err != nil {
 		return "", fmt.Errorf("asking provider %s where machine %s is: %w", row.Name, m.ID, err)
 	}
+	// The address says who is at this identifier, not that it is this machine:
+	// a guest destroyed out of band and its identifier reused answers at an
+	// address of its own. The check a sweep runs before it deletes runs here
+	// before a credential is minted. It refuses and acts on nothing, because an
+	// anonymous request does not get to quarantine a machine.
+	if why := c.ownershipComplaint(m, got); why != "" {
+		return refused("%s", why)
+	}
 	want, from := net.ParseIP(got.Address), net.ParseIP(ip)
 	switch {
 	case want == nil:
