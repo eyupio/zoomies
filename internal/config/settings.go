@@ -489,7 +489,7 @@ var registry = buildRegistry([]Setting{
 	},
 	{
 		Key: "agent.registry_auth", Label: "Registry credentials", Env: "ZOOMIES_REGISTRY_AUTH", Kind: KindString, Scope: ScopeInstance, Secret: true,
-		Summary:       "A base64 X-Registry-Auth value the container backends send when they pull. Without it a pool on a private registry cannot use pinned-only pulls at all.",
+		Summary:       "A base64 X-Registry-Auth value, or the auths map of a docker config.json for one credential per registry, that the container backends send when they pull. Without it a pool on a private registry cannot use pinned-only pulls at all.",
 		RestartReason: "the backend is built with it",
 	},
 	{
