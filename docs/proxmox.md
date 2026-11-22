@@ -388,8 +388,12 @@ zoomies providers add proxmox --name proxmox-lxc \
 The storage for the root filesystem must hold **Container** content (`rootdir`),
 which `local-lvm` does on a default install; **Check** says so when it does not.
 Containers need none of the QEMU guest agent, so a template with none of it is
-not a problem. The wizard does not yet offer the machine type, so use the
-command line or `--setting` on `zoomies providers edit` for now.
+not a problem. The wizard shows **Machine type** and **Container template** as
+plain text boxes, because it draws every setting a driver publishes: type `lxc`
+and the archive's volume id. It has no menu for either yet, and **Template
+VMID**, which a container does not use, is no longer marked as required, so
+leaving it empty for a virtual machine is told to you when the provider is
+checked rather than before.
 
 ## The provider
 

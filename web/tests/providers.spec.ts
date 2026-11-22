@@ -213,11 +213,11 @@ test("the wizard is rendered from the driver's schema, with the driver's own def
   await expect(page.getByLabel('Lowest VMID')).toHaveValue('9000');
   await expect(page.getByLabel('Highest VMID')).toHaveValue('9099');
 
-  // The seven a homelab never touches are folded away, counted so an operator
+  // The eight a homelab never touches are folded away, counted so an operator
   // knows what is behind the disclosure before opening it.
   // Reached by its own summary: a <details> carries no role for a test to ask
   // for, and the words on it are the whole of what an operator sees closed.
-  const advanced = page.getByText('Advanced settings (7)');
+  const advanced = page.getByText('Advanced settings (8)');
   await expect(advanced).toBeVisible();
   await expect(page.getByLabel('Resource pool')).toBeHidden();
   await advanced.click();
