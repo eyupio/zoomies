@@ -34,6 +34,7 @@ var unitTemplates = template.Must(template.New("").Funcs(template.FuncMap{
 	"pathList": systemdPathListEntry,
 	"setting":  systemdSetting,
 	"xml":      xmlText,
+	"mount":    composeMount,
 }).ParseFS(templateFS, "templates/*.tmpl"))
 
 // A unit file is read by systemd, which splits a command line and a list of
@@ -49,6 +50,40 @@ func xmlText(s string) string {
 	var b strings.Builder
 	_ = xml.EscapeText(&b, []byte(s))
 	return b.String()
+}
+
+// composeMount is one short-syntax volume of a compose file: the host path, the
+// container path and any mode, joined by the colons that separate them.
+//
+// The paths are an operator's, written into a YAML string that compose then splits
+// on colons and scans for $. A colon has no way to be part of a path in that
+// syntax, so one is refused where it is chosen. A $ is doubled, which is how
+// compose spells a literal one. And a value with anything in it beyond ordinary
+// path characters is written as a quoted string, so that a "#" after a space is
+// not the start of a comment; one without is left as it was, so an ordinary
+// install's file is unchanged.
+func composeMount(src, dst string, mode ...string) (string, error) {
+	for _, p := range []string{src, dst} {
+		if strings.Contains(p, ":") {
+			return "", fmt.Errorf("installer: the path %q has a colon in it, which a compose volume cannot hold, "+
+				"because a colon is how it separates the host's path from the container's; use a path without one", p)
+		}
+		if strings.ContainsAny(p, "\r\n\x00") {
+			return "", fmt.Errorf("installer: the path %q has a line break in it, which a compose file cannot hold; check the path you gave", p)
+		}
+	}
+	v := strings.ReplaceAll(strings.Join(append([]string{src, dst}, mode...), ":"), "$", "$$")
+	plain := true
+	for _, r := range v {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("_./+-:$", r)) {
+			plain = false
+			break
+		}
+	}
+	if plain {
+		return v, nil
+	}
+	return strconv.Quote(v), nil
 }
 
 // needsUnitQuoting reports whether a word would be split or unescaped by

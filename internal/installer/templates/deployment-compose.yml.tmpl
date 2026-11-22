@@ -95,19 +95,19 @@ services:
       # path it has on this host, so a folder the controller hands this host's
       # daemon for a runner's mount is the same folder on both sides. Owned by
       # uid 65532, the image's account, so Zoomies can add to it as it runs.
-      - {{.SharedDir}}:{{.SharedDir}}
+      - {{mount .SharedDir .SharedDir}}
 {{- end }}
 {{- if .MountSocket }}
       # The embedded agent needs this socket to create runner containers. This
       # is Zoomies' own access to the runtime -- it is NOT the same thing as
       # pool.docker_mode=host-socket, which would hand the socket to your jobs.
-      - {{.SocketPath}}:{{.SocketPath}}
+      - {{mount .SocketPath .SocketPath}}
 {{- end }}
 {{- if .TLSCertFile }}
       # The certificate and key are mounted at the same paths they have on this
       # host, which is why the TLS settings can name them directly.
-      - {{.TLSCertFile}}:{{.TLSCertFile}}:ro
-      - {{.TLSKeyFile}}:{{.TLSKeyFile}}:ro
+      - {{mount .TLSCertFile .TLSCertFile "ro"}}
+      - {{mount .TLSKeyFile .TLSKeyFile "ro"}}
 {{- end }}
 {{- if .GroupAdd }}
     # The image runs as uid 65532; that user must be able to use the socket.
