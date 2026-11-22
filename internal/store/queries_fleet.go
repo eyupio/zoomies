@@ -157,9 +157,17 @@ func (s *Store) UpdateInstallation(ctx context.Context, i *Installation) error {
 }
 
 // SetInstallationHealth records the outcome of a credential probe.
+//
+// It leaves updated_at alone. That column is the key the controller's client
+// cache is built on, so that an edit to the credentials or to the account type
+// builds a new client, and a probe is neither: it runs every few minutes for
+// every installation, and moving the key each time threw away the client the
+// probe had just used and built another, a token exchange with GitHub for
+// nothing on the path that exists to find out whether GitHub is answering. The
+// probe's own time is last_checked_at.
 func (s *Store) SetInstallationHealth(ctx context.Context, id string, errMsg string) error {
-	_, err := s.exec(ctx, `UPDATE installations SET last_checked_at=?, last_error=?, updated_at=? WHERE id=?`,
-		ms(s.Now()), errMsg, ms(s.Now()), id)
+	_, err := s.exec(ctx, `UPDATE installations SET last_checked_at=?, last_error=? WHERE id=?`,
+		ms(s.Now()), errMsg, id)
 	return err
 }
 

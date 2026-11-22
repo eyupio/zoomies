@@ -39,9 +39,13 @@ const testWebhookSecret = "s3cret-for-tests"
 type fakeFactory struct {
 	gh  *github.FakeGitHub
 	err error
+	// built counts the clients made, which is how a test sees whether the
+	// controller's cache kept one or threw it away.
+	built atomic.Int64
 }
 
 func (f *fakeFactory) For(_ context.Context, inst *store.Installation, privateKeyPEM []byte) (github.Client, error) {
+	f.built.Add(1)
 	if f.err != nil {
 		return nil, f.err
 	}
