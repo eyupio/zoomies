@@ -28,7 +28,7 @@ SupplementaryGroups={{join .SupplementaryGroups " "}}
 # missing file a non-event: a host that joined by hand has none.
 EnvironmentFile=-{{setting .EnvFile}}
 {{- end}}
-ExecStart={{execArg .ExecPath}} {{.Command}} --config {{execArg .ConfigFile}}
+ExecStart={{execPath .ExecPath}} {{.Command}} --config {{execArg .ConfigFile}}
 Restart=always
 RestartSec=5s
 # Generous, because a graceful stop waits for in-flight jobs to finish.

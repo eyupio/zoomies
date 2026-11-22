@@ -30,6 +30,7 @@ var templateFS embed.FS
 
 var unitTemplates = template.Must(template.New("").Funcs(template.FuncMap{
 	"join":     strings.Join,
+	"execPath": systemdExecPath,
 	"execArg":  systemdExecArg,
 	"pathList": systemdPathListEntry,
 	"setting":  systemdSetting,
@@ -90,6 +91,13 @@ func composeMount(src, dst string, mode ...string) (string, error) {
 // systemd's command-line rules.
 func needsUnitQuoting(s string) bool {
 	return s == "" || strings.ContainsAny(s, " \t\"'\\")
+}
+
+// systemdExecPath is the executable of an ExecStart= command line. It is a path and
+// systemd does not expand variables in it, so unlike an argument its $ is its own and
+// doubling it would name a file that is not there; % is read there as everywhere.
+func systemdExecPath(s string) string {
+	return quoteUnitWord(strings.ReplaceAll(s, "%", "%%"))
 }
 
 // systemdExecArg is a path as one argument of an ExecStart= command line: % and

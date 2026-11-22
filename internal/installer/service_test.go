@@ -881,14 +881,17 @@ func TestAUnitSpellsPercentAndDollarAsSystemdWantsThem(t *testing.T) {
 	requirePOSIX(t)
 	spec := controllerSpec()
 	spec.ExecPath = "/opt/100%/zoomies$"
-	spec.ConfigFile = "/etc/zoomies/50%.yaml"
+	spec.ConfigFile = "/etc/zoomies/50%$cfg.yaml"
 	spec.StateDir = "/var/lib/zoomies%h"
 	out, err := RenderSystemdUnit(spec)
 	if err != nil {
 		t.Fatalf("RenderSystemdUnit: %v", err)
 	}
 	for _, line := range []string{
-		"ExecStart=/opt/100%%/zoomies$$ controller --config /etc/zoomies/50%%.yaml",
+		// The executable is a path and is not expanded, so its $ is its own; the
+		// argument after it is, so its $ is doubled. Checked against
+		// systemd-analyze, which refuses "zoomies$$" as a file that is not there.
+		"ExecStart=/opt/100%%/zoomies$ controller --config /etc/zoomies/50%%$$cfg.yaml",
 		"WorkingDirectory=/var/lib/zoomies%%h",
 		"ReadWritePaths=/var/lib/zoomies%%h",
 	} {

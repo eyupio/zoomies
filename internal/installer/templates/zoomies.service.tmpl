@@ -28,7 +28,7 @@ Group={{.Group}}
 # A rootless socket needs no group; this line is here because one was chosen.
 SupplementaryGroups={{join .SupplementaryGroups " "}}
 {{- end}}
-ExecStart={{execArg .ExecPath}} {{.Command}} --config {{execArg .ConfigFile}}
+ExecStart={{execPath .ExecPath}} {{.Command}} --config {{execArg .ConfigFile}}
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=5s
