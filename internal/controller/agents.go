@@ -691,7 +691,15 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 	// written before the row would name a host that may never appear.
 	machineID, joinTokenID := "", ""
 	if !embedded {
-		tok, err := c.authsvc.RedeemJoinToken(ctx, req.JoinToken, store.JoinClaim{HostID: hostID, Name: name})
+		joinToken := req.JoinToken
+		if joinToken == agent.ClaimToken {
+			// Placed here, after every refusal that keeps a token usable, so a
+			// claim that is turned away has minted nothing.
+			if joinToken, err = c.claimJoinToken(ctx, name, ip); err != nil {
+				return nil, err
+			}
+		}
+		tok, err := c.authsvc.RedeemJoinToken(ctx, joinToken, store.JoinClaim{HostID: hostID, Name: name})
 		if err != nil {
 			return nil, err
 		}

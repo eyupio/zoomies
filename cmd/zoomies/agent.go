@@ -15,6 +15,7 @@ import (
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/hosttune"
 	"github.com/eyupio/zoomies/internal/installer"
+	"github.com/eyupio/zoomies/internal/machine"
 	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/updates/channel"
 	"github.com/eyupio/zoomies/internal/wsl"
@@ -80,6 +81,7 @@ func runAgentDaemon(ctx context.Context, e *env, args []string) error {
 	if *joinToken != "" {
 		cfg.Agent.JoinToken = *joinToken
 	}
+	cfg.Agent.Name = claimedName(cfg.Agent.JoinToken, cfg.Agent.Name, machine.Hostname())
 	if cfg.Agent.ControllerURL == "" {
 		return errors.New("no controller to talk to: set agent.controller_url in zoomies.yaml, " +
 			"or pass --controller https://zoomies.example.com (ZOOMIES_CONTROLLER_URL works too)")
@@ -194,6 +196,18 @@ func runAgentDaemon(ctx context.Context, e *env, args []string) error {
 
 	fmt.Fprintf(e.out, "zoomies agent %q -> %s\n", cfg.Agent.Name, transport.Describe())
 	return a.Run(ctx)
+}
+
+// claimedName is what an agent calls itself. One that was shipped with no
+// credential and asks for one (agent.ClaimToken) is asking as the machine whose
+// name its provider gave its hostname, so the hostname is its name whatever it
+// was configured with: the default is derived from the hardware, and a name the
+// machine was never given would be refused.
+func claimedName(joinToken, configured, hostname string) string {
+	if strings.TrimSpace(joinToken) == agent.ClaimToken {
+		return hostname
+	}
+	return configured
 }
 
 // agentUpdateDir finds the update folder the helper beside this agent reads, the

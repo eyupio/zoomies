@@ -58,10 +58,12 @@ func Discover(ctx context.Context, c *Client) (provider.Discovery, error) {
 			}
 		} else {
 			for _, s := range found {
-				// Only storages that can hold a disk image are offered: the
-				// others cannot take a clone at all, and listing them invites
-				// the one mistake this menu exists to prevent.
-				if !s.Accepts("images") || !bool(s.Enabled) {
+				// Only storages that can hold a disk image or a container's
+				// root filesystem are offered: the others cannot take a machine
+				// at all, and listing them invites the one mistake this menu
+				// exists to prevent. Preflight says which of the two the chosen
+				// machine type needs.
+				if !(s.Accepts("images") || s.Accepts("rootdir")) || !bool(s.Enabled) {
 					continue
 				}
 				seen, ok := storages[s.Storage]

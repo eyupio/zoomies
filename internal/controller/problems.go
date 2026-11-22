@@ -287,6 +287,7 @@ var problemAudience = map[string]Audience{
 	"proxmox.privilege_missing":                     AudienceFleet,
 	"proxmox.storage_inactive":                      AudienceFleet,
 	"proxmox.storage_missing":                       AudienceFleet,
+	"proxmox.setting_invalid":                       AudienceFleet,
 	"proxmox.storage_no_images":                     AudienceFleet,
 	"proxmox.template_missing":                      AudienceFleet,
 	"proxmox.template_no_agent":                     AudienceFleet,
