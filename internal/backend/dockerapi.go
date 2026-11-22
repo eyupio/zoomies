@@ -260,6 +260,10 @@ func (c *APIClient) doRaw(ctx context.Context, method, path string, q url.Values
 		rdr = strings.NewReader(string(b))
 	}
 
+	// What the caller passed, kept because ctx is replaced just below by a context
+	// that this attempt cancels when it returns. A retry has to be made under the
+	// caller's, or its answer comes back bound to one that is already cancelled.
+	callerCtx := ctx
 	var cancel context.CancelFunc
 	if !stream {
 		if _, ok := ctx.Deadline(); !ok {
@@ -303,8 +307,11 @@ func (c *APIClient) doRaw(ctx context.Context, method, path string, q url.Values
 			// The daemon refused our API version and named the one it wants.
 			// Asked again at that version, so the call that found out is not
 			// the one that fails. A second refusal names the same version,
-			// which raiseVersion declines, so this cannot loop.
-			return c.doRaw(ctx, method, path, q, body, headers, stream)
+			// which raiseVersion declines, so this cannot loop. Under the
+			// caller's context and not this attempt's: this attempt's is
+			// cancelled as it returns, and the retried response's body is read
+			// after that.
+			return c.doRaw(callerCtx, method, path, q, body, headers, stream)
 		}
 		return nil, &APIError{Status: resp.StatusCode, Method: method, Path: path, Message: msg}
 	}

@@ -865,6 +865,43 @@ func TestAClientRaisesItsVersionToWhatTheDaemonAsksFor(t *testing.T) {
 	}
 }
 
+// The call that finds out the daemon wants a newer version is asked again at it,
+// and the answer to that second request is what the caller reads. The retry was
+// handed the first attempt's context, which has its own timeout and is cancelled
+// when that attempt returns, so the response came back with headers and a body
+// that could not be read: whichever call a client made first against a daemon
+// like that failed with "context canceled" after the daemon had already done
+// the work, and Ping, which reads nothing, never showed it.
+func TestTheCallThatFoundTheNewVersionCanStillReadItsAnswer(t *testing.T) {
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"/": func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, "/v1.44/") {
+				// The answer arrives in two parts with a pause between, so the
+				// second has to be read after the first attempt has returned.
+				// A body small enough to be in the first read would be there
+				// whatever became of the context it was asked under.
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"ApiVersion":"1.48","GitCommit":"`))
+				w.(http.Flusher).Flush()
+				time.Sleep(150 * time.Millisecond)
+				_, _ = w.Write([]byte(`","Version":"28.0.1"}`))
+				return
+			}
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"message": "client version 1.41 is too old. Minimum supported API version is 1.44, please upgrade your client to a newer version",
+			})
+		},
+	})
+
+	got, err := f.client(t).Version(context.Background())
+	if err != nil {
+		t.Fatalf("the first call against a daemon that wants 1.44 failed: %v", err)
+	}
+	if got.Version != "28.0.1" {
+		t.Errorf("Version = %+v, want the daemon's answer to the retried request", got)
+	}
+}
+
 // A daemon that keeps refusing must not send the client round in circles.
 func TestAClientDoesNotChaseAVersionItWasAlreadyAskingFor(t *testing.T) {
 	f := newFakeEngine(t, map[string]http.HandlerFunc{
