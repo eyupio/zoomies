@@ -28,8 +28,53 @@ import (
 var templateFS embed.FS
 
 var unitTemplates = template.Must(template.New("").Funcs(template.FuncMap{
-	"join": strings.Join,
+	"join":     strings.Join,
+	"execArg":  systemdExecArg,
+	"pathList": systemdPathListEntry,
+	"setting":  systemdSetting,
 }).ParseFS(templateFS, "templates/*.tmpl"))
+
+// A unit file is read by systemd, which splits a command line and a list of
+// paths on whitespace and reads % as the start of a specifier, so a path an
+// operator chose cannot be written as it was typed. Each of the three helpers
+// below is one place a path goes, and none of them touches a path that needs
+// nothing, so the unit an ordinary install writes is the one it always was.
+
+// needsUnitQuoting reports whether a word would be split or unescaped by
+// systemd's command-line rules.
+func needsUnitQuoting(s string) bool {
+	return s == "" || strings.ContainsAny(s, " \t\"'\\")
+}
+
+// systemdExecArg is a path as one argument of an ExecStart= command line: % and
+// $ are doubled, since both are read there, and a path with whitespace, a quote
+// or a backslash in it is quoted with those escaped.
+func systemdExecArg(s string) string {
+	s = strings.NewReplacer("%", "%%", "$", "$$").Replace(s)
+	return quoteUnitWord(s)
+}
+
+// systemdPathListEntry is a path as one entry of a list setting such as
+// ReadWritePaths=, which is split on whitespace too. $ means nothing there.
+func systemdPathListEntry(s string) string {
+	return quoteUnitWord(strings.ReplaceAll(s, "%", "%%"))
+}
+
+// systemdSetting is a path as the whole value of a setting that takes one, such
+// as WorkingDirectory= or EnvironmentFile=, which keeps the rest of the line as
+// it is and so needs no quotes, only its % doubled.
+func systemdSetting(s string) string {
+	return strings.ReplaceAll(s, "%", "%%")
+}
+
+// quoteUnitWord wraps a word in double quotes when it needs them, escaping the
+// two characters that mean something inside them.
+func quoteUnitWord(s string) string {
+	if !needsUnitQuoting(s) {
+		return s
+	}
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s) + `"`
+}
 
 // ServiceKind names the supervisor an installation will be managed by.
 type ServiceKind string
@@ -168,6 +213,18 @@ func (s *ServiceSpec) defaults() error {
 	}
 	if s.StateDir == "" {
 		return errors.New("installer: the service needs a state directory, for example /var/lib/zoomies")
+	}
+	// A line break would end the setting it is in and start another, and the
+	// unit would run whatever the rest of the path said. The paths are the
+	// operator's own, so this is a typing mistake, and it is said where it is
+	// instead of being written into a unit that does something else.
+	for _, p := range []struct{ name, value string }{
+		{"binary", s.ExecPath}, {"config file", s.ConfigFile}, {"state directory", s.StateDir},
+		{"config directory", s.ConfigDir}, {"environment file", s.EnvFile},
+	} {
+		if strings.ContainsAny(p.value, "\r\n\x00") {
+			return fmt.Errorf("installer: the %s path %q has a line break in it, which a unit file cannot hold; check the path you gave", p.name, p.value)
+		}
 	}
 	if s.LogFile == "" {
 		s.LogFile = filepath.Join(s.StateDir, s.Unit+".log")
