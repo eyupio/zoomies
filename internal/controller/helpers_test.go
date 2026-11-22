@@ -74,8 +74,11 @@ type harness struct {
 	// registry the controller builds it from. One fake, shared by the
 	// controller and the test, so that a test can ask what was actually asked
 	// of the provider rather than inferring it from the rows.
-	fake      provider.Fake
-	providers *provider.Registry
+	fake provider.Fake
+	// fakeFactory is what the machine loop builds its provider from, so a test
+	// can replace the fake before the first pass caches it.
+	fakeFactory *sharedFakeFactory
+	providers   *provider.Registry
 	// offset is added to the wall clock the controller reads, in nanoseconds.
 	// It is zero unless a test calls advance, so time still passes normally
 	// for everything that does not ask; a lease that has to expire is the one
@@ -173,7 +176,8 @@ func newHarnessAt(t testing.TB, clock func() time.Time) *harness {
 	updateDir := filepath.Join(t.TempDir(), "update")
 
 	fake := provider.NewFake()
-	providers, err := provider.NewRegistry(&sharedFakeFactory{fake: fake})
+	fakeFactory := &sharedFakeFactory{fake: fake}
+	providers, err := provider.NewRegistry(fakeFactory)
 	if err != nil {
 		t.Fatalf("provider.NewRegistry: %v", err)
 	}
@@ -215,7 +219,7 @@ func newHarnessAt(t testing.TB, clock func() time.Time) *harness {
 	wakeUps := &wakeUpLog{}
 	c.derivedPace.after = wakeUps.set
 	return &harness{t: t, c: c, st: st, gh: gh, factory: factory, key: key, cfg: cfg, ctx: ctx,
-		offset: offset, fake: fake, providers: providers, updateDir: updateDir, wakeUps: wakeUps}
+		offset: offset, fake: fake, fakeFactory: fakeFactory, providers: providers, updateDir: updateDir, wakeUps: wakeUps}
 }
 
 // pacedByTheClock puts the pacing of the figures worked out for the stream back

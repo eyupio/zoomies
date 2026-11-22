@@ -13353,7 +13353,10 @@ export interface components {
         };
         AgentJoinRequest: {
             protocol_version: number;
-            /** Format: password */
+            /**
+             * Format: password
+             * @description The single-use token the host was given. The word `claim` is not a credential: it is sent by an agent shipped inside a machine its provider cannot push anything into, and asks the controller to identify the machine named in `name` by the address its provider reports for it, answering only a request that comes from that address. Every refused claim is the same 422 whatever the reason, so the route cannot be used to find out which machines exist.
+             */
             join_token: string;
             /** @description What the host asks to be called. Refused with 422, before the join token is redeemed, when it is empty, over 128 characters or holds a control character or a backtick. A host re-joining under the name its row already carries is exempt, so one enrolled before the rule keeps working. */
             name: string;

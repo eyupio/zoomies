@@ -18427,7 +18427,16 @@ components:
       required: [protocol_version, join_token, name, capacity, os, arch, version, backends]
       properties:
         protocol_version: { type: integer }
-        join_token: { type: string, format: password }
+        join_token:
+          type: string
+          format: password
+          description: >-
+            The single-use token the host was given. The word `claim` is not a credential: it
+            is sent by an agent shipped inside a machine its provider cannot push anything into,
+            and asks the controller to identify the machine named in `name` by the address its
+            provider reports for it, answering only a request that comes from that address.
+            Every refused claim is the same 422 whatever the reason, so the route cannot be used
+            to find out which machines exist.
         name:
           type: string
           maxLength: 128

@@ -39,6 +39,10 @@ Zoomies created it, knows it did, and is the only thing allowed to delete it.
     other backends and other bootstrap routes are untested too, not "probably
     fine", and this page will say so until they are not.
 
+    **Containers** are an experimental prototype and a separate case: see
+    [Containers](#containers-experimental), which says what is proved and what
+    is not.
+
     Renting machines is off until an administrator turns it on. The Providers
     page says so at the top and offers a button that switches it on, and the
     setting applies at once, with no restart. Two settings decide it, and both
@@ -251,6 +255,138 @@ awkward case on both sides: two builds from main cannot be ordered against each
 other, so Zoomies cannot tell a machine's build from the controller's and says so
 instead of guessing which is newer.
 
+## Containers (experimental)
+
+A provider can build **LXC containers** instead of virtual machines. A container
+shares the node's kernel, so it starts in seconds and costs a fraction of a VM's
+memory and disk, and no disk is copied to make one. It also has none of a VM's
+isolation: whatever escapes the container is running on the node. Choose
+containers for a cluster whose jobs are your own, and VMs where they are not.
+
+!!! warning "Not yet run on a cluster"
+
+    The container path is proved against a fake cluster and nothing else. These
+    are the things a first real run has to establish, and this page says so
+    until they are:
+
+    * **The privileges.** The list below is what the code asks for and what
+      Proxmox's own sources suggest. It has not been checked against a
+      restricted token, and **Check** will name whatever turns out to be missing.
+    * **Docker inside the container.** The container is unprivileged with
+      `nesting=1`, because that is all an API token may set (`keyctl`, `fuse`,
+      `mount` and a privileged container need `root@pam`). Proxmox's own
+      documentation also names `keyctl` for Docker. Whether `nesting` alone is
+      enough depends on the image and the kernel, and has not been tried.
+    * **The enrolment route** described below, which is new.
+
+Containers are chosen per provider, with **Machine type** set to `lxc`. Nothing
+about an existing provider changes: a provider with no machine type builds VMs
+exactly as before, and a machine's kind is stored with its identifier
+(`lxc:9042`), so changing the setting later never makes Zoomies look for a
+container at a VM's number or the other way round.
+
+| | Virtual machine | Container |
+| --- | --- | --- |
+| Made from | a clone of a VM template | a template archive, such as `local:vztmpl/zoomies-runner.tar.zst` |
+| Setting that names it | Template VMID | Container template |
+| Disk | a clone of the template's, grown to the shape | a root filesystem on a storage that holds **Container** content, 32 GiB when the shape names none |
+| How it enrols | Zoomies writes the credential through the guest agent | the agent inside asks for it, see below |
+| Privileges | the [table above](#the-api-token) | the same, less `VM.Clone` and `VM.GuestAgent.Unrestricted`, plus `Datastore.Audit` on the storage holding the template |
+
+The container template archive has to be on **the same storage name on every
+node machines are placed on**, because each node reads it from its own view of
+the storage; **Check** looks on each node and names the ones that lack it.
+
+### How a container enrols
+
+Proxmox has no API for running a command inside a container, the way the guest
+agent does for a VM, and a credential written into the container's description
+would be readable by anyone who can audit the cluster. So nothing is pushed in.
+The template carries an agent that has no credential and **asks for one** on
+first boot, and the controller answers only if both of these hold:
+
+* the request names a machine this controller is waiting on, which it does by
+  the container's hostname, set by Zoomies to the machine's own name; and
+* the request comes **from the address Proxmox reports for that container**,
+  which the controller reads from the node itself, not from anything the
+  container says.
+
+What it is then given is exactly what a VM is given: a single-use join token,
+valid for minutes, that enrols one host under that one name and nothing else.
+Every refused claim gets the same answer whatever the reason, so the endpoint
+cannot be used to find out which machines exist, and the reason is in the
+controller's log.
+
+The consequence to plan for is that **the controller must see the container's
+own address**. A controller behind NAT, or behind a proxy that does not pass the
+client address on, sees another one and every claim is refused. Put the
+controller where the containers' bridge reaches it directly, or set the
+provider's **Controller URL for machines** to an address that does. A container
+that reaches the controller over IPv6 only is also refused: the address Proxmox
+reports is the first IPv4 one.
+
+### Preparing the container template
+
+On a node as root, make a container from a distribution template and, inside it,
+install what a runner needs. `local` here is a storage that holds **Container
+template** content; `pveam available` lists what Proxmox offers.
+
+```sh
+pveam update && pveam download local ubuntu-24.04-standard_24.04-2_amd64.tar.zst
+pct create 9200 local:vztmpl/ubuntu-24.04-standard_24.04-2_amd64.tar.zst \
+  --hostname zoomies-template --unprivileged 1 --features nesting=1 \
+  --rootfs local-lvm:32 --net0 name=eth0,bridge=vmbr0,ip=dhcp
+pct start 9200 && pct enter 9200
+```
+
+Then, inside the container:
+
+```sh
+curl -fsSL https://get.docker.com | sh
+curl -fsSL https://zoomies.sh/install.sh | sh -s -- --no-init && zoomies agent install
+mkdir -p /etc/zoomies && cat > /etc/zoomies/zoomies.env <<'EOF'
+ZOOMIES_CONTROLLER_URL=https://zoomies.example.com
+ZOOMIES_JOIN_TOKEN=claim
+ZOOMIES_AGENT_BACKEND=docker
+ZOOMIES_WORK_DIR=/var/lib/zoomies/work
+EOF
+chmod 600 /etc/zoomies/zoomies.env
+systemctl enable zoomies-agent
+```
+
+`ZOOMIES_JOIN_TOKEN=claim` is not a credential. It is the word that tells the
+agent to ask for one, and it is why the agent takes the container's hostname as
+its own name whatever `ZOOMIES_AGENT_NAME` says. The controller address is the
+one containers on this bridge use to reach it. The machine's capacity and labels
+come from the provider, as for a VM; its backend is the one written here.
+
+Leave the container's disk exactly like that, with no `agent.json` in it (the
+same rule as for a [VM template](#preparing-the-template)), then stop it and
+turn it into a template archive on the node:
+
+```sh
+pct stop 9200
+vzdump 9200 --mode stop --compress zstd --dumpdir /var/lib/vz/template/cache
+mv /var/lib/vz/template/cache/vzdump-lxc-9200-*.tar.zst /var/lib/vz/template/cache/zoomies-runner.tar.zst
+pct destroy 9200
+```
+
+Then add the provider with the machine type and the archive's volume id. There
+is no template VMID to give:
+
+```sh
+zoomies providers add proxmox --name proxmox-lxc \
+  --endpoint https://pve.example.com:8006 --endpoint-ca-file pve-root-ca.pem \
+  --nodes pve1 --storage local-lvm --bridge vmbr0 --vmid-range 9200-9299 \
+  --setting machine_type=lxc --setting ostemplate=local:vztmpl/zoomies-runner.tar.zst
+```
+
+The storage for the root filesystem must hold **Container** content (`rootdir`),
+which `local-lvm` does on a default install; **Check** says so when it does not.
+Containers need none of the QEMU guest agent, so a template with none of it is
+not a problem. The wizard does not yet offer the machine type, so use the
+command line or `--setting` on `zoomies providers edit` for now.
+
 ## The provider
 
 **Providers → Add provider → Proxmox VE → Generate setup command**.
@@ -348,8 +484,11 @@ that alternative.
 | Endpoint | `https://pve.example.com:8006`. Plain `http://` is refused: the API token would cross in the clear. |
 | Connection | Direct, or private through a `zoomies gateway` running beside the cluster when it lives on a network the controller cannot reach; a home lab behind a router, typically. See [Private providers](private-hosts.md#private-providers). |
 | Nodes | Which nodes clones may be made on. Give more than one and machines are spread across them, each new clone going to the least loaded. |
-| Template VMID | The template prepared above. The preflight checks it exists and is a template. |
-| Storage | Where the clone's disk lands. Must accept disk images. |
+| Machine type | `qemu` (the default, and what a provider with none means) or `lxc`. See [Containers](#containers-experimental). |
+| Template VMID | The template prepared above, for virtual machines. The preflight checks it exists and is a template. |
+| Container template | For containers: the archive every container is made from, as `storage:vztmpl/file`. The preflight checks every node holds it. |
+| VLAN tag | An optional tag put on every machine's network interface, for either machine type. |
+| Storage | Where the clone's disk lands. Must accept disk images, or Container content for containers. |
 | Bridge | The network bridge the machine attaches to. It must reach the controller. |
 | VMID range | The block of identifiers Zoomies may allocate from, and nothing else may. |
 | Machine shape | CPUs, memory and disk for each machine, and the labels, capacity and backend the host will report. Left to the template (the form's placeholder reads "the template decides"), the disk is the template's boot disk: the check reads it and uses it to judge the machines until one has joined and measured itself. The check warns (`provider.machine_disk_small`) when a shape is too small for its slots. |
@@ -649,6 +788,21 @@ waiting for.
 6. A deletion that fails once, to see it retried and confirmed.
 7. Finally, reconcile the VM and storage inventory against the machines table.
    **No owned resource may be left unexplained.**
+
+For a provider that builds [containers](#containers-experimental), also record,
+on the same cluster:
+
+8. The privileges a token held when it could create, configure, start, inspect
+   and destroy an unprivileged container, and the ones **Check** asked for that
+   it did not need.
+9. Whether a real workflow job runs on the Docker backend inside the container
+   with `nesting=1` alone, with the image and kernel it ran on, or whether it
+   needed `keyctl`.
+10. A claim from the wrong address (refused), a controller restart between the
+    container starting and its agent claiming, and a template whose agent never
+    claims (the machine fails with the enrolment timeout, and is deleted).
+11. A VMID that a VM holds when a container is allocated one, and a container
+    left behind by a failed create: nothing unexplained may remain.
 
 Record the Proxmox version, the template, the limits, the timings and the
 cleanup evidence. A cycle that worked without evidence is a cycle nobody else

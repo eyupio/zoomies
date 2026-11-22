@@ -126,6 +126,19 @@ func (s *Store) GetMachineByHost(ctx context.Context, hostID string) (*Machine, 
 	return m, err
 }
 
+// GetMachineByName returns the live machine wearing a name. Names are minted
+// from the machine's own id, so two live machines never share one; a machine the
+// provider has confirmed gone no longer answers to its name.
+func (s *Store) GetMachineByName(ctx context.Context, name string) (*Machine, error) {
+	row := s.read.QueryRowContext(ctx, `SELECT `+machineCols+` FROM machines
+		WHERE name = ? AND deleted_at IS NULL`, name)
+	m, err := scanMachine(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("machine named %q: %w", name, ErrNotFound)
+	}
+	return m, err
+}
+
 // GetMachineByResource answers the question a sweep asks about every resource
 // it finds: is this one of ours, and which row is it? A resource with no row is
 // an orphan, and an orphan is never deleted without a person saying so.

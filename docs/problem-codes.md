@@ -422,10 +422,11 @@ that is not a template are *answers*, not failures.
 | `proxmox.node_missing` | error | No node is configured, or the configured one is not in the cluster. | Choose one the credential can see; the wizard lists them. |
 | `proxmox.node_offline` | warning | The node is configured and not currently online. | Machines cannot be created there until it returns. |
 | `proxmox.storage_missing` | error | No storage is configured, or the configured one does not exist on that node. | Choose one the wizard lists. |
-| `proxmox.storage_no_images` | error | The storage exists and does not accept disk images, so a clone has nowhere to land. | Choose a storage whose content types include `images`. |
+| `proxmox.setting_invalid` | error | A setting is not one of the answers it accepts: a machine type other than `qemu` or `lxc`, or a VLAN tag outside 1 to 4094. | Correct the setting the finding names. |
+| `proxmox.storage_no_images` | error | The storage exists and does not accept what a machine's disk needs: disk images for a virtual machine, or `rootdir` for a container. | Choose a storage whose content types include the one the finding names. |
 | `proxmox.storage_inactive` | error | The storage exists and is not active. | Bring it up, or choose another. |
 | `proxmox.bridge_missing` | error | No network bridge is configured, or the configured one is not on that node. A machine with no network cannot reach this controller to enrol. | Choose a bridge that can reach the controller. |
-| `proxmox.template_missing` | error | No template VMID is configured, or nothing exists at it. | Prepare a template as the [runbook](proxmox.md#preparing-the-template) describes and give its VMID. |
+| `proxmox.template_missing` | error | No template is configured, or nothing exists at it: a VMID for a virtual machine, or a container template archive on every node for a container. | Prepare a template as the [runbook](proxmox.md#preparing-the-template) describes, or for a container as [Containers](proxmox.md#preparing-the-container-template) does, and give its VMID or volume id. |
 | `proxmox.template_not_a_template` | error | A VM exists at that VMID and is not a template. Cloning a running VM is not what this does. | Convert it to a template, or point at the right VMID. |
 | `proxmox.template_no_disk` | error | The template has no operating-system disk on `scsi0`, `virtio0`, `sata0` or `ide0`. A machine cloned from it starts, tries to boot from the network and never joins, while being billed. | Attach the cloud image as the first disk from a storage that holds disk images, then convert it to a template again. |
 | `proxmox.template_no_agent` | warning | The template does not have the QEMU guest agent enabled. Enrolment reaches the guest through it, so a machine made from this template will boot, cost money and never join. | Install `qemu-guest-agent` in the image and set `agent: enabled=1`. |
@@ -565,6 +566,7 @@ against it in both directions, word for word.
 | `proxmox.privilege_missing` | The fleet lacks a permission at a machine provider, so some machines cannot be added. |
 | `proxmox.storage_inactive` | Storage at a machine provider is inactive, so no new machines can be added there. |
 | `proxmox.storage_missing` | A machine provider is missing storage the fleet is set to use. |
+| `proxmox.setting_invalid` | A machine provider has a setting that is not one it can use. |
 | `proxmox.storage_no_images` | Storage at a machine provider cannot hold machine images. |
 | `proxmox.template_missing` | A machine provider is missing the template new machines are made from. |
 | `proxmox.template_no_agent` | The template new machines are made from cannot report their address. |

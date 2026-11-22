@@ -76,9 +76,19 @@ const execHandlePrefix = "guest-exec:"
 // awaited here, because a handle for each would need somewhere to be stored and
 // there is one column for one handle.
 func (p *Provider) Bootstrap(ctx context.Context, ref provider.MachineRef, payload provider.Bootstrap) (provider.OperationRef, error) {
-	node, vmid, err := p.locate(ref, "install the agent inside a machine")
+	c, node, vmid, err := p.locate(ref, "install the agent inside a machine")
 	if err != nil {
 		return provider.OperationRef{}, err
+	}
+	if c.lxc {
+		// Nothing can be run inside a container through the API, so the
+		// controller never asks (it checks Claims first); this is the answer
+		// for a caller that did.
+		return provider.OperationRef{}, &provider.Error{
+			Kind: provider.FailureInternal, Op: "install the agent inside a machine", Ref: c.guestRef(node, vmid),
+			Message: "a container enrols by claiming its credential; nothing is written into it",
+			Remedy:  "this is a bug in the caller, which should have asked the provider whether the machine claims",
+		}
 	}
 	if _, set := ctx.Deadline(); !set {
 		// This is the one call here that waits for something, so it is the one

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_from": "e9b2d90",
+  "generated_from": "1ead14f",
   "entries": [
     {
       "id": "agent.backend_missing",
@@ -3100,6 +3100,20 @@
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#a-providers-preflight"
     },
     {
+      "id": "proxmox.setting_invalid",
+      "kind": "problem",
+      "title": "proxmox.setting_invalid",
+      "category": "configuration",
+      "severity": "error",
+      "detection": "static",
+      "detects": "A setting is not one of the answers it accepts: a machine type other than `qemu` or `lxc`, or a VLAN tag outside 1 to 4094.",
+      "fix": "Correct the setting the finding names.",
+      "verify": null,
+      "status_sentence": "A machine provider has a setting that is not one it can use.",
+      "docs_html": "https://zoomies.sh/problem-codes/#a-providers-preflight",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#a-providers-preflight"
+    },
+    {
       "id": "proxmox.storage_inactive",
       "kind": "problem",
       "title": "proxmox.storage_inactive",
@@ -3134,8 +3148,8 @@
       "category": "configuration",
       "severity": "error",
       "detection": "static",
-      "detects": "The storage exists and does not accept disk images, so a clone has nowhere to land.",
-      "fix": "Choose a storage whose content types include `images`.",
+      "detects": "The storage exists and does not accept what a machine's disk needs: disk images for a virtual machine, or `rootdir` for a container.",
+      "fix": "Choose a storage whose content types include the one the finding names.",
       "verify": null,
       "status_sentence": "Storage at a machine provider cannot hold machine images.",
       "docs_html": "https://zoomies.sh/problem-codes/#a-providers-preflight",
@@ -3148,8 +3162,8 @@
       "category": "configuration",
       "severity": "error",
       "detection": "static",
-      "detects": "No template VMID is configured, or nothing exists at it.",
-      "fix": "Prepare a template as the [runbook](proxmox.md#preparing-the-template) describes and give its VMID.",
+      "detects": "No template is configured, or nothing exists at it: a VMID for a virtual machine, or a container template archive on every node for a container.",
+      "fix": "Prepare a template as the [runbook](proxmox.md#preparing-the-template) describes, or for a container as [Containers](proxmox.md#preparing-the-container-template) does, and give its VMID or volume id.",
       "verify": null,
       "status_sentence": "A machine provider is missing the template new machines are made from.",
       "docs_html": "https://zoomies.sh/problem-codes/#a-providers-preflight",

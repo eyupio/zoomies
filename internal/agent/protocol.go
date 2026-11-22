@@ -76,6 +76,13 @@ const FeatureMergeWorker = "merge-worker"
 // refuse.
 const FeatureSelfUpdate = "self-update"
 
+// ClaimToken is sent as the join token by an agent that was shipped inside a
+// machine with no credential, which is a machine the provider cannot push
+// anything into. It is not a credential: it asks the controller to identify the
+// machine by the name in the request and by the address the provider reports
+// for it, and to answer with a real single-use token only if the two agree.
+const ClaimToken = "claim"
+
 // JoinRequest redeems a short-lived join token and enrols a new host.
 type JoinRequest struct {
 	Connection      string `json:"-"`

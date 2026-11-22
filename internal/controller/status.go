@@ -367,6 +367,7 @@ var publicSentences = map[string]string{
 	"proxmox.privilege_missing":                     "The fleet lacks a permission at a machine provider, so some machines cannot be added.",
 	"proxmox.storage_inactive":                      "Storage at a machine provider is inactive, so no new machines can be added there.",
 	"proxmox.storage_missing":                       "A machine provider is missing storage the fleet is set to use.",
+	"proxmox.setting_invalid":                       "A machine provider has a setting that is not one it can use.",
 	"proxmox.storage_no_images":                     "Storage at a machine provider cannot hold machine images.",
 	"proxmox.template_missing":                      "A machine provider is missing the template new machines are made from.",
 	"proxmox.template_no_agent":                     "The template new machines are made from cannot report their address.",
