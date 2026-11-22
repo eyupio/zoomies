@@ -431,6 +431,9 @@ func (c *appClient) CreateJITConfig(ctx context.Context, req JITRequest) (*JITCo
 		return nil, fmt.Errorf("github: create jit config for %q: GitHub requires at least one "+
 			"custom label: give the pool a label such as \"self-hosted\"", req.Name)
 	}
+	if len(labels) > MaxJITLabels {
+		return nil, fmt.Errorf("github: create jit config for %q: %d labels, and GitHub accepts at most %d", req.Name, len(labels), MaxJITLabels)
+	}
 	group := req.RunnerGroupID
 	if group == 0 {
 		group = 1 // "Default", the only group every target is guaranteed to have.

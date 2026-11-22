@@ -851,6 +851,10 @@ func (f *FakeGitHub) generateJITConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "Validation Failed: name and labels are required")
 		return
 	}
+	if len(req.Labels) > MaxJITLabels {
+		writeError(w, http.StatusUnprocessableEntity, "Validation Failed: labels must contain at most 100 items")
+		return
+	}
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -869,6 +873,10 @@ func (f *FakeGitHub) generateJITConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	runner := f.addRunnerLocked(req.Name, req.Labels, true)
+	// A JIT runner advertises exactly the labels it was minted with: GitHub
+	// adds no self-hosted, OS or architecture label to one, unlike a runner
+	// config.sh registers. addRunnerLocked models the latter.
+	runner.Labels = slices.Clone(req.Labels)
 	runner.Repo = scope
 	blob, _ := json.Marshal(map[string]any{
 		"name":        req.Name,

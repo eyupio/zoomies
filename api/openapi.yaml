@@ -15671,6 +15671,8 @@ components:
         endpoint: { type: string }
         detail: { type: string, description: When unavailable, what is wrong and how to fix it. }
         supports_dind: { type: boolean }
+        os: { type: string, description: "The operating system the runtime runs containers as (its OSType). A container runner registers with this platform's label when its pool leaves the operating system open. Empty from an agent too old to report it and from a backend that is not a container runtime.", examples: [linux] }
+        arch: { type: string, description: "The architecture the runtime runs containers as, amd64 or arm64. A container runner registers with this architecture's label when its pool leaves the architecture open. Empty where the runtime did not say.", examples: [amd64] }
         host_socket_path: { type: string, description: Where the host daemon's socket lives, for pools that opt into host-socket mode. }
         limits:
           type: object

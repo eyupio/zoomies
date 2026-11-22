@@ -370,6 +370,12 @@ type HostBackend struct {
 	// outright, however many cores the agent's machine has.
 	CPUs     int   `json:"cpus,omitempty"`
 	MemoryMB int64 `json:"memory_mb,omitempty"`
+	// OS and Arch are the platform the daemon runs containers on, as it
+	// reported them; empty from an agent that predates them and from a
+	// backend that is not a container runtime. A container runner registers
+	// as this platform, not as the host the agent runs on.
+	OS   string `json:"os,omitempty"`
+	Arch string `json:"arch,omitempty"`
 	// Limits is whether the daemon behind this backend can enforce a CPU
 	// quota, a memory limit and a pids limit at all. A rootless daemon on
 	// cgroup v1, or on cgroup v2 with no cpu controller delegated to the user,

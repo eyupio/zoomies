@@ -212,6 +212,14 @@ type Info struct {
 	// not say, which includes every backend that is not a container runtime.
 	CPUs     int   `json:"cpus,omitempty"`
 	MemoryMB int64 `json:"memory_mb,omitempty"`
+	// OS and Arch are the platform the runtime runs containers on, as it
+	// reported them (its OSType, and its architecture as amd64 or arm64). They
+	// are what a container runner really is, which need not be the agent's own
+	// platform: Docker Desktop on a Mac runs Linux containers. Empty where the
+	// daemon did not say, which includes every backend that is not a
+	// container runtime.
+	OS   string `json:"os,omitempty"`
+	Arch string `json:"arch,omitempty"`
 	// Limits is whether the daemon can apply a CPU quota, a memory limit and
 	// a pids limit. A daemon that cannot apply a quota refuses the container
 	// outright rather than ignoring the request, so the controller reads this

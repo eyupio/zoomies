@@ -24,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -603,6 +604,10 @@ func (b *DockerBackend) Probe(ctx context.Context) Info {
 		if sys.MemTotal > 0 {
 			info.MemoryMB = sys.MemTotal / (1 << 20)
 		}
+		// The platform its containers run as, which is what a runner started
+		// through it registers as: a Linux container on a Mac is linux.
+		info.OS = strings.ToLower(strings.TrimSpace(sys.OSType))
+		info.Arch = naming.NormalizeArch(sys.Architecture)
 		// What the daemon can enforce, in its own words. Rootless Docker on a
 		// host that delegates only memory and pids to the user -- the default
 		// on Debian and Ubuntu -- says so here, and a CPU quota sent to it
