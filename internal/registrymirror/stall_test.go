@@ -3,8 +3,10 @@ package registrymirror
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -56,5 +58,41 @@ func TestAClientThatStopsReadingDoesNotHoldTheBlobFromEveryoneElse(t *testing.T)
 	}
 	if _, ok := m.store.open(digest); !ok {
 		t.Error("the blob was not kept, so the next job is owed a download the mirror had already made")
+	}
+}
+
+// The deadline on a write to a client is for a client that is not reading. Over
+// HTTP/2 Go resets the stream when it expires, whether or not the write it was set
+// for has long been done, so one left armed through a pause upstream, between half
+// the idle timeout and the whole of it, cut off a download whose client had read
+// every byte it was sent. It has to be taken down as soon as the write is over.
+func TestAPauseUpstreamShorterThanTheIdleTimeoutDoesNotCutAnHTTP2Download(t *testing.T) {
+	f := newFakeRegistry(t)
+	data := blobOf(2<<20, 'h')
+	digest := f.addBlob(data)
+	f.mu.Lock()
+	f.cdnPause = 750 * time.Millisecond
+	f.mu.Unlock()
+	m, _ := newTestMirror(t, f, func(c *Config) { c.IdleTimeout = time.Second })
+
+	srv := httptest.NewUnstartedServer(m)
+	srv.EnableHTTP2 = true
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+
+	resp, err := srv.Client().Get(srv.URL + "/v2/library/alpine/blobs/" + digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.ProtoMajor != 2 {
+		t.Fatalf("the test spoke HTTP/%d, so it proves nothing about HTTP/2", resp.ProtoMajor)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("reading the blob: %v (after %d of %d bytes)", err, len(body), len(data))
+	}
+	if !bytes.Equal(body, data) {
+		t.Fatalf("got %d bytes, want the whole %d", len(body), len(data))
 	}
 }

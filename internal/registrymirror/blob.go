@@ -159,6 +159,21 @@ func (m *Mirror) openBlob(ctx context.Context, cancel context.CancelFunc, method
 // slow client that is reading is not touched.
 func (m *Mirror) clientStall() time.Duration { return m.cfg.IdleTimeout / 2 }
 
+// writeToClient sends one chunk and flushes it, with the deadline for a client that
+// is not reading, and takes the deadline down again as soon as that is done. Over
+// HTTP/2 Go resets the stream when a deadline expires whether or not the write it was
+// set for finished long before, so one left armed through a pause upstream would cut
+// off a download whose client had read every byte it was sent.
+func (m *Mirror) writeToClient(w http.ResponseWriter, rc *http.ResponseController, chunk []byte) error {
+	_ = rc.SetWriteDeadline(time.Now().Add(m.clientStall()))
+	defer func() { _ = rc.SetWriteDeadline(time.Time{}) }()
+	if _, err := w.Write(chunk); err != nil {
+		return err
+	}
+	_ = rc.Flush()
+	return nil
+}
+
 func blobOK(status int, ranged bool) bool {
 	return status == http.StatusOK || ranged && status == http.StatusPartialContent
 }
@@ -190,11 +205,9 @@ func (m *Mirror) passRange(w http.ResponseWriter, r *http.Request, rt route) {
 		n, rerr := resp.Body.Read(buf)
 		if n > 0 {
 			m.bytesFetched.Add(int64(n))
-			_ = rc.SetWriteDeadline(time.Now().Add(m.clientStall()))
-			if _, werr := w.Write(buf[:n]); werr != nil {
+			if m.writeToClient(w, rc, buf[:n]) != nil {
 				return
 			}
-			_ = rc.Flush()
 		}
 		if rerr == io.EOF {
 			// A part of a blob has no digest to be checked against, so its
@@ -311,8 +324,7 @@ func (m *Mirror) fetchAndServe(w http.ResponseWriter, r *http.Request, rt route,
 				}
 			}
 			if !clientGone {
-				_ = rc.SetWriteDeadline(time.Now().Add(m.clientStall()))
-				if _, werr := w.Write(chunk); werr != nil {
+				if werr := m.writeToClient(w, rc, chunk); werr != nil {
 					// Gone, or not reading for longer than a write may take. Either
 					// way it is given up on and the download goes on for whoever
 					// keeps the blob and waits for it; one that nobody keeps has no
@@ -321,8 +333,6 @@ func (m *Mirror) fetchAndServe(w http.ResponseWriter, r *http.Request, rt route,
 					if !keeping.Load() {
 						cancel()
 					}
-				} else {
-					_ = rc.Flush()
 				}
 			}
 		}
