@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -1589,11 +1590,41 @@ func (s *Store) PruneJobs(ctx context.Context, before time.Time) (int64, error) 
 	return pruneInBatches(ctx, pruneJobBatch, pruneMaxBatches, func(ctx context.Context) (int64, error) {
 		var pruned int64
 		err := s.tx(ctx, func(tx *sql.Tx) error {
-			if _, err := tx.ExecContext(ctx, `DELETE FROM job_events WHERE job_id IN
-				(SELECT id FROM jobs WHERE `+old+` ORDER BY id LIMIT 500)`, ms(before), ms(before)); err != nil {
+			// The batch is chosen once. Nothing indexes "old", so choosing it is a
+			// walk of the table in key order until enough rows are found, and it
+			// used to be done twice, once for the timelines and once for the jobs,
+			// under the writer every other write is waiting for. The ids go back
+			// as one JSON array so the two deletes stay constant statements.
+			rows, err := tx.QueryContext(ctx, `SELECT id FROM jobs WHERE `+old+` ORDER BY id LIMIT `+strconv.Itoa(pruneJobBatch), ms(before), ms(before))
+			if err != nil {
 				return err
 			}
-			res, err := tx.ExecContext(ctx, `DELETE FROM jobs WHERE id IN (SELECT id FROM jobs WHERE `+old+` ORDER BY id LIMIT 500)`, ms(before), ms(before))
+			var ids []string
+			for rows.Next() {
+				var id string
+				if err := rows.Scan(&id); err != nil {
+					_ = rows.Close()
+					return err
+				}
+				ids = append(ids, id)
+			}
+			if err := rows.Close(); err != nil {
+				return err
+			}
+			if err := rows.Err(); err != nil {
+				return err
+			}
+			if len(ids) == 0 {
+				return nil
+			}
+			batch, err := json.Marshal(ids)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `DELETE FROM job_events WHERE job_id IN (SELECT value FROM json_each(?))`, string(batch)); err != nil {
+				return err
+			}
+			res, err := tx.ExecContext(ctx, `DELETE FROM jobs WHERE id IN (SELECT value FROM json_each(?))`, string(batch))
 			if err != nil {
 				return err
 			}
