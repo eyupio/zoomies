@@ -227,7 +227,7 @@ If the owner wants the loops shared as well, the way to do it without coupling t
 whitelists is a shared arm type embedded by each side's own, with a test that pins the
 JSON field set of what MCP returns; that is a design decision, not a clean-up.
 
-### Part C: the UI preview pages (not done; needs a decision)
+### Part C: the UI preview pages (the safe slice done; the shells not done)
 
 Not changed. The plan's premise was five routes and five cards that are one template
 with a different noun, and measuring them showed they are not. Against the sharding
@@ -248,3 +248,25 @@ slice if this is wanted: about 40 lines out of each route, no change to what any
 shows, checked by the Playwright specs for sharding, cache, checkout and kennel-fix
 (`make test-ui` builds the binary and drives it; Chromium is installed here). It is
 left for the owner to ask for, with a before and after screenshot of two pages.
+
+**Afterwards, on the owner's ask: the `PreviewFlow` slice.** The five routes now share
+the request state they each wrote out: `web/src/lib/preview-flow.svelte.ts` holds `busy`,
+`error`, `retryAt`, `retryBlocked` and `gateRefresh`, and `begin`, `isCurrent`, `fail`,
+`settle` and `cancel`, and the routes keep their inputs, their API calls and what they do
+with an answer. The part that does not need runes is in `web/src/lib/preview-failure.ts`
+(`describeFailure`: the page's own sentence for a preview that is not there, the server's
+words for anything else, a 403 asking the gate to look again, a 429 blocking the buttons
+until the time named or for a minute) so Node's unit tests can pin it
+(`unit/preview-failure.test.ts`, three tests, failing first). Each page gives its own
+not-found sentence to the constructor, which is the one place the five `failed()`
+functions differed. The two cards-and-routes shells the plan first described were not
+attempted, for the reasons above.
+
+Verified: the five specs (cache, checkout, sharding, readiness, Kennel fix) pass on both
+the `chromium` and `mobile` projects, 29 passed and 1 skipped before and after on
+`chromium`; the production build holds the shell at 152.8 KB of its 200 KB budget; `npm
+run check`, `npm run lint` and `npm run test:unit` pass. A screenshot of the kept Kennel fix
+is identical before and after, and the kept sharding preview differs in 96 pixels, which
+are the animated paw mark in the footer. The routes lose 173 lines net; with the two new
+modules the production code is about 50 lines smaller, not the 40 per route the estimate
+hoped for, because prettier rewraps the template lines that gained `flow.`.
