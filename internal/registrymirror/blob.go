@@ -149,6 +149,16 @@ func (m *Mirror) openBlob(ctx context.Context, cancel context.CancelFunc, method
 	return second, nil
 }
 
+// clientStall is how long one write to a client may take before the client is
+// given up on. The idle timeout cancels a download that has stopped arriving, but
+// cancelling does not unblock a write to a client that has stopped reading, so
+// without this a download stopped where it was and the flight for its blob stayed
+// open for as long as the connection did. It is half the idle timeout, so that the
+// client is given up on while the download is still moving and not after it has
+// been cancelled for standing still, and it applies to one write of a chunk, so a
+// slow client that is reading is not touched.
+func (m *Mirror) clientStall() time.Duration { return m.cfg.IdleTimeout / 2 }
+
 func blobOK(status int, ranged bool) bool {
 	return status == http.StatusOK || ranged && status == http.StatusPartialContent
 }
@@ -180,6 +190,7 @@ func (m *Mirror) passRange(w http.ResponseWriter, r *http.Request, rt route) {
 		n, rerr := resp.Body.Read(buf)
 		if n > 0 {
 			m.bytesFetched.Add(int64(n))
+			_ = rc.SetWriteDeadline(time.Now().Add(m.clientStall()))
 			if _, werr := w.Write(buf[:n]); werr != nil {
 				return
 			}
@@ -300,8 +311,16 @@ func (m *Mirror) fetchAndServe(w http.ResponseWriter, r *http.Request, rt route,
 				}
 			}
 			if !clientGone {
+				_ = rc.SetWriteDeadline(time.Now().Add(m.clientStall()))
 				if _, werr := w.Write(chunk); werr != nil {
+					// Gone, or not reading for longer than a write may take. Either
+					// way it is given up on and the download goes on for whoever
+					// keeps the blob and waits for it; one that nobody keeps has no
+					// reason to go on.
 					clientGone = true
+					if !keeping.Load() {
+						cancel()
+					}
 				} else {
 					_ = rc.Flush()
 				}
