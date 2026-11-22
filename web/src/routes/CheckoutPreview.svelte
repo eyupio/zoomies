@@ -6,7 +6,6 @@
     getCheckoutPreview,
     approveCheckoutPreview,
     publishCheckoutPreview,
-    ApiError,
   } from '$lib/api/client';
   import type {
     CheckoutInspection,
@@ -17,6 +16,7 @@
   } from '$lib/api/types';
   import { parseCheckoutSelection, checkoutSeconds } from '$lib/optimisations/input';
   import { router } from '$lib/router';
+  import { PreviewFlow } from '$lib/preview-flow.svelte';
   import { session } from '$lib/state/session.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
   import Field from '$lib/components/Field.svelte';
@@ -46,62 +46,29 @@
     openInstallation = $state(''),
     openRepo = $state('');
   let enablement = $state<OptimisationEnablement | undefined>();
-  let gateRefresh = $state(0);
   // Unknown is not off: until the state is read the page stays usable and the
   // server's own refusal, which names the setting, is the backstop.
+  const flow = new PreviewFlow(
+    'This preview is unavailable. It may be expired, evicted or outside this scope. Nothing was recreated.',
+  );
   const previewsOff = $derived(enablement !== undefined && !enablement.enabled);
   let inspection = $state<CheckoutInspection | null>(null);
   let reviewed = $state(false);
   let preview = $state<CheckoutPreview | null>(null);
-  let busy = $state(false),
-    error = $state(''),
-    retryAt = $state(0),
-    retryBlocked = $state(false);
-  let operation = 0,
-    loadedKey = '';
+  let loadedKey = '';
   let alertElement = $state<HTMLParagraphElement | null>(null);
   let sourceHeading = $state<HTMLHeadingElement | null>(null);
-  let controller: AbortController | undefined;
-  let timer: ReturnType<typeof setTimeout> | undefined;
   const canCapture = $derived(session.can('operator') && !session.visitor);
   $effect(() => {
-    if (error) alertElement?.focus();
+    if (flow.error) alertElement?.focus();
   });
 
-  function failed(e: unknown) {
-    error =
-      e instanceof ApiError && e.isNotFound
-        ? 'This preview is unavailable. It may be expired, evicted or outside this scope. Nothing was recreated.'
-        : e instanceof Error
-          ? e.message
-          : 'The request could not be completed.';
-    if (e instanceof ApiError && e.status === 403) gateRefresh++;
-    if (e instanceof ApiError && e.status === 429) {
-      retryAt = e.retryAt ?? Date.now() + 60000;
-      retryBlocked = true;
-      clearTimeout(timer);
-      timer = setTimeout(
-        () => {
-          retryBlocked = false;
-        },
-        Math.max(0, retryAt - Date.now()),
-      );
-    }
-  }
-  function begin(): number {
-    const current = ++operation;
-    controller?.abort();
-    controller = new AbortController();
-    busy = true;
-    error = '';
-    return current;
-  }
   const validRepo = (value: string) =>
     /^[^\s/\\?#]+\/[^\s/\\?#]+$/.test(value) && value.length <= 1024;
 
   async function inspect(target: NonNullable<typeof chosen>) {
-    if (busy || retryBlocked || !canCapture) return;
-    const current = begin();
+    if (flow.busy || flow.retryBlocked || !canCapture) return;
+    const current = flow.begin();
     chosen = target;
     inspection = null;
     reviewed = false;
@@ -113,15 +80,15 @@
           repository: target.repo,
           selection: target.selection,
         },
-        controller?.signal,
+        flow.signal,
       );
-      if (current !== operation) return;
+      if (!flow.isCurrent(current)) return;
       inspection = result;
       queueMicrotask(() => sourceHeading?.focus());
     } catch (e) {
-      if (current === operation) failed(e);
+      if (flow.isCurrent(current)) flow.fail(e);
     } finally {
-      if (current === operation) busy = false;
+      flow.settle(current);
     }
   }
   function pick(job: Job) {
@@ -149,12 +116,13 @@
         label: `Run ${selection.run_id}, job ${selection.github_job_id}`,
       });
     } catch (e) {
-      failed(e);
+      flow.fail(e);
     }
   }
   async function retain() {
-    if (busy || retryBlocked || !canCapture || !inspection || !reviewed || !chosen) return;
-    const current = begin();
+    if (flow.busy || flow.retryBlocked || !canCapture || !inspection || !reviewed || !chosen)
+      return;
+    const current = flow.begin();
     try {
       const result = await retainCheckoutPreview(
         {
@@ -167,9 +135,9 @@
           source_sha256: inspection.source_sha256,
           history_reviewed: true,
         },
-        controller?.signal,
+        flow.signal,
       );
-      if (current !== operation) return;
+      if (!flow.isCurrent(current)) return;
       preview = result;
       previewId = result.id;
       loadedKey = `${result.id}|${chosen.installation}|${chosen.repo}`;
@@ -177,14 +145,14 @@
       inspection = null;
       reviewed = false;
     } catch (e) {
-      if (current === operation) failed(e);
+      if (flow.isCurrent(current)) flow.fail(e);
     } finally {
-      if (current === operation) busy = false;
+      flow.settle(current);
     }
   }
   async function approve() {
-    if (busy || !preview || !canCapture) return;
-    const current = begin();
+    if (flow.busy || !preview || !canCapture) return;
+    const current = flow.begin();
     try {
       const result = await approveCheckoutPreview(
         preview.id,
@@ -194,19 +162,19 @@
           head_sha: preview.preview.head_sha,
           source_sha256: preview.preview.source_sha256,
         },
-        controller?.signal,
+        flow.signal,
       );
-      if (current !== operation) return;
+      if (!flow.isCurrent(current)) return;
       preview = result;
     } catch (e) {
-      if (current === operation) failed(e);
+      if (flow.isCurrent(current)) flow.fail(e);
     } finally {
-      if (current === operation) busy = false;
+      flow.settle(current);
     }
   }
   async function publish() {
-    if (busy || !preview || !canCapture) return;
-    const current = begin();
+    if (flow.busy || !preview || !canCapture) return;
+    const current = flow.begin();
     try {
       const result = await publishCheckoutPreview(
         preview.id,
@@ -216,18 +184,18 @@
           head_sha: preview.preview.head_sha,
           source_sha256: preview.preview.source_sha256,
         },
-        controller?.signal,
+        flow.signal,
       );
-      if (current !== operation) return;
+      if (!flow.isCurrent(current)) return;
       preview = result;
     } catch (e) {
-      if (current === operation) failed(e);
+      if (flow.isCurrent(current)) flow.fail(e);
     } finally {
-      if (current === operation) busy = false;
+      flow.settle(current);
     }
   }
   async function read(readId = previewId, inst = openInstallation, repository = openRepo) {
-    const current = begin();
+    const current = flow.begin();
     preview = null;
     inspection = null;
     try {
@@ -238,15 +206,15 @@
         throw new Error('Supply an installation ID starting ins_ and repository OWNER/REPO.');
       if (!/^opv_[a-zA-Z0-9_-]{1,124}$/.test(readId))
         throw new Error('Supply a preview ID starting opv_.');
-      const result = await getCheckoutPreview(readId, inst, repository, controller?.signal);
-      if (current !== operation) return;
+      const result = await getCheckoutPreview(readId, inst, repository, flow.signal);
+      if (!flow.isCurrent(current)) return;
       preview = result;
       loadedKey = `${readId}|${inst}|${repository}`;
       router.setQuery({ id: readId, installation_id: inst, repo: repository });
     } catch (e) {
-      if (current === operation) failed(e);
+      if (flow.isCurrent(current)) flow.fail(e);
     } finally {
-      if (current === operation) busy = false;
+      flow.settle(current);
     }
   }
   // A link from a job, or to a kept preview. A job link prefills the run and
@@ -277,15 +245,13 @@
             label: `Run ${selection.run_id}, job ${selection.github_job_id}`,
           };
         } catch (e) {
-          failed(e);
+          flow.fail(e);
         }
       }
     });
   });
   onDestroy(() => {
-    operation++;
-    controller?.abort();
-    clearTimeout(timer);
+    flow.cancel();
   });
 </script>
 
@@ -305,7 +271,7 @@
 {:else}
   <div class="page">
     {#if canCapture}
-      <OptimisationGate bind:enablement refreshKey={gateRefresh} />
+      <OptimisationGate bind:enablement refreshKey={flow.gateRefresh} />
       <section class="card" aria-labelledby="choose-title">
         <h2 id="choose-title">1. Choose a run</h2>
         <p>
@@ -313,12 +279,12 @@
           push's commit, finds the full-history checkout in the job you choose, and shows it to you
           before anything is kept. Nothing is saved at this step and no model sees the file.
         </p>
-        {#if chosen && !inspection && !busy}
+        {#if chosen && !inspection && !flow.busy}
           <p>
             Ready to read <strong>{chosen.label}</strong> in {chosen.repo}.
             <Button
               variant="primary"
-              disabled={previewsOff || retryBlocked}
+              disabled={previewsOff || flow.retryBlocked}
               reason={previewsOff ? 'Turn on workflow previews above first.' : undefined}
               onclick={() => chosen && void inspect(chosen)}>Read this workflow</Button
             >
@@ -326,7 +292,7 @@
         {/if}
         <CheckoutRunPicker
           bind:repo
-          disabled={busy || retryBlocked}
+          disabled={flow.busy || flow.retryBlocked}
           actionsDisabled={previewsOff}
           onpick={pick}
         />
@@ -338,7 +304,7 @@
                 >{#snippet children(f)}<Input
                     {...f}
                     bind:value={manualInstallation}
-                    disabled={busy}
+                    disabled={flow.busy}
                     required
                     placeholder="ins_..."
                   />{/snippet}</Field
@@ -347,7 +313,7 @@
                 >{#snippet children(f)}<Input
                     {...f}
                     bind:value={manualRepo}
-                    disabled={busy}
+                    disabled={flow.busy}
                     required
                     placeholder="OWNER/REPO"
                   />{/snippet}</Field
@@ -356,7 +322,7 @@
                 >{#snippet children(f)}<Input
                     {...f}
                     bind:value={runId}
-                    disabled={busy}
+                    disabled={flow.busy}
                     required
                     inputmode="numeric"
                     mono
@@ -366,7 +332,7 @@
                 >{#snippet children(f)}<Input
                     {...f}
                     bind:value={attempt}
-                    disabled={busy}
+                    disabled={flow.busy}
                     required
                     inputmode="numeric"
                   />{/snippet}</Field
@@ -375,7 +341,7 @@
                 >{#snippet children(f)}<Input
                     {...f}
                     bind:value={jobId}
-                    disabled={busy}
+                    disabled={flow.busy}
                     required
                     inputmode="numeric"
                     mono
@@ -385,7 +351,7 @@
             <Button
               type="submit"
               variant="secondary"
-              disabled={busy || retryBlocked || previewsOff}
+              disabled={flow.busy || flow.retryBlocked || previewsOff}
               reason={previewsOff ? 'Turn on workflow previews above first.' : undefined}
               >Read workflow source</Button
             >
@@ -396,11 +362,11 @@
       <p>Creating, opening and approving a preview needs an operator.</p>
     {/if}
 
-    {#if busy}<p role="status">Working…</p>{/if}
-    {#if error}<p role="alert" tabindex="-1" bind:this={alertElement}>{error}</p>{/if}
-    {#if retryBlocked}<p role="status">
-        Wait until {new Date(retryAt).toLocaleTimeString()} before another request. Retry manually; this
-        page does not poll.
+    {#if flow.busy}<p role="status">Working…</p>{/if}
+    {#if flow.error}<p role="alert" tabindex="-1" bind:this={alertElement}>{flow.error}</p>{/if}
+    {#if flow.retryBlocked}<p role="status">
+        Wait until {new Date(flow.retryAt).toLocaleTimeString()} before another request. Retry manually;
+        this page does not poll.
       </p>{/if}
 
     {#if inspection}
@@ -444,27 +410,27 @@
         <Checkbox
           bind:checked={reviewed}
           label="I reviewed this file. Neither this repository's tooling nor its downstream consumers need full history."
-          disabled={busy}
+          disabled={flow.busy}
         />
         <Button
           onclick={retain}
-          loading={busy && !!inspection && reviewed}
-          disabled={busy || retryBlocked || !reviewed}>Keep a preview for 14 days</Button
+          loading={flow.busy && !!inspection && reviewed}
+          disabled={flow.busy || flow.retryBlocked || !reviewed}>Keep a preview for 14 days</Button
         >
       </section>
     {/if}
 
     {#if preview}
       {#if canCapture && preview.approval && !preview.publication}
-        <PublicationGate bind:enablement refreshKey={gateRefresh} />
+        <PublicationGate bind:enablement refreshKey={flow.gateRefresh} />
       {/if}
       <CheckoutPreviewCard
         {preview}
         canApprove={canCapture}
-        approving={busy}
+        approving={flow.busy}
         onapprove={() => void approve()}
         canPublish={canCapture && enablement?.publish_enabled === true}
-        publishing={busy}
+        publishing={flow.busy}
         onpublish={() => void publish()}
       />
     {/if}
@@ -475,7 +441,7 @@
         <form
           onsubmit={(e) => {
             e.preventDefault();
-            if (!busy && !retryBlocked) void read();
+            if (!flow.busy && !flow.retryBlocked) void read();
           }}
         >
           <div class="fields">
@@ -483,7 +449,7 @@
               >{#snippet children(f)}<Input
                   {...f}
                   bind:value={openInstallation}
-                  disabled={busy}
+                  disabled={flow.busy}
                   required
                   placeholder="ins_..."
                 />{/snippet}</Field
@@ -492,7 +458,7 @@
               >{#snippet children(f)}<Input
                   {...f}
                   bind:value={openRepo}
-                  disabled={busy}
+                  disabled={flow.busy}
                   required
                   placeholder="OWNER/REPO"
                 />{/snippet}</Field
@@ -501,13 +467,13 @@
               >{#snippet children(f)}<Input
                   {...f}
                   bind:value={previewId}
-                  disabled={busy}
+                  disabled={flow.busy}
                   required
                   placeholder="opv_..."
                 />{/snippet}</Field
             >
           </div>
-          <Button type="submit" variant="secondary" disabled={busy || retryBlocked}
+          <Button type="submit" variant="secondary" disabled={flow.busy || flow.retryBlocked}
             >Open preview</Button
           >
         </form>
