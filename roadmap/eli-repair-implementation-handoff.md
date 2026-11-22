@@ -2360,7 +2360,7 @@ plan suggested, because the pattern and `Scrub` overlap in `repair.go`.
 
 ## Smaller findings from the 21 November 2026 audit, second pass
 
-Corrective PR: recorded below once it is opened. Not a slice; S4's remaining items
+Corrective PR: [#1542](https://github.com/eyupio/zoomies/pull/1542). Not a slice; S4's remaining items
 in the checkpoint table are unchanged and still the next unfinished step. Two of
 the five fixes touch the Eli merge path, and the other three do not.
 
