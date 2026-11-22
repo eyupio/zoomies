@@ -23,6 +23,7 @@
   } from '$lib/api/client';
   import type { Job, WorkflowRun } from '$lib/api/types';
   import { events } from '$lib/api/sse';
+  import { FrameLayer } from '$lib/frame-layer';
   import { faultLabel, fleetFailed } from '$lib/faults';
   import { NO_VALUE, formatDuration } from '$lib/format';
   import { session } from '$lib/state/session.svelte';
@@ -98,19 +99,26 @@
     }
   }
 
+  /** Frames that arrive while the jobs are being read, so a late answer does not undo them. */
+  const layer = new FrameLayer<Job>();
+
   $effect(() => {
     void attempt;
     const controller = new AbortController();
     loading = true;
     error = null;
+    const mark = layer.begin();
+    let settled = false;
     fetchAll(controller.signal)
       .then((all) => {
-        jobs = all;
+        settled = true;
+        jobs = layer.settle(mark, all, () => true);
       })
       .catch((err: unknown) => {
         if (!controller.signal.aborted) error = err;
       })
       .finally(() => {
+        if (!settled) layer.end(mark);
         if (!controller.signal.aborted) loading = false;
       });
     return () => controller.abort();
@@ -119,6 +127,7 @@
   $effect(() =>
     events.subscribe('job.updated', (job) => {
       if (job.repo !== repo || job.github_run_id !== runId) return;
+      layer.note(job);
       const index = jobs.findIndex((known) => known.id === job.id);
       jobs = index >= 0 ? jobs.map((known, i) => (i === index ? job : known)) : [...jobs, job];
     }),
