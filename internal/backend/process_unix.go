@@ -59,9 +59,29 @@ func detachRunner(cmd *exec.Cmd) {
 // is all the grouping a POSIX host needs, so there is nothing to add.
 func adoptRunner(*exec.Cmd) {}
 
-// releaseRunner is called once the runner has been reaped. Nothing was held
-// for it here.
-func releaseRunner(int) {}
+// releaseRunner is called once the runner has been reaped, and ends whatever its
+// job left running in the group.
+//
+// The group outlives its leader for as long as any member does, and the only
+// place a signal was sent to it from was Stop, which is for a runner that is
+// still running. An ephemeral runner finishes by itself, so what its job had put
+// in the background went on running on the host, outside any workspace and any
+// limit, after the runner was gone and its directory deleted.
+//
+// It is done here and not later, in Remove or on a sweep, because here the pid is
+// still the group's: it has just been reaped, and a pid that belongs to a group
+// with a member in it cannot be handed to a new process. Later, with the group
+// empty, the number can be reused, and a signal to "its group" would reach
+// whatever has it now, which on an agent is quite possibly another runner. A
+// group with nobody in it answers ESRCH, which is the usual case and is not an
+// error. Only a runner this process started and reaped comes through here; one
+// adopted after an agent restart is stopped by Stop, which checks its identity.
+func releaseRunner(pid int) {
+	if pid <= 1 {
+		return
+	}
+	_ = syscall.Kill(-pid, syscall.SIGKILL)
+}
 
 // signalRunner delivers sig to the runner's process group. A group that is
 // already gone answers os.ErrProcessDone, so callers treat it as the other
