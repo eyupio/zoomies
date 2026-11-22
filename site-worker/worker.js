@@ -278,7 +278,12 @@ async function route(request, env) {
     // keeps install.sh and the images from wearing links that are not
     // about them. It is also what can be answered as Markdown, so it is the
     // HTML variant of a negotiated page and varies on Accept like the other.
-    if (asset.ok && markdownPath(url.pathname) !== null) {
+    //
+    // A 304 is the same page revalidated, and carries the headers the 200 would
+    // have: a cache updates what it stored from them, so one without Vary: Accept
+    // would be told the page no longer varies on it. It is not "ok", so it is
+    // named here.
+    if ((asset.ok || asset.status === 304) && markdownPath(url.pathname) !== null) {
       const response = new Response(asset.body, asset);
       response.headers.set("link", discoveryLinks());
       response.headers.append("vary", "Accept");

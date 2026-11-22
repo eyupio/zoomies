@@ -149,6 +149,31 @@ func (m *Mirror) openBlob(ctx context.Context, cancel context.CancelFunc, method
 	return second, nil
 }
 
+// clientStall is how long one write to a client may take before the client is
+// given up on. The idle timeout cancels a download that has stopped arriving, but
+// cancelling does not unblock a write to a client that has stopped reading, so
+// without this a download stopped where it was and the flight for its blob stayed
+// open for as long as the connection did. It is half the idle timeout, so that the
+// client is given up on while the download is still moving and not after it has
+// been cancelled for standing still, and it applies to one write of a chunk, so a
+// slow client that is reading is not touched.
+func (m *Mirror) clientStall() time.Duration { return m.cfg.IdleTimeout / 2 }
+
+// writeToClient sends one chunk and flushes it, with the deadline for a client that
+// is not reading, and takes the deadline down again as soon as that is done. Over
+// HTTP/2 Go resets the stream when a deadline expires whether or not the write it was
+// set for finished long before, so one left armed through a pause upstream would cut
+// off a download whose client had read every byte it was sent.
+func (m *Mirror) writeToClient(w http.ResponseWriter, rc *http.ResponseController, chunk []byte) error {
+	_ = rc.SetWriteDeadline(time.Now().Add(m.clientStall()))
+	defer func() { _ = rc.SetWriteDeadline(time.Time{}) }()
+	if _, err := w.Write(chunk); err != nil {
+		return err
+	}
+	_ = rc.Flush()
+	return nil
+}
+
 func blobOK(status int, ranged bool) bool {
 	return status == http.StatusOK || ranged && status == http.StatusPartialContent
 }
@@ -180,10 +205,9 @@ func (m *Mirror) passRange(w http.ResponseWriter, r *http.Request, rt route) {
 		n, rerr := resp.Body.Read(buf)
 		if n > 0 {
 			m.bytesFetched.Add(int64(n))
-			if _, werr := w.Write(buf[:n]); werr != nil {
+			if m.writeToClient(w, rc, buf[:n]) != nil {
 				return
 			}
-			_ = rc.Flush()
 		}
 		if rerr == io.EOF {
 			// A part of a blob has no digest to be checked against, so its
@@ -300,10 +324,15 @@ func (m *Mirror) fetchAndServe(w http.ResponseWriter, r *http.Request, rt route,
 				}
 			}
 			if !clientGone {
-				if _, werr := w.Write(chunk); werr != nil {
+				if werr := m.writeToClient(w, rc, chunk); werr != nil {
+					// Gone, or not reading for longer than a write may take. Either
+					// way it is given up on and the download goes on for whoever
+					// keeps the blob and waits for it; one that nobody keeps has no
+					// reason to go on.
 					clientGone = true
-				} else {
-					_ = rc.Flush()
+					if !keeping.Load() {
+						cancel()
+					}
 				}
 			}
 		}

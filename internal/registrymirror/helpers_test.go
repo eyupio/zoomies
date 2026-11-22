@@ -42,6 +42,9 @@ type fakeRegistry struct {
 	cdnAuth   []string
 	cdnDelay  time.Duration
 	cdnStall  bool
+	// cdnPause makes the content network stop for this long halfway through a
+	// body and then send the rest.
+	cdnPause time.Duration
 	// cdnChunked makes the content network send a body of unknown length.
 	cdnChunked bool
 	// cdnStallEmpty makes a stalled download stop before its first byte.
@@ -293,6 +296,7 @@ func (f *fakeRegistry) serveCDN(w http.ResponseWriter, r *http.Request) {
 		body = bad
 	}
 	delay, stall, chunked, empty := f.cdnDelay, f.cdnStall, f.cdnChunked, f.cdnStallEmpty
+	pause := f.cdnPause
 	f.mu.Unlock()
 	if delay > 0 {
 		time.Sleep(delay)
@@ -305,6 +309,13 @@ func (f *fakeRegistry) serveCDN(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Length", fmt.Sprint(len(body)))
+	if pause > 0 {
+		_, _ = w.Write(body[:len(body)/2])
+		w.(http.Flusher).Flush()
+		time.Sleep(pause)
+		_, _ = w.Write(body[len(body)/2:])
+		return
+	}
 	if stall {
 		if empty {
 			w.WriteHeader(http.StatusOK)
