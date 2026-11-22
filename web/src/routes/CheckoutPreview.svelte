@@ -396,10 +396,12 @@
             </dd>
           </div>
         </dl>
+        <!-- Long source scrolls, so it must take focus; the group role carries the name. -->
         <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
         <pre
           class="source"
           tabindex="0"
+          role="group"
           aria-label="Workflow source, untrusted text">{inspection.content}</pre>
         <p>
           The preview would change one line: <code>fetch-depth: 0</code> to

@@ -118,9 +118,12 @@
               <p class="note">This response was shortened to the 96 KiB retention limit.</p>
             {/if}
             {#if step.response_recorded && step.response}
+              <!-- A scrolling region must be reachable by keyboard. The group role gives
+                   the label something to attach to: a bare pre has no name. -->
               <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
               <pre
                 tabindex="0"
+                role="group"
                 aria-label="Response text for model call {index + 1}">{step.response}</pre>
               <CopyButton
                 value={step.response}

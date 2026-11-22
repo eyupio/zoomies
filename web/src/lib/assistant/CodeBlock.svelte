@@ -15,7 +15,7 @@
   </figcaption>
   <!-- A region that scrolls must be reachable by keyboard, or its far end cannot be read. -->
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-  <pre tabindex="0"><code>{code}</code></pre>
+  <pre tabindex="0" role="group" aria-label="{lang || 'text'} code"><code>{code}</code></pre>
 </figure>
 
 <style>
