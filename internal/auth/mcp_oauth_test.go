@@ -544,6 +544,49 @@ func TestRegistrationIsLimitedToAHundredNewClientsAnHourPerAddress(t *testing.T)
 	}
 }
 
+// Every request that gets as far as being kept writes a row, on an endpoint
+// nobody signs in to reach and through the database's one writer, so a script
+// that loops on it makes every other write wait behind it. Registration and the
+// token endpoint were limited and this one was not. The refusal goes back to the
+// client's own checked redirect, as the specification asks for an overloaded
+// authorisation server.
+func TestAuthorizationRequestsAreLimitedPerAddress(t *testing.T) {
+	s, _, c := newService(t)
+	ctx := t.Context()
+	client, err := s.RegisterClient(ctx, testPolicy, ClientRegistration{ClientName: "scripted", RedirectURIs: []string{ClaudeCallback}}, "198.51.100.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	begin := func(ip string) error {
+		_, err := s.BeginAuthorization(ctx, testPolicy, AuthorizeParams{
+			ClientID: client.ClientID, RedirectURI: ClaudeCallback, ResponseType: "code",
+			CodeChallenge: PKCEChallenge(verifier), CodeChallengeMethod: "S256", IP: ip,
+		})
+		return err
+	}
+	const ip = "203.0.113.60"
+	for i := range mcpAuthorizationsPerMinute {
+		if err := begin(ip); err != nil {
+			t.Fatalf("request %d of %d: %v", i+1, mcpAuthorizationsPerMinute, err)
+		}
+	}
+
+	var refusal *AuthorizeRefusal
+	if err := begin(ip); !errors.As(err, &refusal) {
+		t.Fatalf("the request after the limit = %v; want a refusal", err)
+	}
+	if refusal.Code != "temporarily_unavailable" || refusal.RedirectURI != ClaudeCallback {
+		t.Errorf("refusal = %q to %q; want temporarily_unavailable sent back to the client's own redirect", refusal.Code, refusal.RedirectURI)
+	}
+	if err := begin("203.0.113.61"); err != nil {
+		t.Errorf("another address must not share the limit: %v", err)
+	}
+	c.Advance(2 * time.Minute)
+	if err := begin(ip); err != nil {
+		t.Errorf("the limit must lift once the minute is over: %v", err)
+	}
+}
+
 // A new password, and signing out everywhere else, end the account's MCP
 // connections along with its sessions: a connection is a credential that
 // outlives any session, and the person doing either suspects one is loose.

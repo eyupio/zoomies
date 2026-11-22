@@ -2357,3 +2357,47 @@ failed before the change. `go test -race` over `internal/prrepair`,
 `internal/github` and `internal/redact`, and the Eli tests in
 `internal/controller`, pass. This landed as one commit rather than the three the
 plan suggested, because the pattern and `Scrub` overlap in `repair.go`.
+
+## Smaller findings from the 21 November 2026 audit, second pass
+
+Corrective PR: [#1542](https://github.com/eyupio/zoomies/pull/1542). Not a slice; S4's remaining items
+in the checkpoint table are unchanged and still the next unfinished step. Two of
+the five fixes touch the Eli merge path, and the other three do not.
+
+**A merge attempt belongs to the host its task was queued to.** The agent routes
+`GET` and `POST /api/v1/agent/merge/{id}` checked only that the caller was some
+registered host, so any agent holding an attempt id could pull another host's
+repository (three commits of a private repository) or answer for it, and an answer
+becomes the tree of a commit pushed to a contributor's branch.
+`QueueMergeConflict` now binds the attempt to the host it queues the task to
+(`mergeAttempts.bind`), before the task exists, and `PullMergeRepository` and
+`ReportMergeAnswer` refuse every other host with `ErrNoMergeAttempt`, the same
+answer an unknown id gets, so a host that was not given an attempt learns nothing
+about it and its trying spends neither of the real host's one pull or one answer.
+An attempt nobody has queued is open to nobody. Giving an attempt to a second host
+is refused. An id that holds no attempt binds nothing and is not an error, because
+`QueueMergeConflict`'s own tests queue synthetic ids and the pull that follows says
+it is not here. The tests are
+`TestAMergeAttemptCanOnlyBePulledAndAnsweredByTheHostItWasGivenTo` (through the
+API, failing first with the other host receiving the repository) and
+`TestAMergeAttemptBelongsToTheOneHostItWasQueuedTo`; the helper in
+`internal/api/agent_merge_test.go` now queues to the host it pulls as. Known limit:
+the binding is in memory with the attempt, like the attempt, so a restart drops
+both.
+
+**`gitfetch.Remove` does not follow a symlink.** It cleared the read-only bit with
+one `chmod` per entry, and `chmod` follows links. A built repository holds none,
+but the merge worker runs in a container with the workspace mounted writable, so a
+link left there is the container's to choose, and the agent removes the workspace
+as the user that owns the host's own files: a link to a file or directory of the
+container's choosing had its mode set to 0644. The walk now skips links, and
+`RemoveAll` deletes the link and not its target.
+`TestRemoveDoesNotChangeWhatASymlinkPointsAt` failed first, with a 0600 file and a
+0700 directory both changed. `makeMergeWorkspaceWritable` in the agent chmods only
+real directories, and before the worker runs, so it was not changed.
+
+`go test -race` over `internal/backup`, `internal/auth`, `internal/gitfetch`, the
+Eli tests in `internal/controller`, and plain runs of `internal/controller`,
+`internal/api` and `internal/agent` pass. The other three fixes (restore's digest
+check, the authorize limit, the Argon2 bound) are in `plans/audit-2026-11-21.md`
+and the commit messages.

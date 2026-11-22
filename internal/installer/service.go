@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"embed"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"os"
@@ -28,8 +29,106 @@ import (
 var templateFS embed.FS
 
 var unitTemplates = template.Must(template.New("").Funcs(template.FuncMap{
-	"join": strings.Join,
+	"join":     strings.Join,
+	"execPath": systemdExecPath,
+	"execArg":  systemdExecArg,
+	"pathList": systemdPathListEntry,
+	"setting":  systemdSetting,
+	"xml":      xmlText,
+	"mount":    composeMount,
 }).ParseFS(templateFS, "templates/*.tmpl"))
+
+// A unit file is read by systemd, which splits a command line and a list of
+// paths on whitespace and reads % as the start of a specifier, so a path an
+// operator chose cannot be written as it was typed. Each of the three helpers
+// below is one place a path goes, and none of them touches a path that needs
+// nothing, so the unit an ordinary install writes is the one it always was.
+
+// xmlText is text for between the tags of the plist, which is XML and so cannot
+// be given a path as it was typed: an ampersand in a directory name made a file
+// launchd refuses to load.
+func xmlText(s string) string {
+	var b strings.Builder
+	_ = xml.EscapeText(&b, []byte(s))
+	return b.String()
+}
+
+// composeMount is one short-syntax volume of a compose file: the host path, the
+// container path and any mode, joined by the colons that separate them.
+//
+// The paths are an operator's, written into a YAML string that compose then splits
+// on colons and scans for $. A colon has no way to be part of a path in that
+// syntax, so one is refused where it is chosen. A $ is doubled, which is how
+// compose spells a literal one. And a value with anything in it beyond ordinary
+// path characters is written as a quoted string, so that a "#" after a space is
+// not the start of a comment; one without is left as it was, so an ordinary
+// install's file is unchanged.
+func composeMount(src, dst string, mode ...string) (string, error) {
+	for _, p := range []string{src, dst} {
+		if strings.Contains(p, ":") {
+			return "", fmt.Errorf("installer: the path %q has a colon in it, which a compose volume cannot hold, "+
+				"because a colon is how it separates the host's path from the container's; use a path without one", p)
+		}
+		if strings.ContainsAny(p, "\r\n\x00") {
+			return "", fmt.Errorf("installer: the path %q has a line break in it, which a compose file cannot hold; check the path you gave", p)
+		}
+	}
+	v := strings.ReplaceAll(strings.Join(append([]string{src, dst}, mode...), ":"), "$", "$$")
+	plain := true
+	for _, r := range v {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("_./+-:$", r)) {
+			plain = false
+			break
+		}
+	}
+	if plain {
+		return v, nil
+	}
+	return strconv.Quote(v), nil
+}
+
+// needsUnitQuoting reports whether a word would be split or unescaped by
+// systemd's command-line rules.
+func needsUnitQuoting(s string) bool {
+	return s == "" || strings.ContainsAny(s, " \t\"'\\")
+}
+
+// systemdExecPath is the executable of an ExecStart= command line. It is a path and
+// systemd does not expand variables in it, so unlike an argument its $ is its own and
+// doubling it would name a file that is not there; % is read there as everywhere.
+func systemdExecPath(s string) string {
+	return quoteUnitWord(strings.ReplaceAll(s, "%", "%%"))
+}
+
+// systemdExecArg is a path as one argument of an ExecStart= command line: % and
+// $ are doubled, since both are read there, and a path with whitespace, a quote
+// or a backslash in it is quoted with those escaped.
+func systemdExecArg(s string) string {
+	s = strings.NewReplacer("%", "%%", "$", "$$").Replace(s)
+	return quoteUnitWord(s)
+}
+
+// systemdPathListEntry is a path as one entry of a list setting such as
+// ReadWritePaths=, which is split on whitespace too. $ means nothing there.
+func systemdPathListEntry(s string) string {
+	return quoteUnitWord(strings.ReplaceAll(s, "%", "%%"))
+}
+
+// systemdSetting is a path as the whole value of a setting that takes one, such
+// as WorkingDirectory= or EnvironmentFile=, which keeps the rest of the line as
+// it is and so needs no quotes, only its % doubled.
+func systemdSetting(s string) string {
+	return strings.ReplaceAll(s, "%", "%%")
+}
+
+// quoteUnitWord wraps a word in double quotes when it needs them, escaping the
+// two characters that mean something inside them.
+func quoteUnitWord(s string) string {
+	if !needsUnitQuoting(s) {
+		return s
+	}
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s) + `"`
+}
 
 // ServiceKind names the supervisor an installation will be managed by.
 type ServiceKind string
@@ -168,6 +267,18 @@ func (s *ServiceSpec) defaults() error {
 	}
 	if s.StateDir == "" {
 		return errors.New("installer: the service needs a state directory, for example /var/lib/zoomies")
+	}
+	// A line break would end the setting it is in and start another, and the
+	// unit would run whatever the rest of the path said. The paths are the
+	// operator's own, so this is a typing mistake, and it is said where it is
+	// instead of being written into a unit that does something else.
+	for _, p := range []struct{ name, value string }{
+		{"binary", s.ExecPath}, {"config file", s.ConfigFile}, {"state directory", s.StateDir},
+		{"config directory", s.ConfigDir}, {"environment file", s.EnvFile},
+	} {
+		if strings.ContainsAny(p.value, "\r\n\x00") {
+			return fmt.Errorf("installer: the %s path %q has a line break in it, which a unit file cannot hold; check the path you gave", p.name, p.value)
+		}
 	}
 	if s.LogFile == "" {
 		s.LogFile = filepath.Join(s.StateDir, s.Unit+".log")

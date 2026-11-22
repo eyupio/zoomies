@@ -781,6 +781,15 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 			return nil, fmt.Errorf("replacing the previous registration of host %s: %w", name, err)
 		}
 		c.publishRunnersDeleted(dropped)
+		// The rows went with the row, so the tasks queued for them are for runners
+		// that no longer exist: a start, stop or remove, still pending or held by
+		// the agent that went away and offered again when its lease ran out. They
+		// would be handed to the machine joining now, which would act on a
+		// workload nothing records. Deleting a host explicitly drops its queue for
+		// the same reason; a carried-over host keeps its rows and so its queue.
+		if !existing.RecoveryRequired {
+			c.queues.forget(existing.ID)
+		}
 		// The delete cancelled the old registration's open update attempt. A task
 		// for it still queued, or held by the agent that went away, would update
 		// the machine joining now with nothing recording it.

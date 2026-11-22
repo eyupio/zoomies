@@ -42,7 +42,12 @@ func (s *Store) StartupEstimates(ctx context.Context, since time.Time) ([]Startu
 	return out, rows.Err()
 }
 
-var schedulingRunnersQuery = hot(`SELECT ` + runnerCols + ` FROM runners WHERE state!='removed' ORDER BY created_at`)
+// schedulingRunnersSQL is a constant so a plan test can pin it: the predicate has to
+// match the partial index's text, and a reword that stopped matching would turn a read
+// of the live rows into a walk of every runner the fleet ever made.
+const schedulingRunnersSQL = `SELECT ` + runnerCols + ` FROM runners WHERE state != 'removed' ORDER BY created_at`
+
+var schedulingRunnersQuery = hot(schedulingRunnersSQL)
 
 // One snapshot query replaces one read per pool, retaining failed rows because
 // backoff and cleanup still need them. The state filter is intentionally intact.

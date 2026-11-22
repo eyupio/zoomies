@@ -490,6 +490,11 @@ func (s *Service) reauthenticate(ctx context.Context, userID, password, code, ip
 	if u.PasswordHash == "" {
 		return nil, ErrTwoStepUnavailable
 	}
+	release, err := s.takePasswordCheck(ctx, "a password confirmation", ip)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	if !s.allowAttempt(ip, u.Username) {
 		return nil, ErrRateLimited
 	}

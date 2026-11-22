@@ -87,9 +87,21 @@ func Check(ctx context.Context, cfg *config.Config, dir string) (*Manifest, stri
 		problem = merr.Error()
 		m = nil
 	}
-	// Checked in the order an operator would want to be stopped: is this
-	// file sound, can this binary read it, and is the key on this host the
-	// one that opens it?
+	// Checked in the order an operator would want to be stopped: is this the
+	// file that was taken, is it sound, can this binary read it, and is the
+	// key on this host the one that opens it?
+	//
+	// The manifest recorded what the file was when it was taken, so a copy that
+	// was truncated or swapped on the shelf is refused here whether or not the
+	// damaged file still opens, and with the reason an operator can act on
+	// rather than whatever the damage happens to look like to SQLite. A
+	// portable snapshot is compared by verifyDir below, which asks the same
+	// question first.
+	if m != nil && m.Transfer == nil {
+		if err := checkDigest(dbPath, m); err != nil {
+			return m, problem, err
+		}
+	}
 	if err := checkCopy(ctx, dbPath); err != nil {
 		return m, problem, err
 	}
@@ -111,6 +123,24 @@ func Check(ctx context.Context, cfg *config.Config, dir string) (*Manifest, stri
 		}
 	}
 	return m, problem, nil
+}
+
+// checkDigest compares the database with the digest the manifest recorded when
+// the backup was taken. A manifest with no digest (an older backup) has nothing
+// to compare, which is not a failure: the copy is still opened and checked.
+func checkDigest(dbPath string, m *Manifest) error {
+	if m.Database.SHA256 == "" {
+		return nil
+	}
+	sum, err := FileSHA256(dbPath)
+	if err != nil {
+		return fmt.Errorf("reading the backup's database to compare its digest: %w", err)
+	}
+	if sum != m.Database.SHA256 {
+		return errors.New("the backup's database is not the file its manifest recorded: its digest has changed, " +
+			"so it was altered or truncated after it was taken (restore a different backup, or run `zoomies backup verify` to see which copies are sound)")
+	}
+	return nil
 }
 
 // checkCopy opens the backup's database and asks it two questions: is it

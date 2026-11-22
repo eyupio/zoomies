@@ -443,8 +443,13 @@ So they all happen before anything is moved.
   connection it opened afterwards would read the restored one, and the writes
   it made in between would land in the file nobody looks at again. Nothing
   fails at the time, which is what makes it worth refusing.
+* **A copy that is not the file that was taken.** The database's digest is
+  compared with the one its manifest recorded, the same comparison `verify`
+  makes, so a backup that was truncated or swapped on the shelf is refused with
+  that reason even when the damaged file would still open. A backup with no
+  recorded digest (an older one) skips this and is checked as below.
 * **A copy that is not sound.** The backup's database is opened and integrity
-  checked first.
+  checked next.
 * **A backup from a newer release.** The store refuses a ledger naming
   migrations this binary does not have, and the refusal names them.
 * **The wrong encryption key.** The manifest's fingerprint is compared against

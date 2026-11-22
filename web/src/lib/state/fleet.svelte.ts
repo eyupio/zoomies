@@ -41,6 +41,7 @@ import {
 } from '../api/client';
 import { events, type SseStatus } from '../api/sse';
 import type { Host, Pool, Problem, Resources, Runner, ScalingEvent, Stats } from '../api/types';
+import { restoreUnlessMoved } from '../frame-layer';
 import { shapeDiffers } from './fleet-shape';
 import { toasts } from './toasts.svelte';
 
@@ -392,15 +393,19 @@ class Fleet {
   ): Promise<T | undefined> {
     const map = this.#mapFor(id);
     const previous = map?.get(id);
-    if (map && previous) {
-      map.set(id, { ...previous, ...patch });
+    const applied = previous ? { ...previous, ...patch } : undefined;
+    if (map && previous && applied) {
+      map.set(id, applied);
       this.#touch();
     }
     try {
       return await run();
     } catch (cause) {
-      if (map && previous) {
-        map.set(id, previous);
+      if (map && previous && applied) {
+        // Only if the row is still the change: a frame that landed while the
+        // request was out is newer than the row it started from.
+        const current = restoreUnlessMoved(map.get(id), applied, previous);
+        if (current) map.set(id, current);
         this.#touch();
       }
       toasts.fromError(cause, failureTitle);
