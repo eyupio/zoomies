@@ -169,18 +169,28 @@ func (c *Controller) PrepareMerge(ctx context.Context, client github.Client, rep
 }
 
 // PullMergeRepository serves one attempt's repository to the agent that was told
-// to merge it.
+// to merge it, and to no other: the attempt belongs to the host its task was
+// queued to.
 func (c *Controller) PullMergeRepository(ctx context.Context, hostID, id string) (MergeRepository, error) {
 	if hostID == "" {
 		return MergeRepository{}, errors.New("controller: a merge repository pull carried no host ID")
 	}
+	if err := c.merge.attempts.assignedTo(id, hostID); err != nil {
+		return MergeRepository{}, err
+	}
 	return c.merge.repository(ctx, id)
 }
 
-// ReportMergeAnswer accepts the one answer a merge worker produced.
+// ReportMergeAnswer accepts the one answer a merge worker produced, from the
+// host the attempt was given to and no other. An answer becomes the tree of a
+// commit pushed to a contributor's branch, so a host that was not asked to
+// merge must not be able to supply one.
 func (c *Controller) ReportMergeAnswer(ctx context.Context, hostID, id string, answer gitmerge.WorkerResponse) error {
 	if hostID == "" {
 		return errors.New("controller: a merge answer carried no host ID")
+	}
+	if err := c.merge.attempts.assignedTo(id, hostID); err != nil {
+		return err
 	}
 	_, err := c.merge.accept(id, answer)
 	return err
