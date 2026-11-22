@@ -236,10 +236,22 @@ func (s *Store) ApplyJob(ctx context.Context, j *Job, conditions ...JobCondition
 				merged.Steps = j.Steps
 			}
 		}
-		if existing.State == JobWaiting && merged.State == JobQueued {
+		if existing.State == JobWaiting && (merged.State == JobQueued || merged.State == JobInProgress) {
 			// The deployment review ended and the job has actually entered
 			// the queue. Replayed deliveries cannot move this boundary again.
-			merged.QueuedAt = s.Now()
+			//
+			// "In progress" counts as well as "queued": deliveries can arrive
+			// out of order and the poller finds jobs the webhook never
+			// announced, so a held job's first news after its review can be that
+			// it is already running. When that is so, nothing says it queued any
+			// earlier than it started, and leaving the boundary where the review
+			// began would report the review as queue wait on a job the fleet
+			// picked up at once.
+			boundary := s.Now()
+			if merged.State == JobInProgress && j.StartedAt != nil {
+				boundary = *j.StartedAt
+			}
+			merged.QueuedAt = boundary
 		}
 		text := func(dst *string, v string) {
 			if v != "" && (current || *dst == "") {

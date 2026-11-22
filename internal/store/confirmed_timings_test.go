@@ -31,6 +31,47 @@ func TestADeploymentReviewDoesNotStartTheSchedulingClock(t *testing.T) {
 	}
 }
 
+// GitHub sends "queued" when a review passes, but deliveries are at least once
+// and can arrive out of order, and the poller finds jobs the webhook never
+// announced. A held job whose "in_progress" is the first thing seen after the
+// review moves from waiting straight to running, and the boundary that marks the
+// end of the review was only moved by "queued", so the hours spent waiting for a
+// person to approve were reported as queue wait on a job the fleet picked up at
+// once, which is what sends an operator looking for a capacity problem.
+func TestAHeldJobThatRunsWithoutAQueuedDeliveryDoesNotCountItsReviewAsQueueWait(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// started is what the in_progress delivery says about when the job began.
+		started func(now time.Time) *time.Time
+		// wantQueued is where the queue wait starts: the start, if it is known,
+		// since nothing says the job queued any earlier than that.
+		wantQueued func(now time.Time) time.Time
+	}{
+		{"with its start time", func(now time.Time) *time.Time { return &now }, func(now time.Time) time.Time { return now }},
+		{"without one", func(time.Time) *time.Time { return nil }, func(now time.Time) time.Time { return now }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			now := time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC)
+			s := newTestStoreAt(t, func() time.Time { return now })
+			ctx := context.Background()
+			if _, err := s.UpsertJob(ctx, &Job{GitHubJobID: 9302, Repo: "acme/review", State: JobWaiting, Matched: true}); err != nil {
+				t.Fatal(err)
+			}
+			now = now.Add(3 * time.Hour)
+			job, err := s.UpsertJob(ctx, &Job{GitHubJobID: 9302, Repo: "acme/review", State: JobInProgress, Matched: true, StartedAt: tc.started(now)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := tc.wantQueued(now); !job.QueuedAt.Equal(want) {
+				t.Errorf("QueuedAt = %s after a 3 hour review, want %s: the review is counted as queue wait", job.QueuedAt, want)
+			}
+			if job.StartedAt != nil && job.QueueWait() > time.Minute {
+				t.Errorf("queue wait = %s for a job that ran as soon as it was approved", job.QueueWait())
+			}
+		})
+	}
+}
+
 func TestCleanupCompletesOnlyAfterBothPositiveConfirmations(t *testing.T) {
 	for _, hostFirst := range []bool{false, true} {
 		name := "registration first"
