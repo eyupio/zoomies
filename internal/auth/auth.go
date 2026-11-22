@@ -292,9 +292,12 @@ type Service struct {
 	// guessing attempt into a denial of service on the thing that fixes it.
 	joins *RateLimiter
 	// registrations bounds MCP client registration, the one route that
-	// writes a row for anybody who asks; tokens bounds the token endpoint.
-	registrations *RateLimiter
-	tokens        *RateLimiter
+	// writes a row for anybody who asks; authorizations bounds the
+	// authorisation endpoint, which keeps a row per request that passes its
+	// checks; tokens bounds the token endpoint.
+	registrations  *RateLimiter
+	authorizations *RateLimiter
+	tokens         *RateLimiter
 	// metadata fetches client ID metadata documents.
 	metadata *metadataFetcher
 	audit    *Auditor
@@ -378,6 +381,7 @@ func New(st *store.Store, cfg *config.Config, bus *events.Bus, opts ...Option) *
 	// a few surfaces in an afternoon is well inside this; a script filling the
 	// clients table is not.
 	s.registrations = NewRateLimiter(mcpRegistrationsPerHour, time.Hour, s.clock)
+	s.authorizations = NewRateLimiter(mcpAuthorizationsPerMinute, time.Minute, s.clock)
 	s.tokens = NewRateLimiter(mcpTokenRequestsPerMinute, time.Minute, s.clock)
 	s.audit = NewAuditor(st, bus, s.logger)
 	return s

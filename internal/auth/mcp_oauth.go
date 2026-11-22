@@ -90,6 +90,11 @@ const (
 	// address is an office behind one NAT, not an attack.
 	mcpRegistrationsPerHour   = 100
 	mcpTokenRequestsPerMinute = 60
+	// An authorisation request that passes its checks is kept as a row, on a
+	// route nobody signs in to reach. A person connecting a client starts one,
+	// perhaps a few when a sign-in is retried, so thirty a minute from one
+	// address is an office behind one NAT and not a person.
+	mcpAuthorizationsPerMinute = 30
 )
 
 // OAuthPolicy is what each request needs to know about the deployment as it
@@ -549,6 +554,8 @@ type AuthorizeParams struct {
 	State               string
 	Scope               string
 	Resource            string
+	// IP is the address the request came from, which the limit is kept per.
+	IP string
 }
 
 // AuthorizeRefusal is an authorisation request that cannot go ahead. When
@@ -606,6 +613,13 @@ func (s *Service) BeginAuthorization(ctx context.Context, p OAuthPolicy, in Auth
 	}
 	if len(in.State) > 2000 {
 		return nil, back("invalid_request", "state is longer than this controller keeps")
+	}
+	// Last, so a request that was going to be refused anyway costs nothing
+	// against the allowance, and just before the write it exists to bound:
+	// the database has one writer, and a loop on this route would otherwise
+	// make every other write wait behind it.
+	if !s.authorizations.Allow(in.IP) {
+		return nil, back("temporarily_unavailable", "too many sign-in requests from this address; wait a minute and try again")
 	}
 	r := &store.OAuthRequest{
 		ClientID:      c.ID,

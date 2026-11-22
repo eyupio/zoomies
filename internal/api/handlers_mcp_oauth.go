@@ -226,6 +226,7 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		State:               q.Get("state"),
 		Scope:               q.Get("scope"),
 		Resource:            q.Get("resource"),
+		IP:                  ClientIP(r.Context()),
 	})
 	var refusal *auth.AuthorizeRefusal
 	switch {
