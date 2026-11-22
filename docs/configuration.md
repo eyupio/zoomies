@@ -435,7 +435,7 @@ settings page reports rather than refusing the edit.
 | `agent.network` | `ZOOMIES_AGENT_NETWORK` | next restart | Container network: An existing container network to attach runners to. Empty uses the daemon's default bridge. |
 | `agent.registry_mirror.enabled` | `ZOOMIES_AGENT_REGISTRY_MIRROR_ENABLED` | next restart | Registry mirror: Keep the Docker Hub images this host's docker-in-docker sidecars pull, so the next job's pull is served from the host's disk. Public images only; a sidecar that uses a custom image is left alone. Off by default. |
 | `agent.registry_mirror.max_bytes` | `ZOOMIES_AGENT_REGISTRY_MIRROR_MAX_BYTES` | next restart | Registry mirror size: The most the registry mirror keeps on a host's disk, in bytes, least recently used first. 0 is the default of 10 GiB; otherwise at least 1 GiB (1073741824). |
-| `agent.registry_auth` | `ZOOMIES_REGISTRY_AUTH` | next restart | Registry credentials: A base64 X-Registry-Auth value the container backends send when they pull. Without it a pool on a private registry cannot use pinned-only pulls at all. |
+| `agent.registry_auth` | `ZOOMIES_REGISTRY_AUTH` | next restart | Registry credentials: A base64 X-Registry-Auth value, or the auths map of a docker config.json for one credential per registry, that the container backends send when they pull. Without it a pool on a private registry cannot use pinned-only pulls at all. |
 | `agent.runner_download_url` | `ZOOMIES_AGENT_RUNNER_DOWNLOAD_URL` | next restart | Runner download mirror: Where the process backend fetches runner archives from, for hosts that mirror releases internally. The path below it is the same. |
 | `agent.runner_sha256` | `ZOOMIES_AGENT_RUNNER_SHA256` | next restart | Runner archive digest: The expected digest of the actions/runner archive the process backend downloads. Zoomies ships the digest for the release it pins; supply one when you pin another. |
 | `agent.work_dir` | `ZOOMIES_WORK_DIR` | next restart | Working directory: Where runner working directories and the agent's own credentials live. |
@@ -1555,6 +1555,18 @@ default docker-in-docker sidecar from Docker Hub, is anonymous. Without it the
 credential goes with every pull, which a second registry may refuse, and the
 token is sent to registries it was not made for.
 
+To use a different credential for each registry, give the `auths` map of a
+`~/.docker/config.json` instead, base64-encoded:
+
+```json
+{"auths": {"ghcr.io": {"auth": "<base64 of user:token>"},
+           "registry.example.com:5000": {"username": "bot", "password": "..."}}}
+```
+
+Each pull then gets the credential for its own registry, and an image on a
+registry the map does not list pulls anonymously. An entry may use `auth`,
+`username` with `password`, or `identitytoken`.
+
 Set it when a pool's image lives in a private registry. Without it such a pool
 cannot use `pull_policy: pinned-only` at all; the pull it needs is the one the
 registry refuses, and the runner never starts.
@@ -1977,12 +1989,12 @@ from a source you trust.
 
 The image is pulled under the host's pull policy, not the pool's, which governs
 the runner image only, so `pinned-only` does not check the sidecar image.
-Pulls use the one credential in `agent.registry_auth`, so a private sidecar
-image has to be on a registry that credential covers. A credential that names
+Pulls use the credential in `agent.registry_auth` for the image's own registry,
+so a private sidecar image has to be on a registry that setting covers. A credential that names
 its registry in `serveraddress` is sent only to that registry, so the default
 `docker:27-dind` still pulls anonymously from Docker Hub beside a private runner
 image on ghcr.io. The images a job pulls
-inside the sidecar do not: the nested daemon never sees `agent.registry_auth`,
+inside the sidecar do not use it: the nested daemon never sees `agent.registry_auth`,
 so a private job image needs a `docker login` in the workflow, or credentials in
 the sidecar image's own `/root/.docker/config.json`. Prewarming prepares the
 host's image only; a pool's own image is pulled when its first runner starts. An agent
