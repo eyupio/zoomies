@@ -283,6 +283,13 @@ func TestAJITRunnerWhosePoolContradictsItsHostIsRefused(t *testing.T) {
 			refusal:   []string{"declares macos/arm64", "would run as linux/arm64"},
 		},
 		{
+			name:     "macos process pool on a Linux host with an unknown distro",
+			platform: store.Platform{OS: "macos", Arch: "amd64"}, hostOS: "linux", hostArch: "amd64",
+			runtime:   store.HostBackend{Kind: store.BackendProcess, Available: true},
+			jobLabels: []string{"self-hosted", "ci"},
+			refusal:   []string{"declares macos/amd64", "would run as linux/amd64"},
+		},
+		{
 			name:     "amd64 pool on a runtime that runs arm64",
 			platform: store.Platform{Arch: "amd64"}, hostOS: "linux", hostArch: "amd64",
 			runtime:   store.HostBackend{Kind: store.BackendDocker, Available: true, OS: "linux", Arch: "arm64"},
@@ -311,8 +318,7 @@ func TestAJITRunnerWhosePoolContradictsItsHostIsRefused(t *testing.T) {
 				Name:           "ci",
 				InstallationID: inst.ID,
 				Labels:         []string{"ci"},
-				Backend:        store.BackendDocker,
-				Image:          "ghcr.io/example/custom-runner:test",
+				Backend:        tc.runtime.Kind,
 				MaxRunners:     2,
 				IdleTimeout:    store.Duration(5 * time.Minute),
 				Ephemeral:      true,
@@ -320,11 +326,18 @@ func TestAJITRunnerWhosePoolContradictsItsHostIsRefused(t *testing.T) {
 				Enabled:        true,
 				Platform:       tc.platform,
 			}
+			if tc.runtime.Kind != store.BackendProcess {
+				pool.Image = "ghcr.io/example/custom-runner:test"
+			}
 			if err := h.st.CreatePool(h.ctx, pool); err != nil {
 				t.Fatalf("CreatePool: %v", err)
 			}
 			jitHost(h, "host-1", tc.hostOS, tc.hostArch, store.HostBackends{tc.runtime}, store.StringMap{})
-			h.deliverJob(jobEvent{Action: "queued", JobID: 1, Labels: tc.jobLabels})
+			jobLabels := tc.jobLabels
+			if tc.refusal != nil {
+				jobLabels = []string{"self-hosted", "ci"}
+			}
+			h.deliverJob(jobEvent{Action: "queued", JobID: 1, Labels: jobLabels})
 			if err := h.c.Reconcile(h.ctx); err != nil {
 				t.Fatalf("Reconcile: %v", err)
 			}

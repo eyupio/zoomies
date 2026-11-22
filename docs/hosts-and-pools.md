@@ -1221,6 +1221,13 @@ pool with more fails each runner it starts with a message naming the pool and
 the limit. Existing pools keep the default labels; the setting is off until you
 turn it on.
 
+A queued job can ask for an operating system or architecture in its
+`runs-on` list even when its pool leaves that part of the platform open.
+Zoomies checks those labels when choosing the host and when counting idle or
+starting runners that can take the job. If none of the hosts that can take
+the pool can provide the job's requested platform, the pool explains which
+labels are blocking the start.
+
 ### A pool belongs to one installation
 
 `--installation` is not bookkeeping. A pool's runners are registered into that

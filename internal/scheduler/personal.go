@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/eyupio/zoomies/internal/store"
@@ -67,7 +68,7 @@ func poolsByRepository(pools []*store.Pool, insts []*store.Installation) ([]*sto
 // repository at a time. It fills in what the pool wants and which repository
 // each new runner is for, stops the free runners nothing waiting can reach,
 // and returns the runners it left alone with how many it stopped.
-func (t *tick) decideByRepository(p *store.Pool, plan *PoolPlan, remaining []*store.Runner, queued, eligible []*store.Job, live int) ([]*store.Runner, int) {
+func (t *tick) decideByRepository(p *store.Pool, plan *PoolPlan, remaining []*store.Runner, queued []*store.Job, eligible []placementDemand, live int) ([]*store.Runner, int) {
 	// A free runner is one that could still take a job: live, not on one and
 	// not on its way out.
 	free := map[string][]*store.Runner{}
@@ -78,38 +79,41 @@ func (t *tick) decideByRepository(p *store.Pool, plan *PoolPlan, remaining []*st
 		key := strings.ToLower(r.Repo)
 		free[key] = append(free[key], r)
 	}
-	claim := func(j *store.Job) bool {
-		key := strings.ToLower(j.Repo)
-		if key == "" || len(free[key]) == 0 {
+	claim := func(d placementDemand) bool {
+		key := strings.ToLower(d.job.Repo)
+		ix := slices.IndexFunc(free[key], func(r *store.Runner) bool {
+			return d.platform.matches(p, t.hosts.host(r.HostID))
+		})
+		if key == "" || ix < 0 {
 			return false
 		}
-		free[key] = free[key][1:]
+		free[key] = slices.Delete(free[key], ix, ix+1)
 		return true
 	}
 
-	// The jobs ready for a runner claim first, so that a free runner is never
-	// counted against a job still inside its delay while a ready one in the
-	// same repository goes without.
+	// Ready jobs claim first. A flexible job leaves compatible runners for
+	// jobs that need a particular platform in the same repository.
+	slices.SortStableFunc(eligible, preferPlatformDemand)
 	covered := 0
 	claimed := map[*store.Job]bool{}
-	for _, j := range eligible {
-		claimed[j] = true
-		if claim(j) {
+	for _, d := range eligible {
+		claimed[d.job] = true
+		if claim(d) {
 			covered++
 			continue
 		}
-		plan.repositories = append(plan.repositories, j.Repo)
+		plan.pending = append(plan.pending, d)
 	}
 	for _, j := range queued {
 		if !claimed[j] {
-			claim(j)
+			claim(placementFor(p, j))
 		}
 	}
 	plan.supply = covered
 
 	// What is left free is in a repository with nothing waiting.
 	timeout := p.IdleTimeout.Duration()
-	short := live + len(plan.repositories) - p.MaxRunners
+	short := live + len(plan.pending) - p.MaxRunners
 	stopped := map[string]bool{}
 	for _, r := range remaining {
 		key := strings.ToLower(r.Repo)
@@ -129,7 +133,7 @@ func (t *tick) decideByRepository(p *store.Pool, plan *PoolPlan, remaining []*st
 				reason += fmt.Sprintf("; idle for %s, over the %s idle timeout", formatDuration(r.IdleFor(t.now)), formatDuration(timeout))
 			}
 		case short > 0:
-			reason = fmt.Sprintf("no job is waiting in %s, and the pool is at its maximum of %s with a job waiting in another repository",
+			reason = fmt.Sprintf("no job is waiting in %s, and the pool is at its maximum of %s with a job waiting for a compatible runner",
 				r.Repo, plural(p.MaxRunners, "runner"))
 		default:
 			continue
@@ -142,7 +146,7 @@ func (t *tick) decideByRepository(p *store.Pool, plan *PoolPlan, remaining []*st
 	// Every runner still holds its slot until it is gone, the ones stopped
 	// just now included, so the pool wants what it has and one more for each
 	// job nothing free can reach.
-	plan.Desired = clamp(live+len(plan.repositories), 0, p.MaxRunners)
+	plan.Desired = clamp(live+len(plan.pending), 0, p.MaxRunners)
 	if len(stopped) == 0 {
 		return remaining, 0
 	}
