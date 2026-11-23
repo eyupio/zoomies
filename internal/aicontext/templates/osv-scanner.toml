@@ -2,7 +2,3 @@
 # sits beside this file: the one the AI context generator installs.
 # osv-scanner reads the configuration next to the manifest it scans, so a rule
 # for this lockfile has to live here.
-
-[[IgnoredVulns]]
-id = "GHSA-vfj7-8cjw-p6xm"
-reason = "braces is affected at every version: 3.0.3 is the newest release on npm and the last affected one, so there is no version to move to. The vulnerable code is the recursive walker that compiles a glob pattern, and the only patterns compiled here are Repomix's own (the generator sets no custom patterns), so nothing a repository carries reaches it."
