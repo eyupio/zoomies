@@ -358,6 +358,24 @@ func (b *ProcessBackend) configure(ctx context.Context, dir string, spec Spec, e
 	return nil
 }
 
+// startAttempts and startBackoff bound the retry around exec. A start the
+// kernel refuses for a reason that is over by the next attempt -- ETXTBSY from
+// a create in this agent still writing the very file it cloned, EAGAIN from a
+// host briefly at its process limit -- must not be reported as a runner that
+// could not be started. Anything else is believed on the first attempt.
+const (
+	startAttempts = 6
+	startBackoff  = 100 * time.Millisecond
+)
+
+// transientStartError reports whether a refused start is worth another attempt.
+func transientStartError(err error) bool {
+	return errors.Is(err, syscall.ETXTBSY) ||
+		errors.Is(err, syscall.EAGAIN) ||
+		errors.Is(err, syscall.EINTR) ||
+		errors.Is(err, syscall.EBUSY)
+}
+
 // start launches the listener detached and records enough on disk for a future
 // agent process to find it again.
 func (b *ProcessBackend) start(dir string, args, env []string, spec Spec, version string) error {
@@ -373,15 +391,36 @@ func (b *ProcessBackend) start(dir string, args, env []string, spec Spec, versio
 
 	// The command deliberately does not carry a context: the runner must outlive
 	// the create call, and the agent's own shutdown must not kill a job.
-	cmd := exec.Command(bin, args...)
-	cmd.Dir = dir
-	cmd.Env = env
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
-	detachRunner(cmd)
-	if err := cmd.Start(); err != nil {
+	// Each attempt builds its own command: an exec.Cmd cannot be started
+	// twice, and the refusal above leaves the log file it was handed intact.
+	newCmd := func() *exec.Cmd {
+		c := exec.Command(bin, args...)
+		c.Dir = dir
+		c.Env = env
+		c.Stdout = logFile
+		c.Stderr = logFile
+		detachRunner(c)
+		return c
+	}
+	var cmd *exec.Cmd
+	var startErr error
+	for attempt := range startAttempts {
+		if attempt > 0 {
+			time.Sleep(startBackoff)
+		}
+		cmd = newCmd()
+		if startErr = cmd.Start(); startErr == nil {
+			break
+		}
+		if !transientStartError(startErr) {
+			break
+		}
+		b.log.Warn("the runner start was refused; trying again",
+			"dir", dir, "attempt", attempt+1, "error", startErr)
+	}
+	if startErr != nil {
 		_ = logFile.Close()
-		return fmt.Errorf("backend: starting the runner in %s: %w", dir, err)
+		return fmt.Errorf("backend: starting the runner in %s: %w", dir, startErr)
 	}
 	adoptRunner(cmd)
 
