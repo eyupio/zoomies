@@ -10,11 +10,11 @@ ignore ./web/node_modules
 // the version tailcat itself requires; the rule, and why the pin carries a
 // graph with it, is in docs/dependencies.md.
 require (
-	charm.land/bubbletea/v2 v2.1.1
+	charm.land/bubbletea/v2 v2.1.2
 	github.com/bradleyfalzon/ghinstallation/v2 v2.19.0
 	github.com/charmbracelet/huh v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.0
-	github.com/charmbracelet/x/ansi v0.11.9
+	github.com/charmbracelet/x/ansi v0.11.10
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/go-chi/chi/v5 v5.5.0
 	github.com/google/go-github/v88 v88.0.0
