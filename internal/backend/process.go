@@ -359,9 +359,9 @@ func (b *ProcessBackend) configure(ctx context.Context, dir string, spec Spec, e
 }
 
 // startAttempts and startBackoff bound the retry around exec. A start the
-// kernel refuses for a reason that is over by the next attempt -- ETXTBSY from
+// kernel refuses for a reason that is over by the next attempt (ETXTBSY from
 // a create in this agent still writing the very file it cloned, EAGAIN from a
-// host briefly at its process limit -- must not be reported as a runner that
+// host briefly at its process limit) must not be reported as a runner that
 // could not be started. Anything else is believed on the first attempt.
 const (
 	startAttempts = 6
