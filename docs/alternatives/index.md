@@ -50,6 +50,7 @@ Where a project's documentation is silent the cell says so, and does not guess.
 | | Model and licence | Runs on | Pick it when |
 | --- | --- | --- | --- |
 | **Zoomies** | Self-hosted; [AGPL-3.0](https://github.com/eyupio/zoomies/blob/main/LICENSE) | Linux hosts you own or rent, anywhere an agent can dial out from | You have machines, not a cluster, and want one place to see and run the fleet |
+| [**Zoomies Cloud**](../cloud.md) | Hosted controller; paid | The same Linux hosts you own or rent | You want the fleet and web UI without running the controller yourself |
 | [ARC](../actions-runner-controller.md) | Kubernetes operator; Apache-2.0 | A Kubernetes or OpenShift cluster | You already operate Kubernetes |
 | [GARM](garm.md) | Self-hosted; Apache-2.0 | Providers you configure | You want a provider catalogue, or GitHub Enterprise Server or Gitea |
 | [runscaler](runscaler.md) | Self-hosted; MIT | Docker, or macOS VMs through Tart | You need macOS runners, or want the smallest setup on one host |
@@ -76,8 +77,10 @@ Where a project's documentation is silent the cell says so, and does not guess.
    Apple Silicon, [Codemany](codemany.md) runs them on Macs you own for a flat
    monthly price, and the [hosted services](../hosted-runner-services.md) offer
    them too. Zoomies has no macOS runner image.
-5. **Would you rather pay to not run it?** A hosted service trades money for
-   not looking after hosts. [Costs](../costs.md) has the sums.
+5. **Would you rather pay to not run it?** A hosted runner service runs your
+   jobs on its machines. [Zoomies Cloud](../cloud.md) is the narrower option:
+   it hosts only the controller, and your jobs still run on your machines.
+   [Costs](../costs.md) has the sums.
 
 If it is still unclear, the [FAQ](../faq.md) answers what people ask before they
 self-host runners, and the [quick start](../quickstart.md) takes a fresh host to a

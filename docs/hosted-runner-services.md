@@ -28,6 +28,7 @@ before relying on a number.
 | [Depot](https://depot.dev/pricing) | Depot's infrastructure (single-tenant EC2 instances), or your own AWS account | A monthly plan (Developer $20 with 2,000 minutes, Startup $200 with 20,000), then $0.006 a minute | Linux x86 and Arm, Windows; macOS on Startup and Business plans |
 | [RunsOn](https://runs-on.com/pricing/) | Your AWS account, on EC2 | A yearly licence from €300 (free for non-commercial use), plus your AWS bill | Linux x64 and arm64, Windows |
 | Zoomies | Machines you own or rent, anywhere | Nothing, [AGPL-3.0](https://github.com/eyupio/zoomies/blob/main/LICENSE), plus the machines | Linux x64 and arm64; Windows x64 with the [process backend](hosts-and-pools.md#worked-shapes) |
+| [Zoomies Cloud](cloud.md) | Machines you own or rent; the controller alone is hosted | A flat monthly controller subscription, plus the machines | Same runner images as Zoomies |
 
 For the per-minute services, the smallest runner of each kind:
 

@@ -44,10 +44,10 @@ curl -fsSL https://zoomies.sh/install.sh | sh
 
 </div>
 
-Prefer a hosted controller? [Zoomies Cloud](https://cloud.zoomies.sh/) keeps the
-controller upgraded and backed up for you. It is an optional paid service;
-your jobs still run on machines you supply. The open-source controller remains
-free to self-host.
+Prefer a hosted controller? [Zoomies Cloud](cloud.md) keeps the controller
+upgraded and backed up for you. It is an optional paid service; your jobs still
+run on machines you supply. The open-source controller remains free to
+self-host.
 
 ## Choose your next step
 

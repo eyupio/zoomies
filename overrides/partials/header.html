@@ -10,6 +10,7 @@
       <a href="{{ 'start-here/' | url }}" {% if section == 'docs' %}aria-current="page"{% endif %}>Docs</a>
       <a href="{{ 'guides/' | url }}" {% if section == 'guides' %}aria-current="page"{% endif %}>Field guide</a>
       <a href="{{ 'alternatives/' | url }}" {% if section == 'compare' %}aria-current="page"{% endif %}>Compare</a>
+      <a href="{{ 'cloud/' | url }}" {% if page and page.file and page.file.src_uri == 'cloud.md' %}aria-current="page"{% endif %}>Cloud</a>
     </nav>
     <div class="header-actions">
       <button class="search-button" data-docs-search aria-label="Search documentation">{{ icon('search') }}<span>Search</span><kbd data-search-shortcut>Ctrl K</kbd></button>

@@ -25,9 +25,10 @@ collects the Docker Compose, CLI and API equivalents.
 !!! note "Using Zoomies Cloud?"
 
     Your controller is already hosted. Open your [Cloud instance](https://cloud.zoomies.sh/),
-    connect GitHub and follow its instructions to add a runner host. This guide
-    walks through installing and running the controller yourself. Your machines
-    supply the runner compute in either setup.
+    connect GitHub and follow its instructions to add a runner host. [What Cloud
+    includes and what stays yours](cloud.md) is on its own page. This guide walks
+    through installing and running the controller yourself. Your machines supply
+    the runner compute in either setup.
 
 !!! note "Before you start"
 

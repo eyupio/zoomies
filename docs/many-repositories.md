@@ -132,7 +132,7 @@ on self-hosted runners are left alone; for those,
 
 !!! note "Prefer a hosted controller?"
 
-    [Zoomies Cloud](https://cloud.zoomies.sh/) hosts the controller and handles
+    [Zoomies Cloud](cloud.md) hosts the controller and handles
     its updates and backups. Useful when your team wants a shared fleet without
     another controller to maintain. Your team still supplies and operates the
     runner machines; Cloud is an optional paid service.
