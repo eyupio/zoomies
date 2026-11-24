@@ -48,4 +48,7 @@ roadmap/validation/e2e/
 
 .venv/
 config.json
+# Impeccable's project and live settings belong to the team, not this rule.
+!.impeccable/config.json
+!.impeccable/live/config.json
 /internal/wsl/launcher/dist/*.exe

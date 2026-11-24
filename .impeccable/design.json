@@ -1,0 +1,263 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-24T00:00:00Z",
+  "title": "Design System: Zoomies",
+  "extensions": {
+    "colorMeta": {
+      "brand-runner-blue": {
+        "role": "primary",
+        "displayName": "Runner Blue",
+        "canonical": "#2f80ed",
+        "tonalRamp": ["#060b14", "#002456", "#003f95", "#0561ca", "#3a87f0", "#73afff", "#b5d7ff", "#e5effe"]
+      },
+      "brand-fast-cyan": {
+        "role": "secondary",
+        "displayName": "Fast Cyan",
+        "canonical": "#22d3ee",
+        "tonalRamp": ["#040d0f", "#002f3b", "#005368", "#007891", "#009db6", "#51bfd4", "#aadfea", "#e3f2f5"]
+      },
+      "bg-dark": {
+        "role": "neutral",
+        "displayName": "Night Navy",
+        "canonical": "#090e18",
+        "tonalRamp": ["#0b0b0c", "#23262d", "#404550", "#5f6673", "#828997", "#a8aeb9", "#d1d4db", "#edeef0"]
+      },
+      "bg-light": {
+        "role": "neutral",
+        "displayName": "Paper Blue",
+        "canonical": "#f4f7fb",
+        "tonalRamp": ["#0b0b0b", "#252628", "#434548", "#64666a", "#87898d", "#acaeb1", "#d3d4d6", "#eeeeef"]
+      },
+      "surface-dark": {
+        "role": "neutral",
+        "displayName": "Deep Deck",
+        "canonical": "#111b2b",
+        "tonalRamp": ["#0a0b0d", "#212730", "#3c4655", "#5b677a", "#7d8a9e", "#a4afbf", "#cfd5de", "#edeef1"]
+      },
+      "surface-light": {
+        "role": "neutral",
+        "displayName": "Deck White",
+        "canonical": "#ffffff",
+        "tonalRamp": ["#0b0b0b", "#262626", "#454545", "#666666", "#898989", "#aeaeae", "#d4d4d4", "#eeeeee"]
+      },
+      "text-dark": {
+        "role": "neutral",
+        "displayName": "Frost Text",
+        "canonical": "#eef4fc",
+        "tonalRamp": ["#0b0b0c", "#24272a", "#41454b", "#61676d", "#848a91", "#aaaeb4", "#d2d4d8", "#eeeeef"]
+      },
+      "accent-light": {
+        "role": "primary",
+        "displayName": "Command Blue (light)",
+        "canonical": "#1762bc",
+        "tonalRamp": ["#060b13", "#032550", "#00428b", "#1b64bd", "#4589e3", "#7ab0fa", "#b8d7ff", "#e6effc"]
+      },
+      "accent-dark": {
+        "role": "primary",
+        "displayName": "Command Blue (dark)",
+        "canonical": "#8ac2ff",
+        "tonalRamp": ["#070c10", "#0e2842", "#1a4773", "#34699f", "#598dc4", "#88b2e0", "#c0d7f1", "#e8eff7"]
+      },
+      "idle-dark": {
+        "role": "tertiary",
+        "displayName": "Signal Green",
+        "canonical": "#5fd68c",
+        "tonalRamp": ["#060d08", "#003111", "#005720", "#007d3a", "#27a25e", "#6ec48b", "#b5e1c1", "#e6f2e9"]
+      },
+      "busy-dark": {
+        "role": "tertiary",
+        "displayName": "Telemetry Cyan",
+        "canonical": "#3bd6e8",
+        "tonalRamp": ["#040d0e", "#002f37", "#005362", "#00788a", "#009dae", "#58bfcd", "#acdfe6", "#e4f2f3"]
+      },
+      "pending-dark": {
+        "role": "tertiary",
+        "displayName": "Amber Beacon",
+        "canonical": "#f2b246",
+        "tonalRamp": ["#0f0a04", "#3b1f00", "#683800", "#925800", "#b77c00", "#d5a559", "#ebd0a9", "#f5ede2"]
+      },
+      "draining-dark": {
+        "role": "tertiary",
+        "displayName": "Cordon Plum",
+        "canonical": "#d0bee0",
+        "tonalRamp": ["#0c0a0d", "#2a2331", "#4c3f57", "#6e5e7c", "#9281a0", "#b5a8c1", "#d8d1df", "#f0edf2"]
+      },
+      "danger-dark": {
+        "role": "tertiary",
+        "displayName": "Alarm Red",
+        "canonical": "#ff8d84",
+        "tonalRamp": ["#120808", "#451311", "#782321", "#a73f3b", "#ce655e", "#ea938b", "#f9c6c1", "#faeae9"]
+      },
+      "neutral-dark": {
+        "role": "neutral",
+        "displayName": "Neutral Grey",
+        "canonical": "#7f858e",
+        "tonalRamp": ["#0b0b0c", "#24272b", "#41454c", "#61666f", "#848a92", "#a9aeb6", "#d2d4d8", "#eeeef0"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Page band and public stage headlines, plus 36px hero figures." },
+      "headline": { "displayName": "Headline", "purpose": "Overview metrics and compact band headlines." },
+      "title": { "displayName": "Title", "purpose": "Page titles; panel headings sit one step down at 16px." },
+      "body": { "displayName": "Body", "purpose": "The default operator size in Mission Control." },
+      "label": { "displayName": "Label", "purpose": "Badges, metadata, field labels and timestamps." },
+      "mono": { "displayName": "Mono", "purpose": "IDs, durations, commands and log output." }
+    },
+    "shadows": [
+      { "name": "hairline-lift", "value": "0 1px 2px rgb(8 12 20 / 0.06)", "purpose": "The current navigation entry and small raised controls in light mode." },
+      { "name": "menu-lift", "value": "0 4px 12px -2px rgb(8 12 20 / 0.10)", "purpose": "Dropdowns, popovers and tooltips in light mode." },
+      { "name": "overlay-lift", "value": "0 16px 40px -8px rgb(8 12 20 / 0.16)", "purpose": "Dialogs and drawers in light mode." },
+      { "name": "dark-menu-lift", "value": "0 4px 12px -2px rgb(0 0 0 / 0.6)", "purpose": "Dropdowns and popovers in dark mode." },
+      { "name": "focus-ring", "value": "0 0 0 2px var(--z-focus-gap), 0 0 0 4px var(--z-focus-colour)", "purpose": "The box-shadow form of the single focus ring, for controls a clipping parent would cut." }
+    ],
+    "motion": [
+      { "name": "motion-fast", "value": "120ms", "purpose": "Hover, focus and colour changes." },
+      { "name": "motion-base", "value": "200ms", "purpose": "Panels, dropdowns and row insertion." },
+      { "name": "motion-slow", "value": "320ms", "purpose": "Dialogs, drawers and route transitions." },
+      { "name": "ease", "value": "cubic-bezier(0.2, 0.8, 0.2, 1)", "purpose": "The one easing curve for state changes." }
+    ],
+    "breakpoints": [
+      { "name": "phone", "value": "768px" },
+      { "name": "full", "value": "1180px" }
+    ],
+    "classicPalette": {
+      "light": {
+        "bg": "#f6f7f9",
+        "surface": "#ffffff",
+        "raised": "#ffffff",
+        "sunken": "#eef0f3",
+        "border": "#e2e5ea",
+        "borderStrong": "#c7cbd3",
+        "text": "#0b0c0e",
+        "muted": "#5b6069",
+        "subtle": "#666b74",
+        "accent": "#1a63d8",
+        "accentHover": "#154fb0",
+        "accentSubtle": "#e8f0fd",
+        "accentContrast": "#ffffff"
+      },
+      "dark": {
+        "bg": "#0a0b0d",
+        "surface": "#131519",
+        "raised": "#1b1e23",
+        "sunken": "#050607",
+        "border": "#262a31",
+        "borderStrong": "#363b44",
+        "text": "#f4f5f7",
+        "muted": "#b9bcc2",
+        "subtle": "#868b94",
+        "accent": "#78b4ff",
+        "accentHover": "#9bc9ff",
+        "accentSubtle": "#10203a",
+        "accentContrast": "#08131f"
+      }
+    }
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one action a page or panel wants pressed.",
+      "html": "<button class=\"ds-btn ds-btn-primary\">Review</button>",
+      "css": ".ds-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:32px;padding:0 12px;border:1px solid transparent;border-radius:8px;font-family:inherit;font-size:14px;font-weight:500;line-height:1;cursor:pointer;transition:filter 120ms cubic-bezier(.2,.8,.2,1),background-color 120ms cubic-bezier(.2,.8,.2,1)} .ds-btn-primary{background:var(--z-brand-runner-blue);color:var(--z-brand-black)} .ds-btn-primary:hover{filter:brightness(1.12)} .ds-btn-primary:active{filter:brightness(.94)} .ds-btn-primary:focus-visible{outline:2px solid var(--z-accent);outline-offset:2px}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "A supporting action beside the primary, or the only action on a quiet panel.",
+      "html": "<button class=\"ds-btn ds-btn-secondary\">Arrange</button>",
+      "css": ".ds-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:32px;padding:0 12px;border:1px solid transparent;border-radius:8px;font-family:inherit;font-size:14px;font-weight:500;line-height:1;cursor:pointer;transition:background-color 120ms cubic-bezier(.2,.8,.2,1),border-color 120ms cubic-bezier(.2,.8,.2,1),color 120ms cubic-bezier(.2,.8,.2,1)} .ds-btn-secondary{background:var(--z-surface);color:var(--z-text);border-color:var(--z-border-strong)} .ds-btn-secondary:hover{background:var(--z-surface-hover)} .ds-btn-secondary:focus-visible{outline:2px solid var(--z-accent);outline-offset:2px}"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "A dense single-line field at the medium control height.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field-label\">Pool name</span><input class=\"ds-input\" value=\"linux-x64\" /></label>",
+      "css": ".ds-field{display:flex;flex-direction:column;gap:6px;font-family:InterVariable,Inter,sans-serif} .ds-field-label{font-size:13px;font-weight:500;color:var(--z-text-muted)} .ds-input{height:32px;padding:0 12px;border:1px solid var(--z-border-strong);border-radius:8px;background:var(--z-surface);color:var(--z-text);font:inherit;font-size:14px;transition:border-color 120ms cubic-bezier(.2,.8,.2,1)} .ds-input::placeholder{color:var(--z-text-subtle)} .ds-input:hover{border-color:var(--z-text-subtle)} .ds-input:focus-visible{outline:2px solid var(--z-accent);outline-offset:2px;border-color:var(--z-accent)}"
+    },
+    {
+      "name": "Status Badge",
+      "kind": "chip",
+      "refersTo": "badge-status",
+      "description": "A state pill: colour and shape together, from the fixed status map.",
+      "html": "<span class=\"ds-badge\"><svg width=\"8\" height=\"8\" viewBox=\"0 0 10 10\" aria-hidden=\"true\"><circle cx=\"5\" cy=\"5\" r=\"4\" fill=\"currentColor\"></circle></svg>Running</span>",
+      "css": ".ds-badge{display:inline-flex;align-items:center;gap:8px;height:20px;padding:0 8px;border:1px solid var(--z-busy-border);border-radius:4px;background:var(--z-busy-subtle);color:var(--z-busy);font-family:InterVariable,Inter,sans-serif;font-size:13px;font-weight:500;white-space:nowrap} .ds-badge svg{flex:none;display:block}"
+    },
+    {
+      "name": "Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "A titled section: eyebrow, heading, one line of context and a body.",
+      "html": "<section class=\"ds-panel\"><header class=\"ds-panel-head\"><div><p class=\"ds-panel-eyebrow\">11 known, 9 live</p><h2 class=\"ds-panel-title\">Pools</h2><p class=\"ds-panel-desc\">Capacity and where it is going.</p></div></header><div class=\"ds-panel-body\">One card shape holds every dashboard section.</div></section>",
+      "css": ".ds-panel{display:flex;flex-direction:column;min-width:0;border:1px solid var(--z-border);border-radius:14px;background:var(--z-surface);font-family:InterVariable,Inter,sans-serif} .ds-panel-head{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px 16px;padding:16px 20px;border-bottom:1px solid var(--z-border)} .ds-panel-eyebrow{margin:0 0 4px;font-size:13px;font-weight:500;color:var(--z-text-muted)} .ds-panel-title{margin:0;font-size:16px;line-height:24px;font-weight:550;color:var(--z-text)} .ds-panel-desc{margin:4px 0 0;font-size:13px;line-height:20px;color:var(--z-text-muted)} .ds-panel-body{padding:20px;font-size:14px;line-height:22px;color:var(--z-text)}"
+    },
+    {
+      "name": "Metric Tile",
+      "kind": "custom",
+      "refersTo": "metric-tile",
+      "description": "One number, what it means and the last hour of it; four are the top of the Overview.",
+      "html": "<div class=\"ds-tile\"><p class=\"ds-label\">Queued jobs</p><p class=\"ds-value\">6</p><div class=\"ds-foot\"><span class=\"ds-delta\">2 in the hour</span></div></div>",
+      "css": ".ds-tile{display:flex;flex-direction:column;gap:4px;min-width:0;padding:16px;border:1px solid var(--z-border);border-radius:14px;background:var(--z-surface);font-family:InterVariable,Inter,sans-serif} .ds-label{margin:0;font-size:13px;font-weight:500;color:var(--z-text-muted)} .ds-value{margin:0;font-size:28px;line-height:34px;font-weight:640;color:var(--z-text);font-variant-numeric:tabular-nums} .ds-foot{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-height:24px;margin-top:4px} .ds-delta{display:inline-flex;align-items:center;gap:4px;font-size:13px;color:var(--z-text-muted)}"
+    },
+    {
+      "name": "Page Band",
+      "kind": "custom",
+      "description": "The black stage at the top of a page: the answer first, the evidence below.",
+      "html": "<section class=\"ds-band\"><p class=\"ds-band-eyebrow\">Right now</p><h2 class=\"ds-band-headline\">9 things need you.<br><span>3 jobs are running.</span></h2><div class=\"ds-band-rule\"></div><p class=\"ds-band-lede\">7 warnings and 2 notes need your attention.</p><div class=\"ds-band-figures\"><div><span class=\"ds-band-label\">Queued jobs</span><strong class=\"ds-band-value\">6</strong></div><div><span class=\"ds-band-label\">Running jobs</span><strong class=\"ds-band-value\">3</strong></div><div><span class=\"ds-band-label\">Live runners</span><strong class=\"ds-band-value\">9</strong></div><div><span class=\"ds-band-label\">Median queue wait</span><strong class=\"ds-band-value\">19s</strong></div></div></section>",
+      "css": ".ds-band{padding:40px 48px;border:1px solid var(--z-panel-border);border-radius:14px;background:var(--z-panel-bg);color:var(--z-panel-text);font-family:InterVariable,Inter,sans-serif} .ds-band-eyebrow{margin:0 0 16px;font-size:13px;font-weight:500;color:var(--z-panel-text-muted)} .ds-band-headline{margin:0;font-size:36px;line-height:42px;font-weight:500;letter-spacing:-.01em;text-wrap:balance} .ds-band-headline span{color:var(--z-brand-runner-blue)} .ds-band-rule{width:40px;height:2px;margin:24px 0;background:var(--z-brand-runner-blue)} .ds-band-lede{margin:0;max-width:28rem;font-size:15px;line-height:24px;color:var(--z-panel-text-muted)} .ds-band-figures{display:flex;flex-wrap:wrap;gap:24px;margin-top:20px} .ds-band-label{display:block;font-size:13px;color:var(--z-panel-text-muted)} .ds-band-value{font-size:28px;line-height:34px;font-weight:640;font-variant-numeric:tabular-nums}"
+    },
+    {
+      "name": "Navigation Item",
+      "kind": "nav",
+      "refersTo": "nav-item",
+      "description": "A 32px entry in the sunken left column; the current page is raised and railed.",
+      "html": "<a class=\"ds-nav-item ds-nav-current\" href=\"#\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><rect x=\"3\" y=\"3\" width=\"7\" height=\"7\" rx=\"1.5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"></rect><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\" rx=\"1.5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"></rect><rect x=\"3\" y=\"14\" width=\"7\" height=\"7\" rx=\"1.5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"></rect><rect x=\"14\" y=\"14\" width=\"7\" height=\"7\" rx=\"1.5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"></rect></svg>Overview</a>",
+      "css": ".ds-nav-item{display:flex;align-items:center;gap:12px;height:32px;padding:0 8px;border-radius:8px;color:var(--z-text-muted);font-family:InterVariable,Inter,sans-serif;font-size:14px;font-weight:500;text-decoration:none;transition:background-color 120ms cubic-bezier(.2,.8,.2,1),color 120ms cubic-bezier(.2,.8,.2,1)} .ds-nav-item:hover{background:var(--z-surface-hover);color:var(--z-text)} .ds-nav-current{background:var(--z-surface-raised);box-shadow:inset 2px 0 0 var(--z-brand-runner-blue),var(--z-shadow-sm);color:var(--z-text);font-weight:550} .ds-nav-item:focus-visible{outline:2px solid var(--z-accent);outline-offset:2px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Kennel Club Mission Control",
+    "overview": "Zoomies is a watch room, not a dashboard. The operator leaves it open on a second monitor through a working day, so the surface is quiet at rest, unmistakable when something needs a person, and dense enough that a useful number of runners fit without scrolling. The visual language is instrument grade: Inter at operational sizes, a 4px grid, precise borders and restrained cool shadows. The dog-park identity sits underneath that discipline as a warm signature, in the mark, the artwork, the empty states and the vocabulary, never as chrome on an operational row.\n\nThe default world is Mission Control: navy surfaces in dark mode, cool paper in light mode, Runner Blue for interaction and Fast Cyan spent on the one thing that is actually moving. Dark is the opening theme. A page opens with a black band that states the answer before the evidence, then panels, grids and tiles that carry the detail. Status is always carried by colour and shape together, because an operator glancing from across the room must not need hue alone.\n\nRefinement preserves this world. A redesign may replace the composition, but keeps the product truth: every resource is visible without a refresh, every status means one thing, and every number is tabular so columns agree.",
+    "keyCharacteristics": [
+      "Calm at rest, loud only where the fleet is wrong.",
+      "Navy Mission Control surfaces, dark by default, with a fixed black page band.",
+      "Dense Inter type on a strict 4px rhythm, never smaller than a person can read.",
+      "Colour plus shape for every state; cyan exclusively means work in progress.",
+      "Tonal layering and hairlines first, shadows only for overlays and state.",
+      "Dog-park warmth in art and words, never in the operational grammar."
+    ],
+    "rules": [
+      { "name": "The Cyan Is Busy Rule", "body": "Fast Cyan and its Mission Control value may only mean \"work is executing now\". No note, badge, chart series or decorative flourish may borrow it.", "section": "colors" },
+      { "name": "The Six Mean Six Things Rule", "body": "Idle, busy, pending, draining, danger and neutral are a fixed vocabulary. They are never reused for categories, brands or decoration, and each is also drawn as a distinct shape.", "section": "colors" },
+      { "name": "The Information Is Not A Status Rule", "body": "A note, hint or informational box uses Command Blue and its subtle ground. It never wears one of the six status hues.", "section": "colors" },
+      { "name": "The Dense-But-Readable Rule", "body": "Mission Control body text is 14px; Classic is 13px. Nothing an operator must read goes below 12px. Small caps are not a substitute for hierarchy.", "section": "typography" },
+      { "name": "The Absent Value Rule", "body": "A missing value is two hyphens, written from the NO_VALUE constant, never an em dash or an en dash. A formatter that has no value returns the same mark, so a tile and the table beneath it agree.", "section": "typography" },
+      { "name": "The Error Replaces The Hint Rule", "body": "A field shows one message row. A validation error takes the hint's place rather than adding a line, so nothing below it moves under a pointer that is already on its way to the submit button.", "section": "typography" },
+      { "name": "The Flat-At-Rest Rule", "body": "A card, panel or tile carries no shadow until state asks for one. Hover changes surface or border, not height.", "section": "elevation" },
+      { "name": "The One Veil Rule", "body": "Every modal uses the same scrim and blur from the token file. A second dimming recipe is a bug.", "section": "elevation" },
+      { "name": "The Border Weight Is Meaning Rule", "body": "If two edges differ in thickness, they differ in meaning. Do not add a third weight for looks.", "section": "shapes" },
+      { "name": "The Square-Shouldered Rule", "body": "Pills are for dots and badges, not buttons, cards or navigation. A card is a rounded rectangle, not a lozenge.", "section": "shapes" }
+    ],
+    "dos": [
+      "Do take every colour, radius, space and duration from the token file; a value used twice belongs there.",
+      "Do pair every status colour with its shape, and keep Fast Cyan for running work alone.",
+      "Do keep the page band black in both themes, and keep its accent and lede legible on that fixed ground.",
+      "Do use tabular numerals in every table and figure column.",
+      "Do keep a dense 32px control rhythm on desktop and step to touch sizes only under a coarse pointer or the phone breakpoint.",
+      "Do let a grid fill its frame, sharing spare width among columns the operator has not sized.",
+      "Do use the dog artwork in the brand moments, empty states and first run, where it carries warmth without competing with the fleet."
+    ],
+    "donts": [
+      "Don't introduce glows, gradient text, glassmorphism, decorative sparkles, oversized rounded cards or charts that exist to fill space.",
+      "Don't reuse a status hue for a category, a chart series or a note.",
+      "Don't write a raw colour or a one-off radius in a component.",
+      "Don't make a mascot part of an operational row, a table cell or a control.",
+      "Don't animate layout or reflow a table while an operator is reading it; animate colour, the dot and the panel, at 120ms to 320ms.",
+      "Don't remove the focus ring or replace it with a colour change.",
+      "Don't write an em dash or an en dash as the absent value; use the NO_VALUE mark."
+    ]
+  }
+}
