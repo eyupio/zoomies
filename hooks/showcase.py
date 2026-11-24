@@ -83,6 +83,7 @@ def on_page_context(context, page, config, nav, **kwargs):
     context["field_guides"] = guides
     context["section"] = (
         "home" if page.is_homepage else
+        "cloud" if page.file.src_uri == "cloud.md" else
         "guides" if page.meta.get("layout") in {"article", "guides"} else
         "compare" if page.file.src_uri.startswith("alternatives/") or page.file.src_uri in {
             "actions-runner-controller.md", "hosted-runner-services.md",

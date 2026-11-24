@@ -249,6 +249,7 @@ nav:
           - UI guidelines: ui-guidelines.md
   - Field guide: guides/index.md
   - Choosing Zoomies:
+      - Hosted controller with Zoomies Cloud: cloud.md
       - What are self-hosted runners?: what-are-self-hosted-runners.md
       - Should you self-host?: should-i-self-host.md
       - What it costs: costs.md

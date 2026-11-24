@@ -1,15 +1,19 @@
 /* Offer controller hosting at setup decisions, using the site's own tokens. */
 .cloud-whisper {
-  margin-top: 25px;
-  font-size: 13px;
+  margin-top: 18px;
+  font-size: 14px;
   line-height: 1.7;
   color: var(--muted);
 }
+.cloud-whisper strong {
+  color: var(--ink);
+  font-weight: 500;
+}
 .cloud-whisper .text-link {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--blue);
   gap: 5px;
-  margin-left: 3px;
+  margin-left: 4px;
 }
 .cloud-whisper .icon,
 .controller-choice .text-link .icon,
@@ -100,6 +104,19 @@
   color: var(--blue);
   padding-top: 3px;
 }
+/* The Cloud page is a decision page, so its prose sits at a reading measure
+   while the comparison table keeps the full column. The zero in the site's
+   text face is wide, so a ch measure overstates the line: 72ch rendered at
+   about 92 characters here. */
+.md-typeset.z-cloud-page > p,
+.md-typeset.z-cloud-page > ul,
+.md-typeset.z-cloud-page > ol {
+  max-width: 560px;
+}
+.md-typeset.z-cloud-page > p,
+.md-typeset.z-cloud-page > ul > li {
+  text-wrap: pretty;
+}
 @media (max-width: 900px) {
   .choice-heading {
     align-items: flex-start;
@@ -120,7 +137,7 @@
 @media (max-width: 640px) {
   .cloud-whisper,
   .cloud-whisper .text-link {
-    font-size: 12px;
+    font-size: 13px;
   }
   .cloud-whisper .text-link {
     margin-left: 0;
