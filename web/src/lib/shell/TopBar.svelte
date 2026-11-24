@@ -276,18 +276,21 @@
     <!--
       Eli lives in the bar rather than in a floating paw: a button fixed over
       the page covers the row action or the phone's first tile underneath it,
-      and the bar is where the palette already is.
+      and the bar is where the palette already is. A visitor has no assistant
+      to open, and the widget is not mounted for one.
     -->
-    <IconButton
-      icon={MessageCircle}
-      label="Ask Eli"
-      help="Ask about the fleet or the page you are on."
-      size="sm"
-      placement="bottom"
-      expanded={eli.open}
-      controls="eli-widget"
-      onclick={() => eli.show()}
-    />
+    {#if session.can('viewer')}
+      <IconButton
+        icon={MessageCircle}
+        label="Ask Eli"
+        help="Ask about the fleet or the page you are on."
+        size="sm"
+        placement="bottom"
+        expanded={eli.open}
+        controls="eli-widget"
+        onclick={() => eli.show()}
+      />
+    {/if}
 
     <DropdownMenu
       items={menuItems}
