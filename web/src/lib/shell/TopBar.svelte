@@ -508,6 +508,12 @@
       gap: var(--z-space-3);
       padding: 0 var(--z-space-3);
     }
+    /* The Reconnecting word is wider than the live dot, and the bar also
+       carries the bell, the palette, Eli and the account there. A narrower gap
+       keeps a 360px window off its sideways scroll. */
+    .right {
+      gap: var(--z-space-1);
+    }
     .home {
       display: inline-flex;
     }
