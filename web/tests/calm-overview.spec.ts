@@ -66,26 +66,14 @@ for (const style of ['classic', 'mission-control']) {
       ).toHaveCount(3);
       const launcher = page.getByRole('button', { name: 'Ask Eli', exact: true });
       const before = (await launcher.boundingBox())!;
-      const rightClearance = width - before.x - before.width;
-      expect(rightClearance).toBeGreaterThanOrEqual(16);
-      expect(rightClearance).toBeLessThan(32);
-      const clearance = 900 - before.y - before.height;
-      expect(clearance).toBeGreaterThanOrEqual(16);
-      expect(clearance).toBeLessThanOrEqual(96);
-      if (width === 375) {
-        const nav = (await page
-          .getByRole('navigation', { name: 'Sections', exact: true })
-          .boundingBox())!;
-        expect(before.y + before.height).toBeLessThan(nav.y);
-      }
+      // Eli lives in the top bar now, so nothing has to be kept clear at the
+      // foot of the page; the button should simply not have moved.
+      expect(before.y).toBeLessThan(120);
       await page.screenshot({ path: info.outputPath(`${style}-${mode}-${width}.png`) });
       await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
-      await expect
-        .poll(async () => {
-          const after = (await launcher.boundingBox())!;
-          return Math.abs(after.x - before.x) + Math.abs(after.y - before.y);
-        })
-        .toBeLessThan(1);
+      // A sticky bar moves from its natural place to the window's top; what
+      // matters is that it stays in the bar and does not scroll away.
+      await expect.poll(async () => (await launcher.boundingBox())!.y).toBeLessThan(120);
       if (style === 'mission-control' && mode === 'dark') {
         await page.screenshot({ path: info.outputPath(`${style}-${mode}-${width}-scrolled.png`) });
       }
@@ -264,8 +252,15 @@ test('Eli retains an explicitly saved side', async ({ page }) => {
     localStorage.setItem('zoomies.eli.layout', JSON.stringify({ side: 'left' })),
   );
   await goto(page, '/', 'Overview');
-  const launcher = page.getByRole('button', { name: 'Ask Eli', exact: true });
-  await expect.poll(async () => (await launcher.boundingBox())!.x).toBeLessThan(32);
+  const openAtTheSavedSide = async () => {
+    await page.getByRole('button', { name: 'Ask Eli', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: 'Eli assistant' })).toHaveAttribute(
+      'data-side',
+      'left',
+    );
+    await page.keyboard.press('Escape');
+  };
+  await openAtTheSavedSide();
   await page.reload();
-  await expect.poll(async () => (await launcher.boundingBox())!.x).toBeLessThan(32);
+  await openAtTheSavedSide();
 });

@@ -413,6 +413,11 @@ pre,
 :root[data-table-focus] [data-focus-keep] > [data-focus-head] {
   display: none !important;
 }
+/* A list's chips sit in the grid's toolbar, below the card's head: they choose
+   a filter and go with it, while Focus and Columns stay for reading the rows. */
+:root[data-table-focus] [data-focus-unit] .toolbar-start {
+  display: none !important;
+}
 /* A filter bar with nothing in effect is then an empty box, and an empty box
    in a column still takes the column's gap. */
 :root[data-table-focus]

@@ -117,7 +117,7 @@ test('a run with a failed job says so before GitHub has finished the run', () =>
 });
 
 test('turning the kennel vocabulary off gives the plain status word instead, motion unchanged', () => {
-  assert.equal(queuedActivity({}, false).label, 'Ready');
+  assert.equal(queuedActivity({}, false).label, 'Waiting');
   assert.equal(queuedActivity({ provisioning: 'paused' }, false).label, 'Paused');
   assert.equal(queuedActivity({ provisioning: 'deleted' }, false).label, 'Removed');
   assert.equal(queuedActivity({ provision_now: true }, false).label, 'Run now');

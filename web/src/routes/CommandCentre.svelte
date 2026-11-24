@@ -9,10 +9,11 @@
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Eye, Maximize, Minimize, X } from '@lucide/svelte';
+  import { Eye, Maximize, MessageCircle, Minimize, X } from '@lucide/svelte';
   import { events } from '$lib/api/sse';
   import type { Job, Problem } from '$lib/api/types';
   import Button from '$lib/components/Button.svelte';
+  import IconButton from '$lib/components/IconButton.svelte';
   import ErrorState from '$lib/components/ErrorState.svelte';
   import Logo from '$lib/components/Logo.svelte';
   import RefreshButton from '$lib/components/RefreshButton.svelte';
@@ -24,6 +25,7 @@
   import HostLane from '$lib/command/HostLane.svelte';
   import Ticker from '$lib/command/Ticker.svelte';
   import WaitingList from '$lib/command/WaitingList.svelte';
+  import { eli } from '$lib/assistant/eli.svelte';
   import { clock } from '$lib/command/clock.svelte';
   import { fullscreen } from '$lib/command/fullscreen.svelte';
   import { commandJobs } from '$lib/command/jobs.svelte';
@@ -41,6 +43,7 @@
   import { feed } from '$lib/state/feed.svelte';
   import { notifications } from '$lib/state/notifications.svelte';
   import { session } from '$lib/state/session.svelte';
+  import { viewport } from '$lib/state/viewport.svelte';
   import { Tour } from '$lib/tour/tour.svelte';
 
   let now = $state(Date.now());
@@ -174,13 +177,13 @@
   const said = $derived(verdict(verdictInput));
 
   /*
-    The assistant's button is fixed in the window's bottom-right corner while
-    the page is not full screen, and it cannot be pressed through. The shell's
-    page padding is what keeps every other page clear of it; this page is its
-    own chrome, so it keeps the corner itself, on the same condition the shell
+    The assistant's button is fixed in the window's bottom-right corner on a
+    desktop, and it cannot be pressed through. A phone opens Eli from the bar
+    instead, where it cannot cover the rail's legend. This page is its own
+    chrome, so it keeps the corner itself, on the same condition the widget
     draws the button on.
   */
-  const assistantShown = $derived(session.can('viewer') && !fullscreen.active);
+  const assistantShown = $derived(session.can('viewer') && !fullscreen.active && !viewport.phone);
 
   const time = $derived(
     new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(now),
@@ -285,6 +288,22 @@
       <span class="time">{time}</span>
       <span class="date">{date}</span>
     </time>
+    <!-- The bar's own way into Eli on a phone, where the floating launcher
+         would cover the rail's legend. -->
+    {#if session.can('viewer') && !fullscreen.active}
+      <span class="eli-bar">
+        <IconButton
+          icon={MessageCircle}
+          label="Ask Eli"
+          help="Ask about the fleet or the page you are on."
+          size="sm"
+          placement="bottom"
+          expanded={eli.open}
+          controls="eli-widget"
+          onclick={() => eli.show()}
+        />
+      </span>
+    {/if}
     <!-- First of the bar's controls, as PageHeader puts it on every other page. -->
     <RefreshButton onrefresh={refreshPage} />
     {#if fullscreen.supported}
@@ -472,6 +491,9 @@
   .spacer {
     flex: 1;
   }
+  .eli-bar {
+    display: none;
+  }
   /* Information about the view, not about the fleet: the accent, as the
      shell's own visitor notice uses it. */
   .visitor {
@@ -570,6 +592,23 @@
   .deck::-webkit-scrollbar {
     display: none;
   }
+  /* At rest the rail is a wall, not a scroller. Pointing at it or tabbing into
+     it says the rail holds more than the screen does. */
+  .board:hover,
+  .board:focus-within {
+    scrollbar-width: thin;
+    scrollbar-color: var(--z-border-strong) transparent;
+  }
+  .board:hover::-webkit-scrollbar,
+  .board:focus-within::-webkit-scrollbar {
+    display: block;
+    width: 6px;
+  }
+  .board:hover::-webkit-scrollbar-thumb,
+  .board:focus-within::-webkit-scrollbar-thumb {
+    border-radius: var(--z-radius-full);
+    background: var(--z-border-strong);
+  }
   /* The assistant's button sits over the foot of the rail, and a wall display
      is looked at rather than scrolled, so a row merely scrollable out from
      under it is not enough: the rail's scroller stops short of it. The
@@ -653,6 +692,9 @@
     .bar {
       padding: var(--z-space-2) var(--z-space-4);
     }
+    .eli-bar {
+      display: inline-flex;
+    }
     /* A phone is pressed with a finger, whatever pointer it reports: every
        link and button on the page is a whole fingertip tall. */
     .command :global(a[href]),
@@ -677,11 +719,8 @@
       padding: var(--z-space-4);
       overflow: visible;
     }
-    /* A document scrolls under the button, as every page does; its end is
-       kept clear of it, so the last row can be scrolled out from under it. */
     [data-assistant='true'] .board {
       height: auto;
-      padding-bottom: var(--z-eli-clearance);
     }
     .rail {
       grid-column: auto;

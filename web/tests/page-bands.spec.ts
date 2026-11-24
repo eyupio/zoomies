@@ -474,7 +474,14 @@ test('every page names itself, underlines it and says what it is', async ({ page
     const header = page.locator('.page-header');
     await expect(header.getByRole('heading', { name: item.heading, level: 1 })).toBeVisible();
     await expect(header.locator('.rule')).toBeVisible();
-    await expect(header.locator('p.subtitle')).toBeVisible();
+    if (item.path === '/runners' || item.path === '/workflows') {
+      // These two keep their sentence in the band, so the header carries only
+      // the name and the rows get the room.
+      await expect(header.locator('p.subtitle')).toHaveCount(0);
+      await expect(page.getByTestId(item.band)).toBeVisible();
+    } else {
+      await expect(header.locator('p.subtitle')).toBeVisible();
+    }
   }
 });
 

@@ -135,7 +135,8 @@
    * --------------------------------------------------------------------- */
 
   const operational = $derived(visualStyle.choice === 'mission-control');
-  const compact = $derived(operational && viewport.phone);
+  // Classic has the same small screen: the viewport decides, not the style.
+  const compact = $derived(viewport.phone);
   let contextExpanded = $state(false);
   // The rows are what the page is for, on every screen: the tiles, outcomes and activity
   // history are one fold under them.
@@ -865,6 +866,7 @@
     <div class="content">
       <JobFilters
         {compact}
+        stateFacet={view === ''}
         statusChips={view === ''}
         said={viewSaid(view, setView)}
         value={filters}

@@ -440,12 +440,6 @@
     max-width: var(--z-content-max);
     margin: 0 auto;
     padding: var(--z-space-6);
-    /*
-      The assistant's button is fixed in the bottom-right corner, and the last
-      line of a page scrolled to its end would sit under it. This is the room it
-      takes, added once at the end rather than taken from every table's width.
-    */
-    padding-bottom: calc(var(--z-space-6) + var(--z-eli-clearance));
   }
   /*
     Focus: the window and never more. The bar keeps its height at the top and
@@ -464,7 +458,7 @@
     /* Only when the card's head leaves the rows too little room (a phone, a
        short window): otherwise the table's own frame is what scrolls. */
     overflow-y: auto;
-    padding: var(--z-space-3) var(--z-space-4) calc(var(--z-space-3) + var(--z-eli-clearance));
+    padding: var(--z-space-3) var(--z-space-4);
   }
   /* Full screen puts the assistant away, so its corner is free again. */
   .app.focus[data-fullscreen='true'] main {
@@ -492,12 +486,11 @@
     .page {
       /* The clearance for the fixed bottom navigation is the footer's job
          below this, so the page itself does not also reserve it and leave a
-         hole between the content and the footer. The assistant's lane is the
-         exception, because the footer cannot know where its button is. */
-      padding: var(--z-space-4) var(--z-space-3) calc(var(--z-space-2) + var(--z-eli-clearance));
+         hole between the content and the footer. */
+      padding: var(--z-space-4) var(--z-space-3) var(--z-space-2);
     }
     .app.focus main {
-      padding: var(--z-space-2) var(--z-space-2) calc(var(--z-space-2) + var(--z-eli-clearance));
+      padding: var(--z-space-2);
     }
   }
 </style>

@@ -600,7 +600,6 @@
 
 <PageHeader
   title="Runners"
-  subtitle="Every runner the controller knows about right now, and what it is doing."
   onrefresh={() => {
     startupKey += 1;
     return fleet.reconcile();
@@ -720,10 +719,19 @@
 
 <!--
   The list as one card: the count over the title, the search and the menus
-  opposite it, the states as chips in a row of their own, and the grid bare
-  inside, so the page shows one frame. The jump target stays on the wrapper,
-  so the band's figure still lands on the list.
+  opposite it, the states as chips in the grid's own toolbar, and the grid bare
+  inside, so the page shows one frame. The jump target stays on the wrapper, so
+  the band's figure still lands on the list.
 -->
+{#snippet stateChips()}
+  <FilterChips
+    label="Filter by runner state"
+    total={counted ? fleet.stats?.runners?.total : undefined}
+    options={runnerStateChips(fleet.stats?.runners, prefs.quirkyStatus, counted)}
+    selected={states}
+    onchange={(next) => router.setQuery({ state: next.length > 0 ? next : null })}
+  />
+{/snippet}
 <div id="runners-list" class="jump-target" tabindex="-1" use:revealHash>
   <Panel
     title="All runners"
@@ -773,17 +781,9 @@
         onchange={(on) => router.setQuery({ include_removed: on ? '1' : null })}
       />
     {/snippet}
-    {#snippet toolbar()}
-      <FilterChips
-        label="Filter by runner state"
-        total={counted ? fleet.stats?.runners?.total : undefined}
-        options={runnerStateChips(fleet.stats?.runners, prefs.quirkyStatus, counted)}
-        selected={states}
-        onchange={(next) => router.setQuery({ state: next.length > 0 ? next : null })}
-      />
-    {/snippet}
     <DataGrid
       gridId="runners"
+      toolbar={stateChips}
       label="Runners"
       bare
       {columns}
