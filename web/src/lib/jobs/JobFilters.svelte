@@ -123,6 +123,13 @@
     queue?: boolean;
     compact?: boolean;
     /**
+     * Fold the facet menus and the yes-or-no narrowings behind Filters (n) on a
+     * wide screen too, leaving the search and the date range in view.
+     */
+    foldFacets?: boolean;
+    /** Whether the State facet is drawn. A pressed status view already says it. */
+    stateFacet?: boolean;
+    /**
      * Whether the status filters in force are worth a chip.
      *
      * The Jobs page's row of status buttons says which view is in force, and a
@@ -153,6 +160,8 @@
   let {
     queue = false,
     compact = false,
+    foldFacets = false,
+    stateFacet = true,
     statusChips = true,
     said = [],
     value,
@@ -336,13 +345,28 @@
         ]
       : []),
   ]);
+
+  /*
+    What the disclosure holds: every chip but the search and the dates, which
+    stay in view when the facets are folded.
+  */
+  const foldedCount = $derived(
+    chips.filter(
+      (chip) =>
+        chip.id !== 'q' &&
+        (compact ||
+          (chip.id !== 'since' &&
+            chip.id !== 'until' &&
+            chip.id !== 'completed_since' &&
+            chip.id !== 'completed_until')),
+    ).length,
+  );
 </script>
 
 <!--
-  The search is the one control a phone keeps in view. Everywhere else it is the
-  first item of the controls, on the same row as the menus, so the whole filter
-  set reads as one bar. The disclosure is open on a wide screen and collapsible
-  on a phone, which is the only difference between the two.
+  The search and the date range are the controls a page keeps in view. The
+  menus fold behind Filters (n) on a phone, and on a page that asks for it on a
+  wide screen too; everywhere else the whole set reads as one bar.
 -->
 {#snippet search()}
   <div class="search">
@@ -365,34 +389,36 @@
 >
   {#if compact}
     {@render search()}
+    <details
+      class="advanced compact"
+      open={expanded}
+      ontoggle={(event) => (expanded = event.currentTarget.open)}
+    >
+      <summary>Filters ({foldedCount})</summary>
+      <div class="advanced-controls">{@render controls()}</div>
+    </details>
+  {:else if foldFacets}
+    {@render search()}
+    {@render dates()}
+    <details
+      class="advanced folded"
+      open={expanded}
+      ontoggle={(event) => (expanded = event.currentTarget.open)}
+    >
+      <summary>Filters ({foldedCount})</summary>
+      <div class="advanced-controls">
+        {@render facetMenus()}
+        <div class="scope">{@render narrowings()}</div>
+      </div>
+    </details>
+  {:else}
+    {@render search()}
+    <div class="advanced-controls">{@render controls()}</div>
   {/if}
-
-  <details
-    class="advanced"
-    class:compact
-    open={!compact || expanded}
-    ontoggle={(event) => {
-      if (compact) expanded = event.currentTarget.open;
-    }}
-  >
-    <summary hidden={!compact}>Filters ({chips.filter((chip) => chip.id !== 'q').length})</summary>
-    <div class="advanced-controls">
-      {#if !compact}
-        {@render search()}
-      {/if}
-      {@render controls()}
-    </div>
-  </details>
 </FilterBar>
 
-<!--
-  The menus, then the scope: which runs or jobs, and when, and which of the
-  three yes-or-no narrowings apply. Everything in the first group is the same
-  small control, so the row reads as one set of choices; the second group sits
-  on its own line because it answers a different question (when, and whether to
-  widen), and a line break says so better than a gap would.
--->
-{#snippet controls()}
+<!-- The facet menus: which runs or jobs. -->
+{#snippet facetMenus()}
   <FacetMenu
     label="Repository"
     options={repoOptions}
@@ -438,54 +464,72 @@
       emptyHint="No job has finished here yet."
       onchange={(next) => onchange({ conclusion: next })}
     />
-    <FacetMenu
-      label="State"
-      options={stateOptions}
-      selected={value.state}
-      onchange={(next) => onchange({ state: next as JobState[] })}
-    />
+    {#if stateFacet}
+      <FacetMenu
+        label="State"
+        options={stateOptions}
+        selected={value.state}
+        onchange={(next) => onchange({ state: next as JobState[] })}
+      />
+    {/if}
   {/if}
+{/snippet}
 
-  <div class="scope">
-    <DateRange
-      since={value.since}
-      until={value.until}
-      {withTime}
-      label="Queued between"
-      onchange={(next) => onchange(next)}
+{#snippet dates()}
+  <DateRange
+    since={value.since}
+    until={value.until}
+    {withTime}
+    label="Queued between"
+    onchange={(next) => onchange(next)}
+  />
+{/snippet}
+
+{#snippet narrowings()}
+  <!-- The description is the switch's help, on hover and focus, and is still
+       linked to it for assistive technology: it lives in the tooltip, not
+       under the label, so a row of switches stays a row. -->
+  <Tooltip bare text="Queued jobs no enabled pool claims">
+    <Switch
+      size="sm"
+      label="Unmatched only"
+      checked={value.unmatched}
+      onchange={(on) => onchange({ unmatched: on })}
     />
+  </Tooltip>
 
-    <!-- The description is the switch's help, on hover and focus, and is still
-         linked to it for assistive technology: it lives in the tooltip, not
-         under the label, so a row of switches stays a row. -->
-    <Tooltip bare text="Queued jobs no enabled pool claims">
+  {#if !queue}
+    <Tooltip bare text="Failing conclusions, and runners that stopped under a job">
       <Switch
         size="sm"
-        label="Unmatched only"
-        checked={value.unmatched}
-        onchange={(on) => onchange({ unmatched: on })}
+        label="Failed only"
+        checked={value.failed}
+        onchange={(on) => onchange({ failed: on })}
       />
     </Tooltip>
 
-    {#if !queue}
-      <Tooltip bare text="Failing conclusions, and runners that stopped under a job">
-        <Switch
-          size="sm"
-          label="Failed only"
-          checked={value.failed}
-          onchange={(on) => onchange({ failed: on })}
-        />
-      </Tooltip>
+    <Tooltip bare text="Also show jobs GitHub ran without this fleet">
+      <Switch
+        size="sm"
+        label="Include other runners"
+        checked={value.all}
+        onchange={(on) => onchange({ all: on })}
+      />
+    </Tooltip>
+  {/if}
+{/snippet}
 
-      <Tooltip bare text="Also show jobs GitHub ran without this fleet">
-        <Switch
-          size="sm"
-          label="Include other runners"
-          checked={value.all}
-          onchange={(on) => onchange({ all: on })}
-        />
-      </Tooltip>
-    {/if}
+<!--
+  The menus, then the scope: when, and which of the three yes-or-no narrowings
+  apply. Everything in the first group is the same small control, so the row
+  reads as one set of choices; the second group sits on its own line because it
+  answers a different question, and a line break says so better than a gap.
+-->
+{#snippet controls()}
+  {@render facetMenus()}
+  <div class="scope">
+    {@render dates()}
+    {@render narrowings()}
   </div>
 {/snippet}
 
@@ -499,6 +543,17 @@
   .advanced {
     display: block;
     width: 100%;
+  }
+  /* A folded row on a wide screen keeps the summary beside the search and the
+     dates; opened, it takes the row the menus need. */
+  .advanced.folded {
+    width: auto;
+  }
+  .advanced.folded[open] {
+    flex: 1 1 100%;
+  }
+  .advanced.folded .advanced-controls {
+    margin-top: var(--z-space-3);
   }
   .advanced-controls {
     display: flex;
@@ -547,10 +602,6 @@
     gap: var(--z-space-3);
   }
 
-  /* Phones collapse the menus behind "Filters (n)"; the search stays above it. */
-  summary[hidden] {
-    display: none;
-  }
   summary {
     display: inline-flex;
     align-items: center;

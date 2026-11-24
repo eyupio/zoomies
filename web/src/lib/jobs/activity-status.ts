@@ -74,7 +74,7 @@ export function queuedActivity(
   const status = { ...jobStatus('queued'), key: 'ready', label: 'Ready' };
   return {
     status,
-    label: quirky ? 'Sit, wait' : status.label,
+    label: quirky ? 'Sit, wait' : 'Waiting',
     motion: 'idle',
     detail:
       'Queued and ready for normal provisioning. Waiting for a matching runner and available capacity.',

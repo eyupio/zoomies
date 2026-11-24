@@ -10,9 +10,9 @@ description: >-
 
 Eli is the assistant built into Zoomies. The name stands for **Extremely Lively
 Intelligence**, which is what a dog is for a few minutes after a bath, and what a
-fleet is meant to be. Eli is a chat in the corner of every page. You ask in plain
-words, and Eli answers about Zoomies, about GitHub Actions and, if you allow it,
-about your own fleet.
+fleet is meant to be. Eli is one button away in the top bar of the console, and
+in the command centre's own chrome. You ask in plain words, and Eli answers
+about Zoomies, about GitHub Actions and, if you allow it, about your own fleet.
 
 Eli talks to a model **you** choose and pay for: one on your own machine such as
 Ollama, or a hosted one such as Ollama Cloud, OpenCode Zen, OpenCode Go, Anthropic or OpenAI, or your own
@@ -77,9 +77,10 @@ own instance.
 ## Setting it up
 
 Under **Settings, Eli assistant**, add a provider, choose its model from the list the
-provider gives, test it, and make it the default. Eli then appears in the corner of
-every page for signed-in users with a personal provider. Press <kbd>E</kbd> from anywhere that is not a box
-to type in, or press **Ask Eli**. <kbd>Esc</kbd> puts the panel away.
+provider gives, test it, and make it the default. Eli then appears in the top
+bar, or in the command centre's own bar, for signed-in users with a personal
+provider. Press <kbd>E</kbd> from anywhere that is not a box to type in, or press
+**Ask Eli**. <kbd>Esc</kbd> puts the panel away.
 
 The Ask Eli button opens setup guidance until you have an enabled personal provider; your default answers, or, with none ticked, the first usable one you own. Installation providers remain separate and do not pay for personal chat.
 

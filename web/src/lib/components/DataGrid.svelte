@@ -178,6 +178,11 @@
     /** The action that fills an empty grid. */
     emptyAction?: Snippet;
     /**
+     * A list's own filter chips, drawn at the start of the grid toolbar so
+     * choosing a filter and choosing a column share one row instead of two.
+     */
+    toolbar?: Snippet;
+    /**
      * Rich content for a row opened in place -- a run's jobs, say -- drawn in
      * a row of its own beneath it. Given, every row gains a chevron that opens
      * it, and a click or Enter on the row itself opens it too, unless `onopen`
@@ -216,6 +221,7 @@
     emptyTitle = `No ${noun} yet`,
     emptyDescription,
     emptyAction,
+    toolbar,
     expanded,
     expandHeader = 'Details',
     bare = false,
@@ -1105,6 +1111,7 @@
   bind:this={root}
 >
   <div class="toolbar">
+    {#if toolbar}<div class="toolbar-start" data-focus-head>{@render toolbar()}</div>{/if}
     {#if selectable && selected.length > 0}
       <div class="bulk" role="group" aria-label="Actions for the selected {noun}">
         <span class="bulk-count tabular">{selected.length} selected</span>
@@ -1531,12 +1538,17 @@
   }
   .toolbar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: var(--z-space-3);
     padding: var(--z-space-2) var(--z-space-3);
     border-bottom: var(--z-border-width) solid var(--z-border);
     min-height: var(--z-space-10);
+  }
+  .toolbar-start {
+    min-width: 0;
+    flex: 1 1 auto;
   }
   .bulk {
     display: flex;

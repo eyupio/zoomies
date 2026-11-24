@@ -21,12 +21,18 @@
     count?: number;
     /** True while the list's first read has not answered. Absent for a list that never loads. */
     busy?: boolean;
+    /**
+     * How many lines a row's name may take before it is cut. A problem title
+     * is the sentence an operator reads from across the room, so it gets two;
+     * a job name stays on one line.
+     */
+    nameLines?: 1 | 2;
     children: Snippet;
   }
-  let { id, title, count, busy, children }: Props = $props();
+  let { id, title, count, busy, nameLines = 1, children }: Props = $props();
 </script>
 
-<section class="rail-section" aria-labelledby={id} aria-busy={busy}>
+<section class="rail-section" data-name-lines={nameLines} aria-labelledby={id} aria-busy={busy}>
   <h2 {id}>
     {title}
     {#if count !== undefined}<span class="count">{count}</span>{/if}
@@ -36,7 +42,8 @@
 
 <style>
   .rail-section {
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: var(--z-space-2);
     min-width: 0;
   }
@@ -106,6 +113,13 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .rail-section[data-name-lines='2'] :global(.name) {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    white-space: normal;
+  }
   .rail-section :global(.name) {
     font-size: var(--z-text-sm);
     font-weight: var(--z-weight-medium);
@@ -127,13 +141,14 @@
     color: var(--z-text-muted);
   }
   .rail-section :global(.more) {
-    justify-self: start;
+    align-self: flex-start;
     padding: 0;
     border: 0;
     background: none;
     color: var(--z-accent);
     font: inherit;
     font-size: var(--z-text-sm);
+    text-align: left;
     text-decoration: underline;
     text-underline-offset: var(--z-underline-offset);
     cursor: pointer;

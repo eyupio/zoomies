@@ -972,7 +972,7 @@ otherwise looks like a slow fleet.
 
 ## Ask Eli
 
-Open **Ask Eli** from the corner of a fleet page, or use a contextual Ask Eli
+Open **Ask Eli** from the top bar of a fleet page, or use a contextual Ask Eli
 button on a job, runner, host or problem. Ask about a failed build, a queue
 delay or a possible optimisation. The expanded panel lets you keep the fleet
 in view while reading the answer; **What Eli looked at** shows the tools behind it.
@@ -1238,9 +1238,10 @@ from the provider’s model list where it offers one, test it and make it your d
 Keys are sealed and never returned to the page. The installation address and
 local-only switches remain administrator settings.
 
-**Ask Eli** opens the conversation in the corner of every page. Compact, Default,
-Expanded and fullscreen are one click away, with left or right placement and a
-resize handle. Drafts and conversation history survive minimisation and navigation;
+**Ask Eli** opens the conversation from the top bar of every page. The command
+centre, which has no top bar, keeps the circular dog button on a desktop and
+offers the same button in its own bar on a phone. Compact, Default, Expanded and
+fullscreen are one click away, with left or right placement and a resize handle. Drafts and conversation history survive minimisation and navigation;
 conversation text is held in memory and cleared on sign-out. The fullscreen and
 mobile panels keep keyboard focus inside and restore it on close.
 

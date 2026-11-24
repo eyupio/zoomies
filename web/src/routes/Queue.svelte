@@ -29,7 +29,6 @@
   import { queuedActivity } from '$lib/jobs/activity-status';
   import { QUEUE_DEFAULT_QUERY } from '$lib/queue/default-query';
   import { prefs } from '$lib/state/prefs.svelte';
-  import { visualStyle } from '$lib/state/ui-style.svelte';
   import { viewport } from '$lib/state/viewport.svelte';
   import Button from '$lib/components/Button.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
@@ -69,7 +68,8 @@
   // The search stays in view and the rest of the filters fold behind a summary,
   // as on Jobs: on a phone the controls otherwise filled the screen and the
   // queue itself was entirely below the fold.
-  const compact = $derived(visualStyle.choice === 'mission-control' && viewport.phone);
+  // Classic has the same small screen: the viewport decides, not the style.
+  const compact = $derived(viewport.phone);
   // The labels come from the shared map so the button here, the Jobs page's
   // filter chip and the badge on a job row all call the same state the same
   // thing.
