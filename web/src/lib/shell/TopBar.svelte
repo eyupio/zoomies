@@ -58,6 +58,11 @@
   let { onpalette, onshortcuts }: Props = $props();
 
   const connection = $derived(fleet.connection);
+  // The repair pages already carry the assistant's own actions beside each
+  // finding, and a global one there competes with the decision they are for.
+  const repairPage = $derived(
+    router.pathname === '/repairs' || router.pathname.startsWith('/repairs/'),
+  );
 
   const connectionText = $derived(
     connection === 'live'
@@ -279,7 +284,7 @@
       and the bar is where the palette already is. A visitor has no assistant
       to open, and the widget is not mounted for one.
     -->
-    {#if session.can('viewer')}
+    {#if session.can('viewer') && !repairPage}
       <IconButton
         icon={MessageCircle}
         label="Ask Eli"
