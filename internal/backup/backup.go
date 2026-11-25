@@ -590,7 +590,14 @@ func describe(root, id string) (*Entry, error) {
 		}
 		entry.Problem = "the database is missing from this backup; only its manifest is left"
 	default:
-		return nil, fmt.Errorf("backup: reading %s: %w", dir, dbErr)
+		// A backup this process cannot read -- one an upgrade run as root
+		// left owned by root -- is listed with its problem rather than
+		// failing the whole listing: retention would otherwise stop for
+		// every other backup, and the schedule would take one every minute.
+		// Without a manifest, retention leaves it alone.
+		entry.Problem = fmt.Sprintf("this backup cannot be read: %v", dbErr)
+		entry.Source = SourceCLI
+		return entry, nil
 	}
 
 	m, err := ReadManifest(dir)

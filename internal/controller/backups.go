@@ -288,7 +288,16 @@ func (c *Controller) BackupStatus() BackupStatus {
 func (c *Controller) nextBackupDue(cfg *config.Config) time.Time {
 	entries, err := backup.List(backup.Dir(cfg))
 	if err != nil {
-		return time.Time{}
+		// A directory that cannot be listed is not evidence that no backup
+		// exists: due-now here would take one every minute. The last
+		// scheduled attempt stands in for the newest copy.
+		c.backups.mu.Lock()
+		last := c.backups.lastAttemptAt
+		c.backups.mu.Unlock()
+		if last.IsZero() {
+			return time.Time{}
+		}
+		return last.Add(cfg.Backup.Interval)
 	}
 	for _, e := range entries {
 		if e.Source == backup.SourceUploaded || e.Source == backup.SourceFetched || e.Problem != "" {

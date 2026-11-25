@@ -199,6 +199,57 @@ func TestPruneLeavesUploadsAndStrangersAlone(t *testing.T) {
 	}
 }
 
+// A backup this process cannot read -- an upgrade run as root leaves its copy
+// owned by root -- must not stop retention for the others: the listing names
+// it with its problem, retention leaves it alone and removes the rest.
+func TestAnUnreadableBackupDoesNotStopRetention(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads every directory; run as an ordinary user")
+	}
+	cfg, st, _ := host(t)
+	root := Dir(cfg)
+	stamp := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	locked := take(t, cfg, st, TakeOptions{Source: SourceUpgrade, Now: func() time.Time { return stamp.Add(-time.Hour) }})
+	for i := range 4 {
+		at := stamp.Add(time.Duration(i) * time.Minute)
+		take(t, cfg, st, TakeOptions{Source: SourceScheduled, Now: func() time.Time { return at }})
+	}
+	if err := os.Chmod(locked.Dir, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked.Dir, 0o700) })
+
+	all, err := List(root)
+	if err != nil {
+		t.Fatalf("List failed on one unreadable backup: %v", err)
+	}
+	if len(all) != 5 {
+		t.Fatalf("List = %d entries, want 5", len(all))
+	}
+	var found bool
+	for _, e := range all {
+		if e.ID == locked.ID {
+			found = true
+			if e.Problem == "" || e.Manifest != nil {
+				t.Errorf("the unreadable backup is listed as sound: %+v", e)
+			}
+		}
+	}
+	if !found {
+		t.Error("the unreadable backup is not listed")
+	}
+	removed, err := Prune(root, 2)
+	if err != nil {
+		t.Fatalf("Prune: %v", err)
+	}
+	if len(removed) != 2 {
+		t.Errorf("removed %v, want the two oldest scheduled copies", removed)
+	}
+	if _, err := os.Stat(locked.Dir); err != nil {
+		t.Errorf("retention removed the backup it could not read: %v", err)
+	}
+}
+
 // A copy nobody has opened is a copy nobody knows about. Verify has to catch
 // the file being altered after it was taken, which is the failure an operator
 // finds otherwise on the day the backup is needed.

@@ -112,6 +112,35 @@ func TestAFailingScheduleIsAProblemAndBacksOff(t *testing.T) {
 	}
 }
 
+// A backup directory the service can write but not list is not a directory
+// with no backup in it: the schedule must not take one every minute, as it
+// did on Edi until 1,033 copies filled the disk.
+func TestAnUnlistableBackupDirectoryDoesNotMakeABackupDueEveryMinute(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root lists every directory; run as an ordinary user")
+	}
+	h := newHarness(t)
+	h.c.UpdateConfig(func(c *config.Config) { c.Backup.Interval = time.Hour })
+	root := filepath.Join(h.onDisk(), backup.DefaultDirName)
+
+	h.c.scheduledBackup(h.ctx)
+	if err := os.Chmod(root, 0o300); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(root, 0o700) })
+	for range 3 {
+		h.offset.Add(int64(time.Minute))
+		time.Sleep(1100 * time.Millisecond)
+		h.c.scheduledBackup(h.ctx)
+	}
+	if err := os.Chmod(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if entries, err := backup.List(root); err != nil || len(entries) != 1 {
+		t.Fatalf("a directory it could not list made the schedule take %d backups in three minutes, %v", len(entries), err)
+	}
+}
+
 // Two backups at once would race for one directory name and a prune could
 // delete the copy being taken. The second caller is refused, not queued.
 func TestOnlyOneBackupIsTakenAtATime(t *testing.T) {
