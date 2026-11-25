@@ -215,3 +215,36 @@ func TestAMissedCompletionIsStillRecoveredWithThePollerOff(t *testing.T) {
 		t.Fatalf("job = %+v, want it completed by the job-recovery sweep", job)
 	}
 }
+
+// GitHub's record of a job can keep saying in_progress after the job has
+// finished, with its conclusion and completion time written beside it. Read by
+// its status alone, the job was never completed here, and each sweep linked it
+// again to the reusable runner that had run it, which stayed busy for good.
+func TestJobRecoveryCompletesAJobGitHubStillCallsInProgress(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	pool.Ephemeral = false
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	labels := []string{"self-hosted", "linux", "x64", "demo"}
+	q := h.gh.AddQueuedJob("acme/widgets", "CI", "test", labels)
+	job, runner := startJobOnRunner(t, h, host.ID, q.ID, labels)
+	h.gh.StartJob(q.ID, runner.Name)
+	h.gh.CompleteJobKeepingStatus(q.ID, "success")
+
+	h.advance(3 * time.Minute)
+	h.c.reconcileKnownJobs(h.ctx, h.c.Now())
+
+	got, err := h.st.GetJob(h.ctx, job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != store.JobCompleted || got.Conclusion != "success" || got.CompletedAt == nil {
+		t.Fatalf("job = state %q, conclusion %q, completed %v; want completed with GitHub's conclusion",
+			got.State, got.Conclusion, got.CompletedAt)
+	}
+	if r := h.runnerByID(t, runner.ID); r.State != store.RunnerIdle || r.CurrentJobID != "" {
+		t.Fatalf("runner = state %q, current job %q; want idle, none", r.State, r.CurrentJobID)
+	}
+}
