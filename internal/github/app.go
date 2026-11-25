@@ -1124,12 +1124,28 @@ func (c *appClient) GetWorkflowJob(ctx context.Context, repo string, id int64) (
 		return nil, c.fail("read workflow job", resp, err)
 	}
 	body, err := json.Marshal(map[string]any{
-		"action": job.GetStatus(), "repository": map[string]string{"full_name": repo}, "workflow_job": job,
+		"action": jobAction(job), "repository": map[string]string{"full_name": repo}, "workflow_job": job,
 	})
 	if err != nil {
 		return nil, err
 	}
 	return ParseWorkflowJob(body)
+}
+
+// jobAction is the delivery action a job read back from GitHub stands for.
+//
+// It is the job's status, except when GitHub has already written the job's
+// conclusion or its completion time: GitHub's record of a job can go on saying
+// in_progress after it has finished, beside a conclusion and a completion time,
+// and stays that way. Read as in progress, such a job was never completed here,
+// and every recovery sweep linked it again to the reusable runner that had run
+// it, which then counted as busy for good. A conclusion is only ever written
+// once the job is over, so it is the better witness of the two.
+func jobAction(job *gh.WorkflowJob) string {
+	if job.GetConclusion() != "" || job.CompletedAt != nil {
+		return string(store.JobCompleted)
+	}
+	return job.GetStatus()
 }
 
 // GetWorkflowRun is the run-level authority for cancellation. workflow_job
