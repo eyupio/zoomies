@@ -156,7 +156,10 @@ use `--dry-run` when you want to see the upgrade itself before agreeing to it.
 `--version vX.Y.Z` targets a specific release, and `--no-download` applies the
 executable already installed. Before it changes anything, an upgrade takes and
 verifies a copy of the controller's database through the same backup package
-the schedule uses, and prints the copy's name and the command that restores it;
+the schedule uses, and prints the copy's name and the command that restores it.
+Run as root, the copy is given to the account that owns the backup directory, so
+the service can list, prune and ship it like any other; if that cannot be done
+the upgrade says so, with the `chown` to run, and carries on.
 `--no-backup` goes without it for an operator who keeps their own copies or
 whose database is elsewhere. A remote agent's card provides the command
 pinned to its controller's release.

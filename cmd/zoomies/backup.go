@@ -72,6 +72,7 @@ func runBackup(ctx context.Context, e *env, args []string) error {
 
 	entry, err := backup.Take(ctx, st, backup.TakeOptions{
 		Config: cfg, Dir: root, IncludeKey: *includeKey, Source: backup.SourceCLI,
+		Warn: func(format string, a ...any) { fmt.Fprintf(e.err, "Warning: "+format+"\n", a...) },
 	})
 	if err != nil {
 		return err
