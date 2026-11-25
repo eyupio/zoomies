@@ -331,8 +331,10 @@ func (p *upgradePlan) backupBeforeUpgrade(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	ui := PaletteFor(p.opts.Out)
 	entry, err := backup.Take(ctx, st, backup.TakeOptions{
 		Config: &cfg, Dir: root, Source: backup.SourceUpgrade, TakenBy: "zoomies upgrade",
+		Warn: func(format string, a ...any) { ui.Warn(p.opts.Out, format, a...) },
 	})
 	if err != nil {
 		return "", err
@@ -344,7 +346,6 @@ func (p *upgradePlan) backupBeforeUpgrade(ctx context.Context) (string, error) {
 	if !verified.OK {
 		return "", fmt.Errorf("the copy taken before the upgrade is not sound: %s", strings.Join(verified.Problems, "; "))
 	}
-	ui := PaletteFor(p.opts.Out)
 	ui.Done(p.opts.Out, "Backed up the database as %s and verified it", entry.ID)
 	ui.Hint(p.opts.Out, "Restore it with: zoomies restore %s --replace", entry.Dir)
 	// For the helper alone: the copy's directory, so an update that goes wrong
