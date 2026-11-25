@@ -414,6 +414,20 @@ func (f *FakeGitHub) CompleteJob(jobID int64, conclusion string) {
 	}
 }
 
+// CompleteJobKeepingStatus finishes a job the way GitHub's record of one is
+// sometimes left: with a conclusion and a completion time, but its status
+// still in_progress.
+func (f *FakeGitHub) CompleteJobKeepingStatus(jobID int64, conclusion string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if j := f.findJobLocked(jobID); j != nil {
+		now := time.Now().UTC()
+		j.runStatus = string(store.JobCompleted)
+		j.Conclusion = conclusion
+		j.CompletedAt = &now
+	}
+}
+
 // SetWorkflowRunState changes the run record independently of its jobs. That
 // distinction lets controller tests prove that one cancelled stage does not
 // fan cancellation out to the rest of the workflow.

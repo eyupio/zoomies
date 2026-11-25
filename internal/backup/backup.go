@@ -227,6 +227,10 @@ type TakeOptions struct {
 	TakenBy string
 	// Now is the clock; nil uses the wall clock.
 	Now func() time.Time
+	// Warn is told what did not stop the copy but an operator should read: a
+	// copy taken as root that could not be given to the account that owns the
+	// backup directory. Nil says nothing.
+	Warn func(format string, args ...any)
 }
 
 // Take writes a consistent copy of st into a new timestamped directory and
@@ -234,6 +238,10 @@ type TakeOptions struct {
 //
 // The copy is checked before it is reported, because the moment to find out
 // that a backup is unreadable is while the original is still there.
+//
+// Taken as root, the copy is given to whoever owns the backup directory, which
+// is the account the service runs as. Left root's, it is a backup the service
+// can neither list, prune nor ship.
 func Take(ctx context.Context, st *store.Store, opts TakeOptions) (*Entry, error) {
 	if opts.Config == nil {
 		return nil, errors.New("backup: a configuration is needed to say what is being backed up")
@@ -246,6 +254,9 @@ func Take(ctx context.Context, st *store.Store, opts TakeOptions) (*Entry, error
 	if root == "" {
 		root = Dir(opts.Config)
 	}
+	// Asked before MkdirAll, which as root would make a missing directory
+	// root's and leave nothing to inherit from.
+	uid, gid, handOn := inheritedOwner(root, os.Geteuid())
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return nil, fmt.Errorf("backup: creating %s: %w", root, err)
 	}
@@ -277,6 +288,14 @@ func Take(ctx context.Context, st *store.Store, opts TakeOptions) (*Entry, error
 		return nil, err
 	}
 	ok = true
+	// The copy is sound whoever owns it, so a failure here is a warning and not
+	// a reason to throw away the one thing an upgrade is waiting on.
+	if handOn {
+		if err := handOver(root, dest, uid, gid, os.Lchown); err != nil && opts.Warn != nil {
+			opts.Warn("could not give the backup in %s to uid %d, the owner of %s, so the service may not be able to read it: %v; fix it with: sudo chown -R %d:%d %s",
+				dest, uid, root, err, uid, gid, dest)
+		}
+	}
 	return Get(root, filepath.Base(dest))
 }
 
