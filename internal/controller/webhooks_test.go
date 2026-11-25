@@ -2,6 +2,7 @@ package controller
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -810,5 +811,106 @@ func TestEveryJobOfARunKeepsTheRunsNumber(t *testing.T) {
 	}
 	if second.RunNumber != 1114 {
 		t.Fatalf("second job's stored run number = %d, want 1114 from its sibling", second.RunNumber)
+	}
+}
+
+// completeJobRowOnly records a job as completed the way a delivery does and
+// stops there, as one does when its context is cancelled between the job's
+// write and the runner's.
+func completeJobRowOnly(t *testing.T, h *harness, job *store.Job) {
+	t.Helper()
+	done := job.StartedAt.Add(10 * time.Second)
+	update := *job
+	update.State, update.Conclusion, update.CompletedAt = store.JobCompleted, "success", &done
+	if _, _, err := h.st.ApplyJob(h.ctx, &update); err != nil {
+		t.Fatalf("ApplyJob: %v", err)
+	}
+}
+
+// A completion whose runner release was lost left a reusable runner busy on a
+// job that was over, for good: every later start on it was refused because it
+// had a job, every later completion because it was not that job, and nothing
+// that checks jobs against GitHub looks at a completed one again. The recovery
+// sweep puts it back to idle, once.
+func TestARunnerHeldByACompletedJobIsReleasedByTheRecoverySweep(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	pool.Ephemeral = false
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	labels := []string{"self-hosted", "linux", "x64", "demo"}
+	job, runner := startJobOnRunner(t, h, host.ID, 6020, labels)
+	completeJobRowOnly(t, h, job)
+	if held := h.runnerByID(t, runner.ID); held.State != store.RunnerBusy || held.CurrentJobID != job.ID {
+		t.Fatalf("before the sweep the runner is %q on %q; the test needs it busy on %q", held.State, held.CurrentJobID, job.ID)
+	}
+
+	h.c.releaseRunnersOfCompletedJobs(h.ctx)
+	released := h.runnerByID(t, runner.ID)
+	if released.State != store.RunnerIdle || released.CurrentJobID != "" || released.JobsHandled != 1 {
+		t.Fatalf("after the sweep the runner is state %q, current job %q, jobs %d; want idle, none, 1",
+			released.State, released.CurrentJobID, released.JobsHandled)
+	}
+	if h.hasTaskOfKind(host.ID, agent.TaskRemoveRunner) {
+		t.Fatal("the sweep queued removal of a reusable runner")
+	}
+
+	// The next job starts on it as on any idle runner.
+	h.deliverJob(jobEvent{Action: "queued", JobID: 6021, Name: "test", Workflow: "CI", Labels: labels})
+	h.deliverJob(jobEvent{Action: "in_progress", JobID: 6021, Name: "test", Workflow: "CI", Labels: labels, RunnerName: runner.Name})
+	next, err := h.st.GetJobByGitHubID(h.ctx, 6021)
+	if err != nil {
+		t.Fatalf("GetJobByGitHubID: %v", err)
+	}
+	if busy := h.runnerByID(t, runner.ID); busy.State != store.RunnerBusy || busy.CurrentJobID != next.ID {
+		t.Fatalf("the next job did not take the runner: state %q, current job %q", busy.State, busy.CurrentJobID)
+	}
+
+	// A second sweep finds nothing to do.
+	h.c.releaseRunnersOfCompletedJobs(h.ctx)
+	if again := h.runnerByID(t, runner.ID); again.CurrentJobID != next.ID || again.JobsHandled != 1 {
+		t.Fatalf("a second sweep moved the runner: current job %q, jobs %d", again.CurrentJobID, again.JobsHandled)
+	}
+}
+
+// An ephemeral runner held the same way is finished and its workload removed,
+// as the completion would have done.
+func TestAnEphemeralRunnerHeldByACompletedJobIsRemovedByTheRecoverySweep(t *testing.T) {
+	h := newHarness(t)
+	_, _, host := h.fleet()
+	labels := []string{"self-hosted", "linux", "x64", "demo"}
+	job, runner := startJobOnRunner(t, h, host.ID, 6022, labels)
+	completeJobRowOnly(t, h, job)
+
+	h.c.releaseRunnersOfCompletedJobs(h.ctx)
+	finished := h.runnerByID(t, runner.ID)
+	if finished.State != store.RunnerRemoved || finished.CurrentJobID != "" {
+		t.Fatalf("after the sweep the runner is state %q, current job %q; want removed, none", finished.State, finished.CurrentJobID)
+	}
+	if !h.hasTaskOfKind(host.ID, agent.TaskRemoveRunner) {
+		t.Fatal("the sweep did not queue removal of the ephemeral workload")
+	}
+}
+
+// GitHub hangs up on a delivery after ten seconds and the request's context is
+// cancelled with it. The job's row is written by then, so the runner's release
+// has to finish regardless, or the two rows disagree.
+func TestARunnerReleaseOutlivesTheDeliveryThatAskedForIt(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	pool.Ephemeral = false
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	labels := []string{"self-hosted", "linux", "x64", "demo"}
+	job, runner := startJobOnRunner(t, h, host.ID, 6023, labels)
+	completeJobRowOnly(t, h, job)
+
+	gone, cancel := context.WithCancel(h.ctx)
+	cancel()
+	h.c.releaseRunner(gone, runner.ID, job)
+	if released := h.runnerByID(t, runner.ID); released.State != store.RunnerIdle || released.CurrentJobID != "" {
+		t.Fatalf("a cancelled delivery left the runner state %q, current job %q; want idle, none", released.State, released.CurrentJobID)
 	}
 }

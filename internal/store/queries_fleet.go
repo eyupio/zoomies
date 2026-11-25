@@ -1958,6 +1958,37 @@ func (s *Store) CompleteRunnerJob(ctx context.Context, runnerID, jobID, message 
 	return out, changed, err
 }
 
+// RunnersHeldByCompletedJobs lists the runners still busy or draining on a job
+// whose own row says it has completed, oldest first and at most limit of them.
+//
+// The two rows are written apart: a completion records the job, then releases
+// its runner. When the second write is lost the runner stays busy on a job that
+// is over, and nothing that reads jobs will find it again, because every check
+// against GitHub skips the jobs that have completed. A reusable runner is the
+// one that stays: it goes on taking jobs, the start of each one is refused
+// because the runner already has a job, and the completion of each one is
+// refused because it is not the job the runner has.
+func (s *Store) RunnersHeldByCompletedJobs(ctx context.Context, limit int) ([]*Runner, error) {
+	rows, err := s.read.QueryContext(ctx, `SELECT `+runnerCols+` FROM runners
+		WHERE state IN (?, ?) AND current_job_id != ''
+		AND current_job_id IN (SELECT id FROM jobs WHERE state = ?)
+		ORDER BY created_at LIMIT ?`,
+		string(RunnerBusy), string(RunnerDraining), string(JobCompleted), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Runner
+	for rows.Next() {
+		r, err := scanRunner(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // DeleteRunner hard-deletes a runner row. Normal teardown transitions to
 // "removed" instead; this exists for the UI's explicit delete action and for
 // pruning ancient history.

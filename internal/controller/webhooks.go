@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/events"
@@ -565,20 +566,7 @@ func (c *Controller) applyWorkflowJob(ctx context.Context, e *github.WorkflowJob
 			// exits and is reported gone by its agent, but relying on that second
 			// observation alone leaves the row busy forever when one report is
 			// missed. Release it atomically and explicitly remove its workload.
-			finished, changed, err := c.st.CompleteRunnerJob(ctx, runner.ID, saved.ID, "finished "+saved.JobName)
-			if err != nil {
-				c.log.Warn("could not release a runner from its completed job",
-					"runner", runner.ID, "job", saved.ID, "error", err)
-			} else if changed {
-				c.publishRunner(ctx, events.KindRunnerUpdated, finished)
-				if finished.Ephemeral {
-					c.enqueueLifecycle(ctx, finished.HostID, agent.Task{
-						Kind: agent.TaskRemoveRunner, RunnerID: finished.ID,
-						Backend: c.backendKind(ctx, finished, nil),
-					})
-					c.Nudge()
-				}
-			}
+			c.releaseRunner(ctx, runner.ID, saved)
 			if change.Created || change.StateChanged {
 				c.observeJobCompletion(saved)
 			}
@@ -684,4 +672,40 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+// releaseRunnerTimeout bounds the release once it no longer ends with the
+// delivery that asked for it.
+const releaseRunnerTimeout = 30 * time.Second
+
+// releaseRunner takes a runner off a job GitHub says has finished: a reusable
+// runner goes back to idle, an ephemeral one is finished and its workload
+// removed. It is idempotent, so the delivery and the recovery sweep may both
+// call it for the same job.
+//
+// By the time it runs the job's row already says completed, so this write is
+// the second half of a fact whose first half is committed. It must not be
+// cancelled with the delivery: GitHub hangs up on a delivery after ten seconds,
+// which cancels the request's context, and on a busy database that happens
+// between the two writes. The runner then stayed busy on a job that was over.
+func (c *Controller) releaseRunner(ctx context.Context, runnerID string, j *store.Job) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), releaseRunnerTimeout)
+	defer cancel()
+	finished, changed, err := c.st.CompleteRunnerJob(ctx, runnerID, j.ID, "finished "+j.JobName)
+	if err != nil {
+		c.log.Warn("could not release a runner from its completed job",
+			"runner", runnerID, "job", j.ID, "error", err)
+		return
+	}
+	if !changed {
+		return
+	}
+	c.publishRunner(ctx, events.KindRunnerUpdated, finished)
+	if finished.Ephemeral {
+		c.enqueueLifecycle(ctx, finished.HostID, agent.Task{
+			Kind: agent.TaskRemoveRunner, RunnerID: finished.ID,
+			Backend: c.backendKind(ctx, finished, nil),
+		})
+		c.Nudge()
+	}
 }
