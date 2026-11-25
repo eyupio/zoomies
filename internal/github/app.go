@@ -889,10 +889,14 @@ func (c *appClient) queuedJobsForRun(ctx context.Context, owner, repo string, ru
 // is already in progress the first time a sweep sees it, and a listing that
 // dropped it would leave the runner under it looking free for the whole build.
 // They cost no request -- they are on the page this sweep already paid for.
+//
+// A job is read the way GetWorkflowJob reads it, through jobAction: one GitHub
+// still calls in_progress after writing its conclusion is over, and listed as
+// running it would take its runner busy again for a sweep.
 func queuedJobsOnPage(full string, run *gh.WorkflowRun, jobs []*gh.WorkflowJob) []QueuedJob {
 	var out []QueuedJob
 	for _, j := range jobs {
-		status := store.JobState(j.GetStatus())
+		status := store.JobState(jobAction(j))
 		if status != store.JobQueued && status != store.JobInProgress {
 			continue
 		}
