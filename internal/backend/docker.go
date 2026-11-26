@@ -2501,6 +2501,10 @@ func (b *DockerBackend) workloadFrom(ctx context.Context, s ContainerSummary, si
 				w.Status.Phase = PhaseFailed
 				w.Status.Message = oomMessage(insp)
 			}
+		} else if !errors.Is(err, ErrNotFound) {
+			// An exit reported with no code is recorded as a clean end for good,
+			// so this pass reports none and the next one asks again.
+			w.Status.Phase = PhaseRunning
 		}
 	}
 	return w
