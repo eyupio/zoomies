@@ -119,3 +119,20 @@ func TestPersonalAccountPlacementKeepsTheRepositoryOfTheCompatibleJob(t *testing
 		t.Fatalf("want a runner for %s, got %+v", x64.Repo, creates)
 	}
 }
+
+// A job that asks for a platform no host has is not a pool that any new machine
+// would unblock: the machine loop rents the provider's own shape for a pool
+// reported as having nowhere to go, so ten arm64 jobs on an amd64 fleet rented
+// amd64 machines that could never run them, held until the jobs went stale.
+func TestAJobAskingForAPlatformNoHostHasDoesNotSayAnyMachineWouldDo(t *testing.T) {
+	pool := testPool("ci", "ci")
+	amd := hostOn("host_a", "ubuntu", "24.04", "amd64", 4)
+	pp := only(t, Decide(snap([]*store.Pool{pool}, nil, []*store.Job{queued("arm", time.Minute, "arm64", "ci")}, []*store.Host{amd})))
+	if !strings.Contains(pp.Blocked, "arm64") {
+		t.Fatalf("blocked = %q, want it to name the labels no host supplies", pp.Blocked)
+	}
+	if pp.BlockedNoEligibleHost || pp.BlockedAtCapacity {
+		t.Fatalf("no eligible host = %v, at capacity = %v; want neither, so nothing is rented for it",
+			pp.BlockedNoEligibleHost, pp.BlockedAtCapacity)
+	}
+}

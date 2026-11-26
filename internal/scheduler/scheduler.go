@@ -621,24 +621,28 @@ func (t *tick) decidePool(p *store.Pool, runners []*store.Runner, queued []*stor
 	// idle one will pick up within the second. A draining runner is counted on
 	// both sides: it still holds a slot on its host until it is gone, which is
 	// what keeps the pool under its maximum, but it will never take a job, so
-	// it must not stand in for the runner a queued job is waiting on.
-	plan.Desired = clamp(max(p.MinRunners, busy+draining+eligible), p.MinRunners, p.MaxRunners)
+	// it must not stand in for the runner a queued job is waiting on, nor for
+	// one of the minimum: counted there, each pass during a drain found the
+	// same surplus again and drained the warm runners after it.
+	want := clamp(max(p.MinRunners, busy+eligible), p.MinRunners, p.MaxRunners)
+	plan.Desired = min(want+draining, p.MaxRunners)
 	plan.eligible = eligible
 	if byRepository {
 		// A personal account's runners are not interchangeable, so the pool's
 		// totals cannot say how many are wanted: see personal.go.
 		var stopped int
-		remaining, stopped = t.decideByRepository(p, &plan, remaining, queued, eligibleJobs, live)
+		remaining, stopped = t.decideByRepository(p, &plan, remaining, queued, eligibleJobs, live, draining)
 		live -= stopped
 	} else {
-		remaining = t.matchPlatformSupply(p, &plan, remaining, eligibleJobs, live)
+		remaining = t.matchPlatformSupply(p, &plan, remaining, eligibleJobs, live, draining)
 	}
 	plan.Failing, plan.FailingFault = t.holdAfterStartFailures(p, runners)
 	plan.Held = t.holdWhileRateLimited(p)
 
-	switch {
-	case plan.Desired < live:
-		t.scaleDown(p, &plan, remaining, live)
+	// Surplus is counted among the runners that are staying: one already on its
+	// way out is not a reason to stop another.
+	if surplus := live - draining - want; surplus > 0 {
+		t.scaleDown(p, &plan, remaining, live, surplus)
 	}
 	return plan
 }
@@ -1238,12 +1242,7 @@ func (t *tick) disable(p *store.Pool, plan *PoolPlan, remaining []*store.Runner,
 // A starting row whose job is already in progress is excluded. The job event
 // normally advances that row to busy, but stillRunning is the durable guard
 // for the short window where the row has not caught up yet.
-func (t *tick) scaleDown(p *store.Pool, plan *PoolPlan, remaining []*store.Runner, live int) {
-	surplus := live - max(plan.Desired, p.MinRunners)
-	if surplus <= 0 {
-		return
-	}
-
+func (t *tick) scaleDown(p *store.Pool, plan *PoolPlan, remaining []*store.Runner, live, surplus int) {
 	starting := t.unneededStarting(remaining)
 	stopStarting := min(surplus, len(starting))
 	for _, r := range starting[:stopStarting] {
@@ -2019,7 +2018,11 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 		// for the same machines from the other direction. Counted in neither,
 		// the pool is simply skipped and the next pass decides again, a minute
 		// older and usually clear.
-		noEligibleHost: full+throttled+committed+held+warming == 0,
+		//
+		// Nor is a host turned away for the platform a job asked for: the
+		// machine a provider would rent is judged against the pool alone, so
+		// arm64 jobs on an amd64 fleet rented amd64 machines they cannot use.
+		noEligibleHost: full+throttled+committed+held+warming+jobPlatformMismatch == 0,
 	}
 	if detail != "" {
 		// The agent's own words about the backend it could not use. They name
