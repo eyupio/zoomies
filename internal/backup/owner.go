@@ -2,6 +2,7 @@ package backup
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -38,6 +39,39 @@ func inheritedOwner(root string, euid int) (uid, gid int, ok bool) {
 	return uid, gid, true
 }
 
+// openMade opens the directory newDir has just made, so that it is handed over
+// through a handle and never by its name: the service account owns the backup
+// directory and can leave a link to /etc under that name. Only a directory euid
+// owns is taken for it, which that account cannot make.
+func openMade(dest string, euid int) (*os.Root, error) {
+	made, err := os.OpenRoot(dest)
+	if err != nil {
+		return nil, err
+	}
+	opened, err := made.Stat(".")
+	if err == nil {
+		if uid, _, ok := fileOwner(opened); !ok || uid != euid || !isMade(dest, made) {
+			err = errors.New("it is a link, or a directory another account made")
+		}
+	}
+	if err != nil {
+		made.Close()
+		return nil, err
+	}
+	return made, nil
+}
+
+// isMade reports whether dest still names the directory made is a handle on,
+// and not a link or another directory put in its place.
+func isMade(dest string, made *os.Root) bool {
+	named, err := os.Lstat(dest)
+	if err != nil {
+		return false
+	}
+	opened, err := made.Stat(".")
+	return err == nil && os.SameFile(named, opened)
+}
+
 // handOver gives the backup directory, the new backup's own directory and the
 // files in it to uid and gid. It goes on after a failure and reports every
 // one, because a share that cannot change ownership fails them all alike and
@@ -46,15 +80,15 @@ func inheritedOwner(root string, euid int) (uid, gid int, ok bool) {
 // shortcut: only root's own leaf is handed over, not a chain of directories
 // MkdirAll made above it; upgrade when a configured backup directory is several
 // levels deep and new.
-func handOver(root, dest string, uid, gid int, chown func(path string, uid, gid int) error) error {
+func handOver(root string, made *os.Root, uid, gid int, chown func(in *os.Root, name string, uid, gid int) error) error {
 	var errs []error
-	files, err := os.ReadDir(dest)
+	files, err := fs.ReadDir(made.FS(), ".")
 	if err != nil {
 		errs = append(errs, err)
 	}
 	for _, f := range files {
-		errs = append(errs, chown(filepath.Join(dest, f.Name()), uid, gid))
+		errs = append(errs, chown(made, f.Name(), uid, gid))
 	}
-	errs = append(errs, chown(dest, uid, gid), chown(root, uid, gid))
+	errs = append(errs, chown(made, ".", uid, gid), os.Lchown(root, uid, gid))
 	return errors.Join(errs...)
 }
