@@ -177,8 +177,11 @@ func (s *Store) backupBeforeMigrate(ctx context.Context, pending []string, appli
 	// restarts it every few seconds: a copy per start filled the disk the
 	// migration needed, and two in one second failed on the name before the
 	// migration was even tried. A copy taken when the database was at the ledger
-	// it is at now is still the way back to it.
-	if kept := reusablePreMigrationCopy(abs, applied); kept != "" {
+	// it is at now is still the way back to it, unless something has written to
+	// the database since: a failed migration leaves the ledger as it was, so the
+	// release before it opens the database and works on, and its weeks are not in
+	// a copy taken before them.
+	if kept := reusablePreMigrationCopy(abs, applied); kept != "" && !s.writtenSince(ctx, abs, kept) {
 		return kept, true, nil
 	}
 	root := filepath.Join(filepath.Dir(abs), PreMigrationDir)
@@ -218,6 +221,26 @@ func reusablePreMigrationCopy(dbAbs string, applied map[string]bool) string {
 		}
 	}
 	return dir
+}
+
+// writtenSince reports whether the database file was modified after the copy in
+// dir was, and says yes whenever it cannot tell: a copy too many costs disk, a
+// copy too few costs the rows it lacks.
+func (s *Store) writtenSince(ctx context.Context, dbAbs, dir string) bool {
+	defer s.lockWriter()()
+	// Commits still in the write-ahead log are folded into the file first, so
+	// its time speaks for them; a killed migration's frames are no commit and
+	// stay out.
+	var busy, logged, folded int
+	if err := s.write.QueryRowContext(ctx, `PRAGMA wal_checkpoint(PASSIVE)`).Scan(&busy, &logged, &folded); err != nil || logged != folded {
+		return true
+	}
+	db, err := os.Stat(dbAbs)
+	if err != nil {
+		return true
+	}
+	copied, err := os.Stat(filepath.Join(dir, BackupDBName))
+	return err != nil || db.ModTime().After(copied.ModTime())
 }
 
 // ledgerOf reads the migrations a database file says it has applied, without
