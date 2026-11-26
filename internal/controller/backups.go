@@ -290,11 +290,14 @@ func (c *Controller) nextBackupDue(cfg *config.Config) time.Time {
 	if err != nil {
 		// A directory that cannot be listed is not evidence that no backup
 		// exists: due-now here would take one every minute. The last
-		// scheduled attempt stands in for the newest copy.
+		// scheduled attempt stands in for the newest copy, but only when it
+		// worked: after a failure, due-now leaves the retry to the back-off.
+		// The attempt is kept in memory, so each restart while the directory
+		// cannot be listed takes one more backup, which is bounded.
 		c.backups.mu.Lock()
-		last := c.backups.lastAttemptAt
+		last, failing := c.backups.lastAttemptAt, c.backups.lastError != ""
 		c.backups.mu.Unlock()
-		if last.IsZero() {
+		if last.IsZero() || failing {
 			return time.Time{}
 		}
 		return last.Add(cfg.Backup.Interval)

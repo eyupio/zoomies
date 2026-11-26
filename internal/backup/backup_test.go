@@ -199,8 +199,8 @@ func TestPruneLeavesUploadsAndStrangersAlone(t *testing.T) {
 	}
 }
 
-// A backup this process cannot read -- an upgrade run as root leaves its copy
-// owned by root -- must not stop retention for the others: the listing names
+// A backup this process cannot read (an upgrade run as root leaves its copy
+// owned by root) must not stop retention for the others: the listing names
 // it with its problem, retention leaves it alone and removes the rest.
 func TestAnUnreadableBackupDoesNotStopRetention(t *testing.T) {
 	if os.Geteuid() == 0 {
