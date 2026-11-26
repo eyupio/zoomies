@@ -1968,10 +1968,15 @@ func (s *Store) CompleteRunnerJob(ctx context.Context, runnerID, jobID, message 
 // one that stays: it goes on taking jobs, the start of each one is refused
 // because the runner already has a job, and the completion of each one is
 // refused because it is not the job the runner has.
+//
+// The completed job is looked up per runner rather than listed: the sweep runs
+// every poll interval and almost always finds nothing, and a list of every
+// completed job would cost what the job history weighs, not what the live
+// runners do.
 func (s *Store) RunnersHeldByCompletedJobs(ctx context.Context, limit int) ([]*Runner, error) {
 	rows, err := s.read.QueryContext(ctx, `SELECT `+runnerCols+` FROM runners
 		WHERE state IN (?, ?) AND current_job_id != ''
-		AND current_job_id IN (SELECT id FROM jobs WHERE state = ?)
+		AND EXISTS (SELECT 1 FROM jobs WHERE jobs.id = runners.current_job_id AND jobs.state = ?)
 		ORDER BY created_at LIMIT ?`,
 		string(RunnerBusy), string(RunnerDraining), string(JobCompleted), limit)
 	if err != nil {

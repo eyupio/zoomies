@@ -707,5 +707,43 @@ func (c *Controller) releaseRunner(ctx context.Context, runnerID string, j *stor
 			Backend: c.backendKind(ctx, finished, nil),
 		})
 		c.Nudge()
+		return
+	}
+	c.resumeRunnerJob(ctx, finished)
+}
+
+// resumeRunnerJob takes a reusable runner just released busy again on the job
+// GitHub already says it is running, if there is one.
+//
+// While the runner was held by a finished job it went on taking jobs, and the
+// start of each one was refused because the runner already had a job. The job
+// row kept its side of the link, so once the runner is released it is found
+// from there and started as GitHub's own start would have started it. Without
+// this the runner would read idle while it works, until job recovery re-checked
+// that job against GitHub.
+func (c *Controller) resumeRunnerJob(ctx context.Context, r *store.Runner) {
+	running, err := c.st.ListRunningJobsForRunner(ctx, r.ID)
+	if err != nil {
+		c.log.Warn("could not look for the job a released runner is running",
+			"runner", r.ID, "error", err)
+		return
+	}
+	if len(running) == 0 {
+		return
+	}
+	// A runner runs one job at a time: the one queued last is the one it has
+	// now, and any earlier one is left for job recovery to settle with GitHub.
+	j := running[len(running)-1]
+	started, changed, err := c.st.StartRunnerJob(ctx, r.ID, j.ID,
+		fmt.Sprintf("running %s / %s", j.Workflow, j.JobName))
+	if err != nil {
+		c.log.Warn("could not start a released runner on the job GitHub says is running on it",
+			"runner", r.ID, "job", j.ID, "error", err)
+		return
+	}
+	if changed {
+		c.log.Info("a released runner is busy again on the job it is running",
+			"runner", r.ID, "job", j.ID)
+		c.publishRunner(ctx, events.KindRunnerUpdated, started)
 	}
 }

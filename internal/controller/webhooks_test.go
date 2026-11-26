@@ -874,6 +874,39 @@ func TestARunnerHeldByACompletedJobIsReleasedByTheRecoverySweep(t *testing.T) {
 	}
 }
 
+// The runner held by a finished job went on taking jobs, and the start of the
+// one it is running was refused because it still had the finished one. The
+// sweep releases it and starts it on that job, as GitHub's start would have:
+// left idle, a runner at work could be handed another job or drained.
+func TestARunnerReleasedByTheRecoverySweepIsBusyOnTheJobItIsRunning(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	pool.Ephemeral = false
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	labels := []string{"self-hosted", "linux", "x64", "demo"}
+	job, runner := startJobOnRunner(t, h, host.ID, 6024, labels)
+	completeJobRowOnly(t, h, job)
+	h.deliverJob(jobEvent{Action: "queued", JobID: 6025, Name: "test", Workflow: "CI", Labels: labels})
+	h.deliverJob(jobEvent{Action: "in_progress", JobID: 6025, Name: "test", Workflow: "CI", Labels: labels, RunnerName: runner.Name})
+	next, err := h.st.GetJobByGitHubID(h.ctx, 6025)
+	if err != nil {
+		t.Fatalf("GetJobByGitHubID: %v", err)
+	}
+	if held := h.runnerByID(t, runner.ID); held.CurrentJobID != job.ID || next.State != store.JobInProgress || next.RunnerID != runner.ID {
+		t.Fatalf("before the sweep the runner is on %q and the next job %q on %q; the test needs the runner held by %q while the next job runs on it",
+			held.CurrentJobID, next.State, next.RunnerID, job.ID)
+	}
+
+	h.c.releaseRunnersOfCompletedJobs(h.ctx)
+	resumed := h.runnerByID(t, runner.ID)
+	if resumed.State != store.RunnerBusy || resumed.CurrentJobID != next.ID || resumed.JobsHandled != 1 {
+		t.Fatalf("after the sweep the runner is state %q, current job %q, jobs %d; want busy, %q, 1",
+			resumed.State, resumed.CurrentJobID, resumed.JobsHandled, next.ID)
+	}
+}
+
 // An ephemeral runner held the same way is finished and its workload removed,
 // as the completion would have done.
 func TestAnEphemeralRunnerHeldByACompletedJobIsRemovedByTheRecoverySweep(t *testing.T) {
