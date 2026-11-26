@@ -16,7 +16,8 @@
 #   1. checks this is Windows PowerShell 5.1 or 7+ on x86-64, in an elevated window
 #   2. says what it is about to do and asks once (-Yes skips the question)
 #   3. downloads zoomies_windows_amd64.exe and checks its SHA-256 against the
-#      release's checksums.txt, and stops if they differ
+#      release's checksums.txt, and stops if they differ; where there is an
+#      openssl to check with, it first holds checksums.txt to the release key
 #   4. installs it to %ProgramFiles%\Zoomies and adds that folder to the machine PATH
 #   5. runs `zoomies agent join`, which redeems the token and registers the
 #      zoomies-agent service
@@ -59,6 +60,9 @@ $ProgressPreference = 'SilentlyContinue'
 
 $script:Repo = if ($env:ZOOMIES_REPO) { $env:ZOOMIES_REPO } else { 'eyupio/zoomies' }
 $script:BaseUrl = if ($env:ZOOMIES_BASE_URL) { $env:ZOOMIES_BASE_URL.TrimEnd('/') } else { "https://github.com/$($script:Repo)/releases" }
+# The release signing key, base64, as install.sh carries it: one key per line
+# while a key is rotated. A test keeps it equal to the key compiled into the binary.
+$script:ReleaseKey = '6dK2/jDPHR8wAjsIayrxGxL8ednKVKdEMHdRcmNU67U='
 $script:ServiceName = 'zoomies-agent'
 $script:Asset = 'zoomies_windows_amd64.exe'
 
@@ -212,6 +216,81 @@ function Find-Checksum {
     $null
 }
 
+# Runs a native program and returns its exit status and what it wrote.
+# Continue, not Stop, for the reason Invoke-Join gives: openssl speaks on stderr.
+function Invoke-Native {
+    param([string]$Exe, [string[]]$Arguments)
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = (& $Exe @Arguments 2>&1 | Out-String)
+        @{ Code = $LASTEXITCODE; Output = $output }
+    } finally {
+        $ErrorActionPreference = $previous
+    }
+}
+
+# An openssl that verifies Ed25519 in one call (3.0 or later), from the PATH or
+# from Git for Windows, or nothing. An older one would call every signature wrong.
+function Find-OpenSsl {
+    $found = @(Get-Command openssl -CommandType Application -ErrorAction SilentlyContinue | ForEach-Object { $_.Source })
+    $git = if ($env:ProgramFiles) { "$env:ProgramFiles\Git" } else { 'C:\Program Files\Git' }
+    foreach ($exe in ($found + "$git\mingw64\bin\openssl.exe" + "$git\usr\bin\openssl.exe")) {
+        if ((Test-Path -LiteralPath $exe) -and (Invoke-Native $exe @('pkeyutl', '-help')).Output -match 'rawin') { return $exe }
+    }
+    $null
+}
+
+# Holds checksums.txt to the release key, as verify_signature in install.sh does:
+# a signature that does not match stops the install, and when none can be
+# checked it says so, because checksums.txt arrives from where the binary does.
+function Confirm-ReleaseSignature {
+    param([string]$Tag, [string]$SumsFile, [string]$Directory)
+    $alone = 'the signature was not checked, and this download is checked by its checksum alone.'
+    if (-not $script:ReleaseKey) { return }
+    $openssl = Find-OpenSsl
+    if (-not $openssl) {
+        Write-Warn "A release key is built into this installer, but there is no openssl 3.0 or later here to check a signature with (the PATH and Git for Windows were tried), so $alone"
+        return
+    }
+    try {
+        $envelope = Get-UrlText (Get-DownloadUrl $Tag 'checksums.txt.ed25519')
+    } catch {
+        Write-Warn "$Tag carries no checksums.txt.ed25519, so $alone"
+        return
+    }
+    # The envelope is the key id, then the base64 signature.
+    $signature = $null
+    try { $signature = [Convert]::FromBase64String(($envelope -split "`r?`n")[1].Trim()) } catch { $signature = $null }
+    if (-not $signature) {
+        Write-Warn "The release signature could not be read, so $alone"
+        return
+    }
+    $signatureFile = Join-Path $Directory 'checksums.sig'
+    [IO.File]::WriteAllBytes($signatureFile, $signature)
+    # openssl wants the DER public key: the fixed Ed25519 SubjectPublicKeyInfo
+    # prefix, then the 32 bytes the release publishes.
+    $prefix = [byte[]](0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00)
+    $keys = @($script:ReleaseKey -split '\s+' | Where-Object { $_ })
+    foreach ($key in $keys) {
+        $raw = $null
+        try { $raw = [Convert]::FromBase64String($key) } catch { $raw = $null }
+        if (-not $raw) { $keys = @(); break }
+        $keyFile = Join-Path $Directory 'release.der'
+        [IO.File]::WriteAllBytes($keyFile, [byte[]]($prefix + $raw))
+        $verified = Invoke-Native $openssl @('pkeyutl', '-verify', '-pubin', '-keyform', 'DER', '-inkey', $keyFile, '-rawin', '-in', $SumsFile, '-sigfile', $signatureFile)
+        if ($verified.Code -eq 0) {
+            Write-Ok 'the release signature matches the release key'
+            return
+        }
+    }
+    if ($keys.Count -eq 0) {
+        Write-Warn "The release key built into this installer cannot be read, so $alone"
+        return
+    }
+    Stop-Install 'The release signature does not match the release key. Do not run this binary. Try again, and if it happens twice, report it.'
+}
+
 # Downloads the binary into a fresh folder and refuses it unless it matches the
 # release's checksums.txt. A download that cannot be verified is refused, as
 # install.sh does, because a warning on a pasted command scrolls away unread.
@@ -228,11 +307,15 @@ function Get-VerifiedBinary {
     }
     Write-Step 'Verifying the checksum'
     $sumsUrl = Get-DownloadUrl $Tag 'checksums.txt'
+    # Saved and not read as text, because the signature is over these bytes.
+    $sumsFile = Join-Path $Directory 'checksums.txt'
     try {
-        $sums = Get-UrlText $sumsUrl
+        Save-Url $sumsUrl $sumsFile
+        $sums = [IO.File]::ReadAllText($sumsFile)
     } catch {
         Stop-Install "This download cannot be verified: $sumsUrl could not be fetched. Zoomies will not install a binary it has not checked. $($_.Exception.Message)"
     }
+    Confirm-ReleaseSignature $Tag $sumsFile $Directory
     $want = Find-Checksum $sums $script:Asset
     if (-not $want) {
         Stop-Install "This download cannot be verified: checksums.txt has no entry for $($script:Asset). Zoomies will not install a binary it has not checked."
@@ -429,7 +512,7 @@ function Install-Agent {
     $tag = Resolve-ReleaseTag $Version
     $dir = Get-InstallDir
 
-    $plan = @("download zoomies_windows_amd64.exe ($tag) from $($script:BaseUrl) and check its SHA-256",
+    $plan = @("download zoomies_windows_amd64.exe ($tag) from $($script:BaseUrl) and check its SHA-256, and its release signature where there is an openssl to check it with",
         "install it to $dir\zoomies.exe and add that folder to the machine PATH")
     if ($upgrade) {
         $plan += 'this machine is already enrolled: replace the binary and restart the service, keeping its credentials (use -Force to enrol again)'
