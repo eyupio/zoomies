@@ -75,10 +75,15 @@ trap 'rm -rf "${work}"' EXIT
 # --retry-all-errors because --retry alone treats a failed connect (curl exit
 # 7, "No route to host") as final: one network blip on a build host threw away
 # a runner-full build that had already fetched every other toolchain. The cost
-# is that a genuine 404 is retried too, about a minute of backoff before the
+# is that a genuine 404 is retried too, about four minutes of backoff before the
 # same failure.
+#
+# --retry 8 because the wait doubles from one second: six retries gave up after
+# 63 seconds, and one Maven Central 429 outlasted that, which failed its image
+# and, with it, the manifest that publishes every image's tags. Eight wait 255
+# seconds in all, well inside --retry-max-time.
 fetch() {
-  curl -fsSL --retry 6 --retry-all-errors --retry-max-time 600 -o "$3" "$1"
+  curl -fsSL --retry 8 --retry-all-errors --retry-max-time 600 -o "$3" "$1"
   algo="${2%%:*}"
   sum="${2#*:}"
   case "${algo}" in
