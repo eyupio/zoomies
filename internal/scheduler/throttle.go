@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/store"
@@ -41,10 +42,6 @@ const (
 	// (see loadOverwhelmed), because the average also counts tasks blocked on
 	// a disk or a network filesystem, which no throttle can relieve.
 	LoadPerCPUOverwhelmed = 2.0
-	// cpuCalmPercent is the CPU occupancy below which a host is calm, and it
-	// is the same figure that releases the admission hold, so the two never
-	// disagree about whether a host has recovered.
-	cpuCalmPercent = 85.0
 )
 
 // NextThrottle is the ladder: given a host as it stands, with the measurements
@@ -54,8 +51,9 @@ const (
 // Three things can be true of a host with a fresh sample. It is overwhelmed:
 // the CPU hold has tripped, the load average is past twice its cores, or its
 // memory is at the reserve -- and then it climbs a rung, if ThrottleStep has
-// passed since the last one. It is calm: CPU under 85%, load under one per
-// core, memory above the reserve -- and then a calm streak runs, and after
+// passed since the last one. It is calm: CPU under the hold's release line
+// (85% by default), load under one per core, memory above the reserve -- and
+// then a calm streak runs, and after
 // ThrottleRecovery it climbs down a rung and the streak starts again. Or it
 // is neither, in the band between, where the rung is kept and the streak is
 // broken: a host at 90% CPU is not overwhelmed, and it is not a host to give
@@ -140,7 +138,9 @@ func NextThrottle(h *store.Host, now time.Time) store.HostThrottle {
 func hostOverwhelmed(h *store.Host) (bool, string) {
 	u := h.Usage
 	if u.CPUHeld && h.UnlimitedRunners > 0 {
-		return true, fmt.Sprintf("CPU has been at or above 95%% for 30 s with %s here that no CPU limit binds",
+		cpu := u.Thresholds()
+		return true, fmt.Sprintf("CPU has been at or above %s%% for %s s with %s here that no CPU limit binds",
+			strconv.FormatFloat(cpu.HoldPercent, 'f', -1, 64), strconv.FormatFloat(cpu.HoldWindow.Seconds(), 'f', -1, 64),
 			plural(h.UnlimitedRunners, "runner"))
 	}
 	if loadOverwhelmed(h) {
@@ -172,7 +172,7 @@ func loadOverwhelmed(h *store.Host) bool {
 		return false
 	}
 	v := u.UnlentCPUPercent()
-	return v != nil && *v >= cpuCalmPercent
+	return v != nil && *v >= u.Thresholds().ReleasePercent
 }
 
 // hostCalm reports whether every fresh measurement says the host has room
@@ -181,7 +181,7 @@ func loadOverwhelmed(h *store.Host) bool {
 //
 // The CPU bar is reachable from every rung: a throttled host's quotas sum to
 // three quarters of the machine or less, so a host whose runners are all
-// inside them falls under 85% the moment the quotas take. A host that stays
+// inside them falls under the release line the moment the quotas take. A host that stays
 // above it is carrying something the quotas do not bind.
 func hostCalm(h *store.Host) bool {
 	u := h.Usage
@@ -191,7 +191,7 @@ func hostCalm(h *store.Host) bool {
 	// Judged without CPU runners are using because it was lent them: the
 	// throttle withdraws every boost anyway, and counting it here would hold a
 	// host on its rung for doing what the plan asked.
-	if v := u.UnlentCPUPercent(); v != nil && *v >= cpuCalmPercent {
+	if v := u.UnlentCPUPercent(); v != nil && *v >= u.Thresholds().ReleasePercent {
 		return false
 	}
 	// The load average is not a calm test of its own. A load past one per

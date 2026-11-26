@@ -16,7 +16,7 @@ func ioWaitUsage(v float64) HostUsage {
 func TestAHostIsDiskBoundOnlyAfterWaitingOnDiskForTheWholeWindow(t *testing.T) {
 	start := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
 	step := func(prev HostUsage, wait float64, at time.Duration) HostUsage {
-		return ObserveHostUsage(prev, ioWaitUsage(wait), 0, 16384, start.Add(at))
+		return ObserveHostUsage(prev, ioWaitUsage(wait), 0, 16384, start.Add(at), CPUThresholds{})
 	}
 
 	u := step(HostUsage{}, 35, 0)
@@ -58,14 +58,14 @@ func TestAHostIsDiskBoundOnlyAfterWaitingOnDiskForTheWholeWindow(t *testing.T) {
 // does a clock a silent agent could have left running.
 func TestAStaleHostIsNotDiskBoundAndAStaleClockIsNotCarried(t *testing.T) {
 	start := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
-	u := ObserveHostUsage(HostUsage{}, ioWaitUsage(40), 0, 16384, start)
+	u := ObserveHostUsage(HostUsage{}, ioWaitUsage(40), 0, 16384, start, CPUThresholds{})
 	if u.DiskBound(start.Add(HostUsageMaxAge + time.Hour)) {
 		t.Fatal("a reading from an hour ago was taken as the host's state now")
 	}
 	// The agent comes back after a silence: the old clock must not make the
 	// first new reading look like ten minutes of waiting.
 	later := start.Add(time.Hour)
-	back := ObserveHostUsage(u, ioWaitUsage(40), 0, 16384, later)
+	back := ObserveHostUsage(u, ioWaitUsage(40), 0, 16384, later, CPUThresholds{})
 	if back.IOWaitHighSince == nil || !back.IOWaitHighSince.Equal(later) {
 		t.Fatalf("clock = %v after a silence, want it restarted at %v", back.IOWaitHighSince, later)
 	}
@@ -76,7 +76,7 @@ func TestAStaleHostIsNotDiskBoundAndAStaleClockIsNotCarried(t *testing.T) {
 func TestAnImpossibleIOWaitIsNotRecorded(t *testing.T) {
 	now := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
 	for _, v := range []float64{-1, 101, 1e9} {
-		if u := ObserveHostUsage(HostUsage{}, ioWaitUsage(v), 0, 16384, now); u.IOWaitPercent != nil || u.IOWaitHighSince != nil {
+		if u := ObserveHostUsage(HostUsage{}, ioWaitUsage(v), 0, 16384, now, CPUThresholds{}); u.IOWaitPercent != nil || u.IOWaitHighSince != nil {
 			t.Errorf("io wait %v was recorded: %+v", v, u)
 		}
 	}

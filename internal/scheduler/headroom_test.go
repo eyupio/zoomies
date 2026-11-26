@@ -221,3 +221,22 @@ func TestAnIdleHostStillRefusesAStatedSizeItHasNotGotFree(t *testing.T) {
 		t.Fatalf("placed on %v; an 8 GB runner does not fit in 6 GB free, whatever the host is otherwise doing", got)
 	}
 }
+
+// The admission reason names the release line the hold was judged by, not a
+// fixed 85%, and paced starts begin at the line the measurement carries.
+func TestCPUHoldReasonAndPacedStartsFollowTheSettings(t *testing.T) {
+	h := sized("a", 4, 16, 32768, 100000)
+	cpu := 75.0
+	h.Usage = store.HostUsage{CPUPercent: &cpu, SampledAt: now, CPUHeld: true,
+		CPU: store.CPUThresholds{HoldPercent: 80, ReleasePercent: 70, PacedPercent: 72}}
+	if got := HostAdmissionReason(h, now); !strings.Contains(got, "below 70%") {
+		t.Fatalf("reason %q does not name the 70%% release line", got)
+	}
+	if !hostUnderCPUPressure(h, now) {
+		t.Fatal("75% CPU against a 72% paced line did not pace starts")
+	}
+	h.Usage.CPU = store.CPUThresholds{}
+	if hostUnderCPUPressure(h, now) {
+		t.Fatal("75% CPU paced starts under the default 85% line")
+	}
+}

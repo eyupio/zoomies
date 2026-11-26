@@ -726,6 +726,26 @@ var registry = buildRegistry([]Setting{
 		Summary: "Give a runner whose pool sets no CPU or memory limit one slot's share of its host as a real limit. Off, a host's worth of them can each take every core.",
 	},
 	{
+		Key: "scheduler.cpu_hold_percent", Label: "CPU hold: start line", Env: "ZOOMIES_CPU_HOLD_PERCENT", Kind: KindFloat, Scope: ScopeInstance, Live: true,
+		Summary: "The CPU occupancy of a host, with CPU lent to runners taken out, at which the clock towards holding new starts begins, from 1 to 100. Default 95. New starts are held once it has stayed there for scheduler.cpu_hold_window; runners already running are never touched.",
+	},
+	{
+		Key: "scheduler.cpu_hold_window", Label: "CPU hold: how long", Env: "ZOOMIES_CPU_HOLD_WINDOW", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Summary: "How long a host's CPU has to stay at or above scheduler.cpu_hold_percent before new starts are held. Default 30s, at most 2m, the throttle ladder's step, which the hold feeds.",
+	},
+	{
+		Key: "scheduler.cpu_release_percent", Label: "CPU hold: release line", Env: "ZOOMIES_CPU_RELEASE_PERCENT", Kind: KindFloat, Scope: ScopeInstance, Live: true,
+		Summary: "The CPU occupancy below which a held host takes new starts again and a throttled host counts as calm, from 1 to 100 and below scheduler.cpu_hold_percent. Default 85.",
+	},
+	{
+		Key: "scheduler.cpu_paced_percent", Label: "Paced starts: CPU line", Env: "ZOOMIES_CPU_PACED_PERCENT", Kind: KindFloat, Scope: ScopeInstance, Live: true,
+		Summary: "The CPU occupancy at or above which runners are started a few at a time, each waiting for the ones before it to come up, from 1 to 100. Default 85.",
+	},
+	{
+		Key: "scheduler.elastic_cpu_busy_percent", Label: "Elastic CPU: busy line", Env: "ZOOMIES_ELASTIC_CPU_BUSY_PERCENT", Kind: KindFloat, Scope: ScopeInstance, Live: true,
+		Summary: "The CPU occupancy at or above which a host lends its runners no spare CPU, from 1 to 100. Default 85.",
+	},
+	{
 		Key: "scheduler.host_throttling", Label: "Throttle hosts under pressure", Env: "ZOOMIES_HOST_THROTTLING", Kind: KindBool, Scope: ScopeInstance, Live: true,
 		Summary: "Let the controller throttle a host its measurements say is overwhelmed, and step it back up after a stretch of calm.",
 	},

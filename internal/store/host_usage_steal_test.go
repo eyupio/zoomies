@@ -23,7 +23,7 @@ func TestAnImpossibleStealIsNotRecorded(t *testing.T) {
 		"more than busy":         stealUsage(40, 60),
 		"a little over rounding": stealUsage(40, 40.2),
 	} {
-		if got := ObserveHostUsage(HostUsage{}, u, 0, 16384, now); got.StealPercent != nil {
+		if got := ObserveHostUsage(HostUsage{}, u, 0, 16384, now, CPUThresholds{}); got.StealPercent != nil {
 			t.Errorf("%s: steal %v was recorded: %+v", name, *got.StealPercent, got)
 		}
 	}
@@ -37,7 +37,7 @@ func TestStealUpToTheBusyShareIsRecordedWithItsCPUFigure(t *testing.T) {
 		"a measured zero":         stealUsage(70, 0),
 		"a tenth of a point over": stealUsage(40, 40.05),
 	} {
-		got := ObserveHostUsage(HostUsage{}, u, 0, 16384, now)
+		got := ObserveHostUsage(HostUsage{}, u, 0, 16384, now, CPUThresholds{})
 		if got.StealPercent == nil || *got.StealPercent != *u.StealPercent {
 			t.Errorf("%s: steal = %v, want %v", name, got.StealPercent, *u.StealPercent)
 		}
@@ -53,7 +53,7 @@ func TestStealIsNotRecordedWithoutACPUFigure(t *testing.T) {
 	now := time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
 	steal := 30.0
 	mem := int64(4096)
-	got := ObserveHostUsage(HostUsage{}, HostUsage{StealPercent: &steal, MemoryAvailableMB: &mem}, 0, 16384, now)
+	got := ObserveHostUsage(HostUsage{}, HostUsage{StealPercent: &steal, MemoryAvailableMB: &mem}, 0, 16384, now, CPUThresholds{})
 	if got.StealPercent != nil {
 		t.Fatalf("steal %v was recorded with no CPU figure: %+v", *got.StealPercent, got)
 	}

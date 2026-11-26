@@ -46,7 +46,71 @@ type HostUsage struct {
 	// it owns CPUHighSince: an agent that sent its own could keep a host looking
 	// disk-bound, or never.
 	IOWaitHighSince *time.Time `json:"io_wait_high_since,omitempty"`
+	// CPU is the set of CPU figures this measurement was judged by. The
+	// controller stamps it from its settings on every observation, so a
+	// setting changed while the controller runs takes effect on the next
+	// heartbeat, and everything that reads the hold afterwards (admission,
+	// paced starts, the throttle ladder, elastic CPU) reads the same figures
+	// the hold was decided on. A row written before the figures existed
+	// carries none and is read with the defaults.
+	CPU CPUThresholds `json:"cpu_thresholds,omitzero"`
 }
+
+// CPUThresholds are the CPU occupancy figures a host is judged by, each as a
+// share of the whole machine with the CPU lent to runners taken out. A zero
+// field means its default, which is what the hold did before the figures
+// could be set.
+type CPUThresholds struct {
+	// HoldPercent is the occupancy at which the clock towards a hold on new
+	// starts begins: 95 by default.
+	HoldPercent float64 `json:"hold_percent,omitempty"`
+	// HoldWindow is how long occupancy has to stay at or above HoldPercent
+	// before new starts are held: 30 seconds by default.
+	HoldWindow time.Duration `json:"hold_window,omitempty"`
+	// ReleasePercent is the occupancy below which a hold is lifted, and the
+	// line under which a throttled host counts as calm, so the two never
+	// disagree about whether a host has recovered: 85 by default.
+	ReleasePercent float64 `json:"release_percent,omitempty"`
+	// PacedPercent is the occupancy at or above which runners are started a
+	// few at a time, each waiting for the one before to come up: 85 by
+	// default.
+	PacedPercent float64 `json:"paced_percent,omitempty"`
+	// ElasticBusyPercent is the occupancy at or above which a host lends its
+	// runners no spare CPU: 85 by default.
+	ElasticBusyPercent float64 `json:"elastic_busy_percent,omitempty"`
+}
+
+// Default CPU figures, the ones the hold used before they could be set.
+const (
+	DefaultCPUHoldPercent        = 95.0
+	DefaultCPUHoldWindow         = 30 * time.Second
+	DefaultCPUReleasePercent     = 85.0
+	DefaultCPUPacedPercent       = 85.0
+	DefaultCPUElasticBusyPercent = 85.0
+)
+
+// OrDefault is t with every unset figure replaced by its default.
+func (t CPUThresholds) OrDefault() CPUThresholds {
+	if t.HoldPercent <= 0 {
+		t.HoldPercent = DefaultCPUHoldPercent
+	}
+	if t.HoldWindow <= 0 {
+		t.HoldWindow = DefaultCPUHoldWindow
+	}
+	if t.ReleasePercent <= 0 {
+		t.ReleasePercent = DefaultCPUReleasePercent
+	}
+	if t.PacedPercent <= 0 {
+		t.PacedPercent = DefaultCPUPacedPercent
+	}
+	if t.ElasticBusyPercent <= 0 {
+		t.ElasticBusyPercent = DefaultCPUElasticBusyPercent
+	}
+	return t
+}
+
+// Thresholds is the set of CPU figures this measurement is judged by.
+func (u HostUsage) Thresholds() CPUThresholds { return u.CPU.OrDefault() }
 
 // UnlentCPUPercent is the host's CPU less what runners were using of CPU lent
 // to them: the load the plan did not account for. Nil where CPU was not
@@ -61,11 +125,11 @@ func (u HostUsage) UnlentCPUPercent() *float64 {
 
 const HostUsageMaxAge = 90 * time.Second
 
-// CPUHoldWindow is how long CPU has to sit at or above 95% before new starts
-// are held. It is a constant rather than a literal because the throttle
-// ladder is paced against it: a rung may not be climbed faster than the hold
-// that feeds it can trip, and internal/controller pins the two together.
-const CPUHoldWindow = 30 * time.Second
+// MaxCPUHoldWindow is the longest the CPU hold may wait before it trips. The
+// throttle ladder is paced against the hold: a rung may not be climbed faster
+// than the hold that feeds it can trip, so the window can be no longer than
+// the ladder's step, and internal/controller pins the two together.
+const MaxCPUHoldWindow = 2 * time.Minute
 
 // I/O wait is judged the way CPU is: one threshold to start the clock and a
 // lower one to stop it, so a host hovering around the line is one sustained
@@ -94,14 +158,17 @@ func (u HostUsage) Fresh(now time.Time) bool {
 
 // ObserveHostUsage validates just the measurements an agent may supply. A
 // forged timestamp cannot keep a reading fresh, or shorten a pressure hold.
-// Sustained CPU pressure pauses admission after 30 seconds above 95%; a
-// reading below 85% releases it. Busy runners are never changed by this state.
+// Sustained CPU pressure pauses admission once CPU has stayed at or above
+// cpu.HoldPercent for cpu.HoldWindow; a reading below cpu.ReleasePercent
+// releases it. The defaults are 95%, 30 seconds and 85%. Busy runners are
+// never changed by this state.
 //
 // lentPercent is the controller's own figure for the share of the host that
 // runners were using out of lent CPU, and both thresholds are judged without
 // it. The recorded CPUPercent stays the raw measurement.
-func ObserveHostUsage(previous, measured HostUsage, lentPercent float64, memoryMB int64, now time.Time) HostUsage {
-	u := HostUsage{SampledAt: now}
+func ObserveHostUsage(previous, measured HostUsage, lentPercent float64, memoryMB int64, now time.Time, cpu CPUThresholds) HostUsage {
+	cpu = cpu.OrDefault()
+	u := HostUsage{SampledAt: now, CPU: cpu}
 	if v := measured.CPUPercent; v != nil && !math.IsNaN(*v) && !math.IsInf(*v, 0) && *v >= 0 && *v <= 100 {
 		raw := *v
 		u.CPUPercent = &raw
@@ -110,15 +177,15 @@ func ObserveHostUsage(previous, measured HostUsage, lentPercent float64, memoryM
 		}
 		value := *u.UnlentCPUPercent()
 		if previous.Fresh(now) && previous.CPUPercent != nil {
-			u.CPUHeld = previous.CPUHeld && value >= 85
+			u.CPUHeld = previous.CPUHeld && value >= cpu.ReleasePercent
 		}
-		if value >= 95 {
+		if value >= cpu.HoldPercent {
 			since := now
 			if previous.Fresh(now) && previous.CPUHighSince != nil {
 				since = *previous.CPUHighSince
 			}
 			u.CPUHighSince = &since
-			u.CPUHeld = u.CPUHeld || now.Sub(since) >= CPUHoldWindow
+			u.CPUHeld = u.CPUHeld || now.Sub(since) >= cpu.HoldWindow
 		}
 	}
 	if v := measured.MemoryAvailableMB; v != nil && *v >= 0 && memoryMB > 0 && *v <= memoryMB {

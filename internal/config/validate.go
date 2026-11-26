@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/kennel"
+	"github.com/eyupio/zoomies/internal/store"
 )
 
 // Severity ranks a validation finding.
@@ -354,6 +355,7 @@ func (c *Config) validateChoicesAndBounds(add func(Finding)) {
 			Title: fmt.Sprintf("scheduler.history_percentile is %d, which is not between 1 and 100", v),
 			Fix:   "use a percentile from 1 to 100; 75 is the default and 100 sizes for the heaviest job waiting."})
 	}
+	c.validateCPUThresholds(add)
 	if v := c.Scheduler.HistoryMaxMultiple; v != 0 && (v < 1 || v > 8) {
 		add(Finding{Code: "scheduler.history_max_multiple", Severity: SeverityError, Setting: "scheduler.history_max_multiple",
 			Title: fmt.Sprintf("scheduler.history_max_multiple is %d, which is not between 1 and 8", v),
@@ -2023,5 +2025,42 @@ func (c *Config) validateUpdates(add func(Finding)) {
 				"broken, or is replaced by a fix within hours, would be taken before anyone has had the chance to notice.",
 			Fix: `set updates.soak to "24h", which is the default, or to however long a release should have been public first; or set updates.mode to manual to take each update yourself.`,
 		})
+	}
+}
+
+// validateCPUThresholds checks the CPU figures the hold, paced starts and
+// elastic CPU are judged by. Zero is each one's default.
+func (c *Config) validateCPUThresholds(add func(Finding)) {
+	s := c.Scheduler
+	// Each code is written out where it is raised, so the problem-code
+	// reference can find it.
+	share := func(f Finding, v float64) {
+		if v != 0 && (v < 1 || v > 100) {
+			f.Severity, f.Setting = SeverityError, f.Code
+			f.Title = fmt.Sprintf("%s is %g, which is not between 1 and 100", f.Code, v)
+			f.Fix = "use a share of the host's CPU from 1 to 100, or 0 for the default."
+			add(f)
+		}
+	}
+	share(Finding{Code: "scheduler.cpu_hold_percent"}, s.CPUHoldPercent)
+	share(Finding{Code: "scheduler.cpu_release_percent"}, s.CPUReleasePercent)
+	share(Finding{Code: "scheduler.cpu_paced_percent"}, s.CPUPacedPercent)
+	share(Finding{Code: "scheduler.elastic_cpu_busy_percent"}, s.ElasticCPUBusyPercent)
+	if v := s.CPUHoldWindow; v < 0 || v > store.MaxCPUHoldWindow {
+		add(Finding{Code: "scheduler.cpu_hold_window", Severity: SeverityError, Setting: "scheduler.cpu_hold_window",
+			Title: fmt.Sprintf("scheduler.cpu_hold_window is %s, which is not between 0 and %s", v, store.MaxCPUHoldWindow),
+			Fix:   "use a window no longer than the throttle ladder's step, 2m; 30s is the default."})
+	}
+	hold, release := s.CPUHoldPercent, s.CPUReleasePercent
+	if hold == 0 {
+		hold = store.DefaultCPUHoldPercent
+	}
+	if release == 0 {
+		release = store.DefaultCPUReleasePercent
+	}
+	if release >= hold {
+		add(Finding{Code: "scheduler.cpu_release_percent", Severity: SeverityError, Setting: "scheduler.cpu_release_percent",
+			Title: fmt.Sprintf("scheduler.cpu_release_percent is %g, not below scheduler.cpu_hold_percent, %g", release, hold),
+			Fix:   "set the release line below the hold's start line, so a held host can be released; 10 points below is what the defaults do."})
 	}
 }

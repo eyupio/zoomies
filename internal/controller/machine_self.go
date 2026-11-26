@@ -103,7 +103,7 @@ func (c *Controller) sampleMachine() {
 	seen := store.ObserveHostUsage(store.HostUsage{}, store.HostUsage{
 		CPUPercent: u.CPUPercent, MemoryAvailableMB: u.MemoryAvailableMB, LoadAverage1: u.LoadAverage1,
 		IOWaitPercent: u.IOWaitPercent, StealPercent: u.StealPercent,
-	}, 0, memoryMB, now)
+	}, 0, memoryMB, now, c.cpuThresholds())
 	view := &ControllerMachineView{CPUs: cpus, MemoryMB: memoryMB}
 	if !seen.SampledAt.IsZero() && (seen.CPUPercent != nil || seen.MemoryAvailableMB != nil || seen.LoadAverage1 != nil) {
 		view.Usage = &ControllerMachineUsage{CPUPercent: seen.CPUPercent, IOWaitPercent: seen.IOWaitPercent, StealPercent: seen.StealPercent,
