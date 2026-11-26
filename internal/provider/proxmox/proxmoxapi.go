@@ -1219,16 +1219,17 @@ func (c *Client) CloneVM(ctx context.Context, node string, template int, req Clo
 }
 
 // ConfigureVM sets configuration on a guest: its size, its network, and the
-// tags and description that mark it as ours. It is synchronous unless it has to
-// resize a disk, so the handle it returns is often empty.
-func (c *Client) ConfigureVM(ctx context.Context, node string, vmid int, params url.Values) (string, error) {
-	var upid string
-	err := c.do(ctx, call{
+// tags and description that mark it as ours. PUT is Proxmox's synchronous form
+// and a refusal is this call's own error; POST answers with a task and applies
+// the change in a worker, where a refusal is seen by nobody and the guest
+// starts at the template's size. Nothing written here allocates storage or
+// hotplugs, which are what the asynchronous form is for.
+func (c *Client) ConfigureVM(ctx context.Context, node string, vmid int, params url.Values) error {
+	return c.do(ctx, call{
 		op:   fmt.Sprintf("configure VM %d on %s", vmid, node),
 		ref:  vmRef(node, vmid),
-		verb: http.MethodPost, path: vmPath(node, vmid) + "/config", form: params,
-	}, &upid)
-	return upid, err
+		verb: http.MethodPut, path: vmPath(node, vmid) + "/config", form: params,
+	}, nil)
 }
 
 // ResizeDisk grows a disk, and only ever grows one: Proxmox refuses to shrink,

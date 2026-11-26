@@ -558,7 +558,7 @@ func (p *Provider) configure(ctx context.Context, node string, vmid int, cfg VMC
 		params.Set("tags", EncodeTags(cfg.Tags, Tags(owner)))
 	}
 
-	if _, err := p.client.ConfigureVM(ctx, node, vmid, params); err != nil {
+	if err := p.client.ConfigureVM(ctx, node, vmid, params); err != nil {
 		return err
 	}
 	if !haveShape || shape.DiskMB <= 0 {
