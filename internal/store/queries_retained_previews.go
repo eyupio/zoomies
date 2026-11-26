@@ -132,7 +132,8 @@ func (s *Store) putRetainedPreview(ctx context.Context, k *retainedPreviewKind, 
 			}
 			return err
 		}
-		if !(kind == string(TargetRepo) && target == r.Repository || kind == string(TargetOrg) && target == owner) {
+		// Folded, as the webhook path folds it: the target is stored in lower case and the repository arrives in GitHub's.
+		if !(kind == string(TargetRepo) && strings.EqualFold(target, r.Repository) || kind == string(TargetOrg) && strings.EqualFold(target, owner)) {
 			return k.invalid
 		}
 		var installation, repo, user, oldVersion, oldHash string
