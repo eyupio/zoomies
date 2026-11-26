@@ -459,7 +459,8 @@ type RunnerReport struct {
 	// soon after, and these lines are the only evidence of what it said that
 	// outlives it; the controller keeps them on the job.
 	OutputTail []string `json:"output_tail,omitempty"`
-	// GitHubRunnerID is filled in once the runner has registered.
+	// GitHubRunnerID is no longer read: the controller asks GitHub which
+	// registration a runner has. It stays so the report's shape does not move.
 	GitHubRunnerID int64     `json:"github_runner_id,omitempty"`
 	ObservedAt     time.Time `json:"observed_at"`
 }
