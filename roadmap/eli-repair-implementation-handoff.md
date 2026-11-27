@@ -548,6 +548,7 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1418](https://github.com/eyupio/zoomies/pull/1418), open, stacked on #1417 | S4 UI follow-up: the watched pull request's disclosure lists every attempt on that pull request, newest first, with how it ended, when, who began it and the commit it published, and links each to the attempt page; the list is narrowed to the watched pull request, a failed read says so, and a truncated history says older attempts may be missing | UI type, lint and production build pass; 1,335 unit cases pass including two new history-order cases; 28 Playwright cases on desktop and mobile for `repair-watching`, including the new history case; the repairs pages of the accessibility audit pass on both devices; no Go or API change | One row per repository; non-administrator activity or an explicit administrator-only statement; notifications; live end-to-end validation |
 | [#1497](https://github.com/eyupio/zoomies/pull/1497), open | Corrective, not a slice: a finished attempt stops asking in **Needs you** once its pull request no longer needs it. See "Finished attempts that no longer need anyone, 14 November 2026" | Store and controller tests named in that section, the full Go suite, vet, gofmt, UI type check and lint pass; checked against one live instance's list, read-only; no live model or GitHub write | Unchanged: the S4 items in the checkpoint table |
 | [#1535](https://github.com/eyupio/zoomies/pull/1535), open | Corrective, not a slice: fixes from the 21 November 2026 audit that touch Eli repair. See "Corrective fixes from the 21 November 2026 audit" | The tests named in that section, vet and gofmt pass; the full Go suite is run once for the whole pull request, not per fix; fakes only, no live model and nothing written to GitHub | Unchanged: the S4 items in the checkpoint table |
+| PR: https://github.com/eyupio/zoomies/pull/1570 | Corrective, not a slice: a repair refuses the Codex and GitHub Copilot providers. See "Corrective fix from the 26 November 2026 audit" | `TestARepairRefusesAToolThatCanReadTheControllersFiles` failed first and passes; the narrow controller and API tests, the docs tests and gofmt pass; fakes only, no live model and nothing written to GitHub | Unchanged: the S4 items in the checkpoint table |
 | [#1392](https://github.com/eyupio/zoomies/pull/1392), open | Controller load, not a slice: the S2c due-watch claim looks on the reader pool before taking the writer, alongside the enrichment claim, the event stream's figures and the database file's mapping | Full `make test` race suite (55 packages), vet, staticcheck, gofmt and `go mod tidy -diff` pass; no UI, public API or watch behaviour change | Unchanged: S3b resolution and publication, then S4 UX |
 
 S4 attempt-history validation on 6 November 2026:
@@ -2401,3 +2402,40 @@ Eli tests in `internal/controller`, and plain runs of `internal/controller`,
 `internal/api` and `internal/agent` pass. The other three fixes (restore's digest
 check, the authorize limit, the Argon2 bound) are in `plans/audit-2026-11-21.md`
 and the commit messages.
+
+## Corrective fix from the 26 November 2026 audit
+
+PR: https://github.com/eyupio/zoomies/pull/1570. Not a slice; S4's remaining items in the checkpoint table are
+unchanged and still the next unfinished step.
+
+**A repair does not run through Codex or GitHub Copilot.** An administrator's own
+subscription provider could answer a repair they asked for, from the page or with
+`/eli fix`. Claude Code is run with every tool off, but Codex is run in its
+read-only sandbox, which can read any file the controller's user can read, and
+Copilot keeps tools of its own too. `docs/eli.md` accepted that because nothing
+but the person's own words reached those tools, which is true of a chat and not of
+a repair: a repair's question holds the pull request's text, its diff and its
+failing job's log, and its answer is committed to the pull request. A line in a
+log could have had Codex read the controller's key or database and return it in
+the fix, where whoever opened the pull request reads it.
+
+Scope: `repairKindRefusal` in `internal/controller/eli_repairs.go` names the two
+kinds and the sentence a person is told. `requestPinnedEliRepair` returns it
+before a row is queued, as an error the API already answers with its own words
+(it matches `ErrAssistantSubscriptionRestricted`, a 403), and `runEliRepair`
+fails the attempt with it before any evidence or source is read, which is what a
+`/eli fix` comment gets back on the pull request. Claude Code and every API
+provider are untouched, and so are automatic repairs and conflict repairs, which
+only ever use a team provider and a team provider cannot be a subscription.
+`docs/eli.md` says so under "Using your own subscription".
+
+Validation: `TestARepairRefusesAToolThatCanReadTheControllersFiles` in
+`internal/controller/eli_repair_tools_test.go` failed first, with the repair
+reaching the source read through a Codex provider, and passes. The narrow
+controller and API tests, `go test ./internal/docs/...` and gofmt pass. Fakes
+only: no live model, no real Codex or Copilot, nothing written to GitHub.
+
+Not done: the readiness answer (`EliReadiness`) does not name this blocker ahead
+of the request, so the page learns of it when the request is refused. Copilot's
+question is still one command line argument, which Linux caps at 128 KiB; with
+repairs refused, a chat's 32 KiB bound keeps it under that.

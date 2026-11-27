@@ -119,3 +119,40 @@ func TestPersonalAccountPlacementKeepsTheRepositoryOfTheCompatibleJob(t *testing
 		t.Fatalf("want a runner for %s, got %+v", x64.Repo, creates)
 	}
 }
+
+// A job that asks for a platform no host has is not a pool that any new machine
+// would unblock: the machine loop rents the provider's own shape for a pool
+// reported as having nowhere to go, so ten arm64 jobs on an amd64 fleet rented
+// amd64 machines that could never run them, held until the jobs went stale.
+func TestAJobAskingForAPlatformNoHostHasDoesNotSayAnyMachineWouldDo(t *testing.T) {
+	pool := testPool("ci", "ci")
+	amd := hostOn("host_a", "ubuntu", "24.04", "amd64", 4)
+	pp := only(t, Decide(snap([]*store.Pool{pool}, nil, []*store.Job{queued("arm", time.Minute, "arm64", "ci")}, []*store.Host{amd})))
+	if !strings.Contains(pp.Blocked, "arm64") {
+		t.Fatalf("blocked = %q, want it to name the labels no host supplies", pp.Blocked)
+	}
+	if pp.BlockedNoEligibleHost || pp.BlockedAtCapacity {
+		t.Fatalf("no eligible host = %v, at capacity = %v; want neither, so nothing is rented for it",
+			pp.BlockedNoEligibleHost, pp.BlockedAtCapacity)
+	}
+}
+
+// The surplus is counted against what the repository-aware decision settled
+// on, not the pool's total: a personal account's runners are not
+// interchangeable, so an idle runner for one repository is no reason to stop
+// the runner starting for another repository's queued job.
+func TestARunnerStartingForARepositorysJobIsNotSurplusBesideAnotherRepositorysIdleRunner(t *testing.T) {
+	pool := testPool("ci", "ci")
+	host := hostOn("host_a", "ubuntu", "24.04", "amd64", 4)
+	idle := idleRunner("idle-a", pool, time.Second)
+	idle.Repo = "acme/a"
+	starting := testRunner("starting-b", pool, store.RunnerProvisioning, 3*time.Second)
+	starting.Repo = "acme/b"
+	job := queued("b", time.Minute, "ci")
+	job.Repo = "acme/b"
+	s := snap([]*store.Pool{pool}, []*store.Runner{idle, starting}, []*store.Job{job}, []*store.Host{host})
+	s.Installations[0].AccountType = store.AccountUser
+	if drains := actionsOf(Decide(s).Actions, ActionDrain); len(drains) != 0 {
+		t.Fatalf("drained %+v, want nothing: the job on acme/b is still waiting for its runner", drains)
+	}
+}

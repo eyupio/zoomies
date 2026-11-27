@@ -197,9 +197,14 @@ func (s *Service) stage(w http.ResponseWriter, r *http.Request, p *pending, path
 	_, staged := s.pendingTotalsLocked()
 	room := s.maxPendingBytes() - (staged - freed)
 	limit := min(s.entryLimit(), room)
-	if limit <= 0 {
+	if limit <= 0 || r.ContentLength > limit {
 		s.mu.Unlock()
 		return 0, 0, errors.New("the service's open uploads have no room left")
+	}
+	// A body that says its length takes that much: handed the whole room, one
+	// block left none for the blocks the toolkit uploads beside it.
+	if r.ContentLength >= 0 {
+		limit = r.ContentLength
 	}
 	s.inflight += limit
 	s.mu.Unlock()

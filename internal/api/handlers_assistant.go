@@ -66,6 +66,29 @@ func (in assistantProviderInput) apply(p *store.AssistantProvider) {
 	}
 }
 
+// providerAddress is where a provider's requests go: the host of its address,
+// or of its kind's own when it names none.
+func providerAddress(p *store.AssistantProvider) string {
+	base := p.BaseURL
+	if base == "" {
+		base = assistant.DefaultBaseURL(assistant.Kind(p.Kind))
+	}
+	if u, err := url.Parse(base); err == nil && u.Host != "" {
+		return strings.ToLower(u.Host)
+	}
+	return base
+}
+
+// keyForNewAddress refuses to send a sealed key to an address other than from,
+// the one it was saved for: the key is never shown, and a test or an edit that
+// moved the address with the key box blank would hand it to whoever answers there.
+func keyForNewAddress(from string, p *store.AssistantProvider, apiKey *string) []fieldError {
+	if len(p.KeyEnc) == 0 || providerAddress(p) == from || apiKey != nil && strings.TrimSpace(*apiKey) != "" {
+		return nil
+	}
+	return []fieldError{{"api_key", "enter the key again for the new address; the saved key is only sent to " + from + ", where it was saved for"}}
+}
+
 // validateAssistantProvider says what is wrong with a row as it would be
 // saved. The fake kind is admitted only where the demo seeded one, because
 // a person creating "a model that answers without a network" on a real
@@ -289,8 +312,9 @@ func (s *Server) handleUpdateAssistantProvider(w http.ResponseWriter, r *http.Re
 		return
 	}
 	before := s.ctrl.AssistantProviderView(row)
+	from := providerAddress(row)
 	in.apply(row)
-	if errs := s.validateAssistantProvider(r, row, in.BaseURL != nil, in.APIKey); len(errs) > 0 {
+	if errs := append(s.validateAssistantProvider(r, row, in.BaseURL != nil, in.APIKey), keyForNewAddress(from, row, in.APIKey)...); len(errs) > 0 {
 		unprocessable(w, "this provider cannot be changed as described", errs)
 		return
 	}
@@ -405,11 +429,12 @@ func (s *Server) handleCheckAssistantDraft(w http.ResponseWriter, r *http.Reques
 		}
 		draft = row
 	}
+	from := providerAddress(draft)
 	in.apply(draft)
 	if draft.Name == "" {
 		draft.Name = "draft"
 	}
-	if errs := s.validateAssistantProvider(r, draft, in.BaseURL != nil, in.APIKey); len(errs) > 0 {
+	if errs := append(s.validateAssistantProvider(r, draft, in.BaseURL != nil, in.APIKey), keyForNewAddress(from, draft, in.APIKey)...); len(errs) > 0 {
 		unprocessable(w, "this provider cannot be checked as described", errs)
 		return
 	}
@@ -444,6 +469,7 @@ func (s *Server) handleAssistantModels(w http.ResponseWriter, r *http.Request) {
 		}
 		draft = row
 	}
+	from := providerAddress(draft)
 	in.apply(draft)
 	if draft.Name == "" {
 		draft.Name = "draft"
@@ -453,7 +479,7 @@ func (s *Server) handleAssistantModels(w http.ResponseWriter, r *http.Request) {
 		// chosen must not be refused for want of one.
 		draft.Model = "unset"
 	}
-	if errs := s.validateAssistantProvider(r, draft, in.BaseURL != nil, in.APIKey); len(errs) > 0 {
+	if errs := append(s.validateAssistantProvider(r, draft, in.BaseURL != nil, in.APIKey), keyForNewAddress(from, draft, in.APIKey)...); len(errs) > 0 {
 		unprocessable(w, "the models of this provider cannot be listed as described", errs)
 		return
 	}

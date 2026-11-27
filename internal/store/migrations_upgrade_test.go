@@ -525,6 +525,64 @@ func TestAMigrationThatFailsLaterStillGetsACopyOfWhereTheDatabaseIsNow(t *testin
 	}
 }
 
+// A migration that fails leaves the ledger as it was, so the release before it
+// still opens the database, and it is what gets put back, by hand or by the
+// upgrade's own rollback. It then writes for as long as it runs. The next
+// upgrade found the first one's copy at the ledger the database still had and
+// kept it as the way back, short of everything written in between.
+func TestACopyIsNotReusedOnceTheDatabaseHasBeenWrittenSince(t *testing.T) {
+	ctx := context.Background()
+	path := atSchemaBefore(t, "0030_providers.sql")
+	breakTable(t, path, "providers")
+	failToOpen := func(now time.Time) {
+		t.Helper()
+		if s, err := Open(ctx, Options{Path: path, Now: func() time.Time { return now }}); err == nil {
+			s.Close()
+			t.Fatal("the open succeeded although a migration cannot apply")
+		}
+	}
+	start := time.Now()
+	failToOpen(start)
+	copies := preMigrationCopies(t, path)
+	if len(copies) != 1 {
+		t.Fatalf("the first failed start left %d copies, want 1: %v", len(copies), copies)
+	}
+
+	// Both as they were an hour ago, so that the write below is later than the
+	// copy on any file system's clock and not by the few milliseconds a test takes.
+	earlier := time.Now().Add(-time.Hour)
+	for _, file := range []string{path, filepath.Join(filepath.Dir(path), PreMigrationDir, copies[0], BackupDBName)} {
+		if err := os.Chtimes(file, earlier, earlier); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO settings (key, value, secret, updated_at) VALUES ('written-since', 'the old release at work', 0, 0)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	failToOpen(start.Add(21 * 24 * time.Hour))
+	copies = preMigrationCopies(t, path)
+	if len(copies) != 2 {
+		t.Fatalf("a start after the database was written again left %d copies, want 2: the first one no longer holds what the database does: %v", len(copies), copies)
+	}
+	newest, err := sql.Open("sqlite", "file:"+filepath.Join(filepath.Dir(path), PreMigrationDir, copies[1], BackupDBName)+"?mode=ro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer newest.Close()
+	var kept int
+	if err := newest.QueryRow(`SELECT COUNT(*) FROM settings WHERE key = 'written-since'`).Scan(&kept); err != nil || kept != 1 {
+		t.Fatalf("the newest copy holds %d of the one row written since the first (%v)", kept, err)
+	}
+}
+
 // The platform role is the first change to reach the users table since the
 // first schema, and the first rebuild of a table another one points at. Two
 // things could go wrong quietly: a column dropped on the way through, and

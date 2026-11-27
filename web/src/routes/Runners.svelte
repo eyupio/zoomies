@@ -311,6 +311,8 @@
     onScreen = rows;
     const changed = rows.some((row) => {
       const cached = fleet.runner(row.id);
+      // The cache never holds a removed runner, so one differs only while a stale copy is there.
+      if (row.state === 'removed') return cached !== undefined;
       return (
         !cached ||
         cached.name !== row.name ||

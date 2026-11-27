@@ -62,6 +62,61 @@ Describe 'Find-Checksum' {
     }
 }
 
+Describe 'Confirm-ReleaseSignature' {
+    # checksums.txt arrives from where the binary does, so on its own it says
+    # nothing about who made either; the signature over it is what does.
+    BeforeEach {
+        $script:shippedKey = $script:ReleaseKey
+        $script:sumsFile = Join-Path $TestDrive 'checksums.txt'
+        [IO.File]::WriteAllText($script:sumsFile, "$('cd' * 32)  zoomies_windows_amd64.exe`n")
+    }
+    AfterEach {
+        $script:ReleaseKey = $script:shippedKey
+    }
+
+    It 'says the signature was not checked when there is no openssl, and goes on' {
+        Mock Find-OpenSsl { $null }
+        Mock Get-UrlText { throw 'nothing may be downloaded' }
+        $output = (Confirm-ReleaseSignature 'v1.2.3' $script:sumsFile $TestDrive *>&1 | Out-String)
+        $output | Should -Match 'the signature was not checked'
+        Should -Invoke Get-UrlText -Times 0
+    }
+
+    It 'says the signature was not checked when the release carries none, and goes on' {
+        Mock Find-OpenSsl { 'openssl' }
+        Mock Get-UrlText { throw 'the server answered 404' }
+        $output = (Confirm-ReleaseSignature 'v1.2.3' $script:sumsFile $TestDrive *>&1 | Out-String)
+        $output | Should -Match 'carries no checksums.txt.ed25519'
+    }
+
+    It 'accepts a signature made with the release key and stops on one that does not match' {
+        $openssl = Find-OpenSsl
+        if (-not $openssl) {
+            # A check that is skipped in CI is one that passes by checking nothing.
+            if ($env:CI) { throw 'CI needs an openssl 3.0 or later to run this test.' }
+            Set-ItResult -Skipped -Because 'there is no openssl 3.0 or later here to make a signature with'
+            return
+        }
+        # A key pair of this test's own, signing as the release workflow does.
+        $pem = Join-Path $TestDrive 'key.pem'
+        $made = Join-Path $TestDrive 'made.sig'
+        $der = Join-Path $TestDrive 'public.der'
+        Invoke-Native $openssl @('genpkey', '-algorithm', 'ed25519', '-out', $pem) | Out-Null
+        Invoke-Native $openssl @('pkeyutl', '-sign', '-inkey', $pem, '-rawin', '-in', $script:sumsFile, '-out', $made) | Out-Null
+        Invoke-Native $openssl @('pkey', '-in', $pem, '-pubout', '-outform', 'DER', '-out', $der) | Out-Null
+        $script:ReleaseKey = [Convert]::ToBase64String([byte[]]([IO.File]::ReadAllBytes($der) | Select-Object -Last 32))
+        $script:envelope = "key:test`n" + [Convert]::ToBase64String([IO.File]::ReadAllBytes($made)) + "`n"
+        Mock Get-UrlText { $script:envelope }
+
+        $output = (Confirm-ReleaseSignature 'v1.2.3' $script:sumsFile $TestDrive *>&1 | Out-String)
+        $output | Should -Match 'matches the release key'
+
+        # The same signature over other checksums is what a replaced release looks like.
+        [IO.File]::WriteAllText($script:sumsFile, "$('ef' * 32)  zoomies_windows_amd64.exe`n")
+        { Confirm-ReleaseSignature 'v1.2.3' $script:sumsFile $TestDrive } | Should -Throw '*does not match the release key*'
+    }
+}
+
 Describe 'Test-Platform' {
     It 'accepts x86-64' {
         { Test-Platform -Architecture 'X64' -Major 5 -Minor 1 } | Should -Not -Throw
