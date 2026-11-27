@@ -10,6 +10,7 @@ import (
 	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/backend"
 	"github.com/eyupio/zoomies/internal/cacheservice"
+	"github.com/eyupio/zoomies/internal/store"
 )
 
 func cacheStats(pool string, s cacheservice.Stats) backend.CacheStats {
@@ -214,5 +215,49 @@ func TestToolCacheFillsAreCountedByPoolAndOutcome(t *testing.T) {
 				t.Errorf("fills were counted under the pool id %q", pool.ID)
 			}
 		})
+	}
+}
+
+func TestIdleCachePoliciesFollowPoolEditsAndAppearWithoutQueuedJobs(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "cached")
+	pool.Cache = store.CacheConfig{Enabled: true, Scope: store.CacheScopePool, Source: "/var/lib/zoomies/shared/cache/pools", SizeLimit: 8192}
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	host := h.hostWith("idle", agent.FeatureCacheMaintenance)
+	resp, err := h.c.Heartbeat(h.ctx, host.ID, agent.HeartbeatRequest{Features: []string{agent.FeatureCacheMaintenance}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.CachePolicies) != 1 || resp.CachePolicies[0].Cache.SizeLimit != 8192 {
+		t.Fatalf("policies = %+v", resp.CachePolicies)
+	}
+	pool.Cache.SizeLimit = 4096
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	resp, err = h.c.Heartbeat(h.ctx, host.ID, agent.HeartbeatRequest{Features: []string{agent.FeatureCacheMaintenance}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.CachePolicies[0].Cache.SizeLimit != 4096 {
+		t.Fatal("policy kept the old limit")
+	}
+}
+
+func TestHostViewsCarryTheLatestCacheMeasurementAndClearAbsentReports(t *testing.T) {
+	h := newHarness(t)
+	host := h.hostWith("measured")
+	st := &backend.CacheStorage{PoolID: "pool_one", PackageBytes: 60, ToolsBytes: 30, ServiceBytes: 20, TotalBytes: 110, SizeLimit: 100, MeasuredAt: h.c.Now(), Deferred: "A container is still using this pool's cache"}
+	h.c.noteCaches(host.ID, []backend.CacheStats{{PoolID: st.PoolID, Storage: st}})
+	view := h.c.HostView(host)
+	if len(view.CacheStorage) != 1 || view.CacheStorage[0].TotalBytes != 110 || view.CacheStorage[0].Deferred == "" {
+		t.Fatalf("view = %+v", view.CacheStorage)
+	}
+	h.c.noteCaches(host.ID, nil)
+	if len(h.c.HostView(host).CacheStorage) != 0 {
+		t.Fatal("old measurement survived an absent report")
 	}
 }

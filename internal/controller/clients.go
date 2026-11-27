@@ -492,12 +492,10 @@ func (c *Controller) ProbeInstallation(ctx context.Context, installationID strin
 	inst.LastCheckedAt = &now
 	c.publishInstallation(ctx, inst)
 	if changedAccount {
-		// Its pools are planned differently now, and jobs may be waiting.
-		c.Nudge()
-	}
-	if changedAccount {
-		// Its pools are now planned differently, and jobs may be waiting.
-		c.Nudge()
+		// Its pools are planned differently now, and jobs may be waiting. An
+		// operator asked for this check, so the problems and tiles that follow
+		// from it are not left standing for the rest of the pacing gap.
+		c.NudgeOperator()
 	}
 
 	if err != nil {

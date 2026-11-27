@@ -351,6 +351,80 @@ func TestAnUnfinishedJobHoldsTheRollUpOnlyUntilItWouldBePruned(t *testing.T) {
 	}
 }
 
+// The installation roll-up counts a runner on the day it finishes, and reads a
+// runner that is still alive from its own row, so a runner that has not
+// finished cannot change any day before today and has nothing to wait for. One
+// idle runner, kept warm for as long as a pool wants, used to hold the roll-up
+// at the day it was created, and with it the jobs prune: nothing was deleted
+// for as long as the runner lived.
+func TestALiveRunnerDoesNotHoldTheInstallationRollUp(t *testing.T) {
+	day := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	now := day.Add(time.Hour)
+	s := newTestStoreAt(t, func() time.Time { return now })
+	ctx := context.Background()
+	inst, pool, host := seedPool(t, s)
+
+	warm := &Runner{PoolID: pool.ID, HostID: host.ID, Name: "warm"}
+	if err := s.CreateRunner(ctx, warm); err != nil {
+		t.Fatal(err)
+	}
+	for _, to := range []RunnerState{RunnerRegistering, RunnerIdle} {
+		if _, err := s.TransitionRunner(ctx, warm.ID, to, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := range 45 {
+		queued := day.Add(time.Duration(i)*24*time.Hour + 2*time.Hour)
+		done := queued.Add(time.Hour)
+		if _, err := s.UpsertJob(ctx, &Job{GitHubJobID: int64(100 + i), Repo: "acme/app", State: JobCompleted, Conclusion: "success",
+			Matched: true, InstallationID: inst.ID, QueuedAt: queued, CompletedAt: &done}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	now = day.Add(45 * 24 * time.Hour)
+	cutoff := now.Add(-30 * 24 * time.Hour)
+	if n, err := s.RollUpInstallations(ctx, now, cutoff); err != nil || n != 45 {
+		t.Fatalf("rolled up %d days, %v, with one runner alive and every job finished; want all 45", n, err)
+	}
+	counted, err := s.InstallationRollupUntil(ctx)
+	if err != nil || !counted.Equal(now) {
+		t.Fatalf("rolled until %v, %v; want %v", counted, err, now)
+	}
+	// What the controller does next: the jobs prune, held behind the roll-up.
+	if n, err := s.PruneJobs(ctx, cutoff); err != nil || n != 15 {
+		t.Fatalf("pruned %d jobs, %v; want the 15 older than the cutoff", n, err)
+	}
+}
+
+// The other half: a runner that has finished but has no session yet is counted
+// from its row today and from its session later, so the day it finished must
+// stay open until the session exists, or it would be counted twice.
+func TestAFinishedRunnerWithNoSessionYetStillHoldsTheInstallationRollUp(t *testing.T) {
+	day := time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC)
+	now := day
+	s := newTestStoreAt(t, func() time.Time { return now })
+	ctx := context.Background()
+	_, pool, host := seedPool(t, s)
+	pending := runnerLife(t, s, &now, pool, host, "cleaning", day.Add(26*time.Hour), day.Add(27*time.Hour), 0)
+
+	now = day.Add(5 * 24 * time.Hour)
+	if n, err := s.RollUpInstallations(ctx, now, time.Time{}); err != nil || n != 0 {
+		t.Fatalf("rolled up %d days, %v, with a finished runner's session still to come; want none", n, err)
+	}
+	for _, side := range []bool{true, false} {
+		if _, err := s.ConfirmRunnerCleanup(ctx, pending.ID, side); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.RollUpInstallations(ctx, now, time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.InstallationRollupUntil(ctx); err != nil || !got.Equal(now) {
+		t.Fatalf("rolled until %v, %v, once the session exists; want %v", got, err, now)
+	}
+}
+
 // A runner from before the create task was stamped has no end to its
 // scheduling interval. Its job still ran here; it was not provably created
 // for, and it gives no sample -- missing is not zero, and it must not stop

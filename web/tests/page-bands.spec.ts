@@ -474,7 +474,14 @@ test('every page names itself, underlines it and says what it is', async ({ page
     const header = page.locator('.page-header');
     await expect(header.getByRole('heading', { name: item.heading, level: 1 })).toBeVisible();
     await expect(header.locator('.rule')).toBeVisible();
-    await expect(header.locator('p.subtitle')).toBeVisible();
+    if (item.path === '/runners' || item.path === '/workflows') {
+      // These two keep their sentence in the band, so the header carries only
+      // the name and the rows get the room.
+      await expect(header.locator('p.subtitle')).toHaveCount(0);
+      await expect(page.getByTestId(item.band)).toBeVisible();
+    } else {
+      await expect(header.locator('p.subtitle')).toBeVisible();
+    }
   }
 });
 
@@ -570,6 +577,9 @@ test('the Overview band shows the week by the hour, and an hour of it opens Hist
   const card = band.getByTestId('fleet-punch-card');
   await expect(card).toBeVisible();
   await expect(card).toContainText('The last 7 days, by the hour');
+  // The scale is visible, not only in each square's tooltip.
+  await expect(card.locator('.legend')).toContainText('Fewer');
+  await expect(card.locator('.legend')).toContainText('More');
   const grid = card.getByRole('grid');
   await expect(grid.getByRole('gridcell')).toHaveCount(7 * 24);
   // Hours that have not come yet are drawn, so a row is a day, but say so. In

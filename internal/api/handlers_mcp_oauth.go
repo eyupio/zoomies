@@ -114,10 +114,14 @@ func (s *Server) handleProtectedResource(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// externalURLSet reports whether server.external_url names an address, which
-// is what decides whether a discovery document is the same for every caller.
+// externalURLSet reports whether server.external_url names an absolute URL
+// publicBase will actually use. publicBase falls back to the request's Host
+// header unless the address has both a scheme and a host, so a malformed
+// value still makes the issuer and endpoints vary per caller, and a shared
+// cache that kept such an answer would hand it back to another: the
+// discovery documents cache only when publicBase is request-invariant.
 func (s *Server) externalURLSet() bool {
-	return strings.TrimSpace(s.cfg().Server.ExternalURL) != ""
+	return s.cfg().ExternalURLValid()
 }
 
 // handleAuthorizationServer is RFC 8414 authorisation server metadata.
@@ -222,6 +226,7 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		State:               q.Get("state"),
 		Scope:               q.Get("scope"),
 		Resource:            q.Get("resource"),
+		IP:                  ClientIP(r.Context()),
 	})
 	var refusal *auth.AuthorizeRefusal
 	switch {

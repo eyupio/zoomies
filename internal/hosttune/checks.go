@@ -42,7 +42,7 @@ func baseChecks() []Check {
 		}},
 		{ID: "work.filesystem", Title: "Work directory filesystem", Tier: Safe, Rationale: "Local ext4 or XFS with noatime avoids extra metadata writes.", Detect: mountCheck(false)},
 		{ID: "docker.filesystem", Title: "Docker root filesystem", Tier: Safe, Rationale: "Docker layers benefit from local ext4 or XFS with noatime.", Detect: mountCheck(true)},
-		{ID: "disk.space", Title: "Work directory free space", Tier: Safe, Rationale: "Keep the configured disk reserve free for new builds.", Detect: diskCheck(false)},
+		{ID: "disk.space", Title: "Work directory free space", Tier: Safe, Rationale: "Filesystem baseline: keep the configured free space (10% and 10 GiB by default). Placement also needs the host reserve and each pool's runner working room; a passing check does not guarantee admission.", Detect: diskCheck(false)},
 		{ID: "disk.inodes", Title: "Work directory free inodes", Tier: Safe, Rationale: "Many small build files can exhaust inodes before disk space.", Detect: diskCheck(true)},
 		{ID: "cpu.governor", Title: "CPU frequency governor", Tier: Aggressive, Rationale: "Performance mode reduces frequency scaling delays at the cost of power.", Detect: detectGovernor, Plan: planGovernor},
 		sysctl("memory.swappiness", "Swappiness", "vm.swappiness", 10, Aggressive, "Less swapping can improve build latency when RAM is sufficient."),
@@ -418,7 +418,11 @@ func diskCheck(inodes bool) func(context.Context, *Engine) Result {
 		if !inodes {
 			amount = formatKiB(free)
 		}
-		return Result{Status: s, Current: fmt.Sprintf("%d%% free (%s)", free*100/total, amount), Recommended: rec}
+		reason := ""
+		if !inodes {
+			reason = "Filesystem baseline only. The controller also accounts for the host reserve, live runners' commitments and the pool's disk requirement. Check host.low_disk on the Hosts or Problems page if new runners are refused."
+		}
+		return Result{Status: s, Current: fmt.Sprintf("%d%% free (%s)", free*100/total, amount), Recommended: rec, Reason: reason}
 	}
 }
 

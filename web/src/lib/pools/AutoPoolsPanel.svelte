@@ -1,8 +1,9 @@
 <!--
   What the controller is doing about size classes, above the pools it keeps.
 
-  Off is one quiet sentence, because most fleets will never turn this on and a
-  panel of zeroes would be the first thing they met on the Pools page. Once
+  Off is one quiet line that opens, because most fleets will never turn this on
+  and a paragraph of setup would be the first thing they met on the Pools page,
+  ahead of the pools. Once
   either switch is set the panel is a summary line that opens to the rest: what
   the two switches are doing, the pools and the hosts in them, what it would do
   and has not (the whole of `shadow`), what it could not do and what to change,
@@ -42,13 +43,20 @@
 
 {#if status}
   {#if off}
-    <p class="off" data-testid="auto-pools-off">
-      Automatic pools are off. Zoomies can keep a pool for each size of host, and send each job to
-      the pool its size calls for. Nothing changes until you set
-      <span class="mono">scheduler.auto_pools</span>
-      or <span class="mono">scheduler.size_routing</span>, and each has a setting that only reports.
-      <a href={AUTO_POOLS_URL} target="_blank" rel="noopener noreferrer">How it works</a>
-    </p>
+    <details class="panel" data-testid="auto-pools-off">
+      <summary>
+        <span class="title">Automatic pools are off</span>
+        <span class="hint">Size-based pools and routing</span>
+      </summary>
+      <p class="off">
+        Zoomies can keep a pool for each size of host, and send each job to the pool its size calls
+        for. Nothing changes until you set
+        <span class="mono">scheduler.auto_pools</span>
+        or <span class="mono">scheduler.size_routing</span>, and each has a setting that only
+        reports.
+        <a href={AUTO_POOLS_URL} target="_blank" rel="noopener noreferrer">How it works</a>
+      </p>
+    </details>
   {:else}
     <details class="panel" open={attention} data-testid="auto-pools-panel">
       <summary>
@@ -185,11 +193,18 @@
 
 <style>
   .off {
-    margin: 0 0 var(--z-space-4);
+    margin: 0;
     max-width: 90ch;
+    padding: var(--z-space-3) var(--z-space-4);
+    border-top: var(--z-border-width) solid var(--z-border);
     font-size: var(--z-text-xs);
     line-height: var(--z-leading-xs);
     color: var(--z-text-subtle);
+  }
+  .hint {
+    margin-left: auto;
+    font-size: var(--z-text-xs);
+    color: var(--z-text-muted);
   }
   .panel {
     margin-bottom: var(--z-space-4);

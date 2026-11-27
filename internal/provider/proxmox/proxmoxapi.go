@@ -132,6 +132,37 @@ type Client struct {
 	dialContext func(ctx context.Context, network, address string) (net.Conn, error)
 	http        *http.Client
 	log         *slog.Logger
+	// lxc points the calls QEMU guests and containers share (status, config,
+	// power, destroy) at /lxc instead of /qemu. See forContainers.
+	lxc bool
+}
+
+// forContainers is this client pointed at containers. What the two kinds of
+// guest share is the same call on a different path, so a copy that remembers
+// which it is serves a container without a second set of methods; the copy
+// shares the connection pool and the credential, and nothing in a Client is
+// mutable once it is built.
+func (c *Client) forContainers() *Client {
+	d := *c
+	d.lxc = true
+	return &d
+}
+
+// guestPath is a guest's own path, on whichever kind this client addresses.
+func (c *Client) guestPath(node string, vmid int) string {
+	if c.lxc {
+		return "/nodes/" + url.PathEscape(node) + "/lxc/" + strconv.Itoa(vmid)
+	}
+	return vmPath(node, vmid)
+}
+
+// guestRef is how a guest is named in a failure, on whichever kind this client
+// addresses.
+func (c *Client) guestRef(node string, vmid int) string {
+	if c.lxc {
+		return fmt.Sprintf("%s/lxc/%d", node, vmid)
+	}
+	return vmRef(node, vmid)
 }
 
 // New builds a client for one cluster.
@@ -959,7 +990,9 @@ type VMStatus struct {
 // and the authoritative place to read back the description and the tags this
 // fleet stamped on a guest.
 type VMConfig struct {
-	Name        string `json:"name"`
+	Name string `json:"name"`
+	// Hostname is what a container calls its name; a QEMU guest has Name.
+	Hostname    string `json:"hostname"`
 	Description string `json:"description"`
 	Tags        string `json:"tags"`
 	Template    Bool   `json:"template"`
@@ -1110,8 +1143,8 @@ func (c *Client) ClusterVMs(ctx context.Context) ([]ClusterVM, error) {
 // another operation owns it.
 func (c *Client) VMStatus(ctx context.Context, node string, vmid int) (VMStatus, error) {
 	var s VMStatus
-	err := c.do(ctx, call{op: fmt.Sprintf("read the status of VM %d on %s", vmid, node), ref: vmRef(node, vmid),
-		verb: http.MethodGet, path: vmPath(node, vmid) + "/status/current"}, &s)
+	err := c.do(ctx, call{op: fmt.Sprintf("read the status of VM %d on %s", vmid, node), ref: c.guestRef(node, vmid),
+		verb: http.MethodGet, path: c.guestPath(node, vmid) + "/status/current"}, &s)
 	return s, err
 }
 
@@ -1119,8 +1152,8 @@ func (c *Client) VMStatus(ctx context.Context, node string, vmid int) (VMStatus,
 // ownership block written into the description is read back from.
 func (c *Client) VMConfig(ctx context.Context, node string, vmid int) (VMConfig, error) {
 	var cfg VMConfig
-	err := c.do(ctx, call{op: fmt.Sprintf("read the configuration of VM %d on %s", vmid, node), ref: vmRef(node, vmid),
-		verb: http.MethodGet, path: vmPath(node, vmid) + "/config"}, &cfg)
+	err := c.do(ctx, call{op: fmt.Sprintf("read the configuration of VM %d on %s", vmid, node), ref: c.guestRef(node, vmid),
+		verb: http.MethodGet, path: c.guestPath(node, vmid) + "/config"}, &cfg)
 	return cfg, err
 }
 
@@ -1237,8 +1270,8 @@ func (c *Client) power(ctx context.Context, node string, vmid int, action string
 	var upid string
 	err := c.do(ctx, call{
 		op:   fmt.Sprintf("%s VM %d on %s", action, vmid, node),
-		ref:  vmRef(node, vmid),
-		verb: http.MethodPost, path: vmPath(node, vmid) + "/status/" + action, form: form,
+		ref:  c.guestRef(node, vmid),
+		verb: http.MethodPost, path: c.guestPath(node, vmid) + "/status/" + action, form: form,
 	}, &upid)
 	return upid, err
 }
@@ -1252,11 +1285,117 @@ func (c *Client) DeleteVM(ctx context.Context, node string, vmid int) (string, e
 	var upid string
 	err := c.do(ctx, call{
 		op:   fmt.Sprintf("destroy VM %d on %s", vmid, node),
-		ref:  vmRef(node, vmid),
-		verb: http.MethodDelete, path: vmPath(node, vmid),
+		ref:  c.guestRef(node, vmid),
+		verb: http.MethodDelete, path: c.guestPath(node, vmid),
 		query: url.Values{"purge": {"1"}, "destroy-unreferenced-disks": {"1"}},
 	}, &upid)
 	return upid, err
+}
+
+// LXCRequest is the body of a container create. Unlike a clone, the create
+// carries everything: the container's size, its network and the marks that make
+// it ours, because there is no lock between the create and the first write.
+type LXCRequest struct {
+	VMID        int
+	Hostname    string
+	OSTemplate  string // a volume id: local:vztmpl/zoomies-runner.tar.zst
+	Storage     string
+	DiskGB      int
+	Cores       int
+	MemoryMB    int64
+	Net0        string
+	Pool        string
+	Description string
+	Tags        string
+}
+
+func (r LXCRequest) form() url.Values {
+	f := url.Values{
+		"vmid":       {strconv.Itoa(r.VMID)},
+		"hostname":   {r.Hostname},
+		"ostemplate": {r.OSTemplate},
+		"rootfs":     {r.Storage + ":" + strconv.Itoa(r.DiskGB)},
+		"net0":       {r.Net0},
+		// Unprivileged with nesting is the one shape an API token may ask for:
+		// keyctl, fuse, mount and a privileged container need root@pam, which
+		// this integration never holds.
+		"unprivileged": {"1"},
+		"features":     {"nesting=1"},
+		// Never on boot, and not started by the create: the machine loop starts
+		// it once the create has been seen to finish, as it does for a clone.
+		"onboot": {"0"},
+		"start":  {"0"},
+		"swap":   {"0"},
+	}
+	setIf := func(k, v string) {
+		if v != "" {
+			f.Set(k, v)
+		}
+	}
+	if r.Cores > 0 {
+		f.Set("cores", strconv.Itoa(r.Cores))
+	}
+	if r.MemoryMB > 0 {
+		f.Set("memory", strconv.FormatInt(r.MemoryMB, 10))
+	}
+	setIf("pool", r.Pool)
+	setIf("description", r.Description)
+	setIf("tags", r.Tags)
+	return f
+}
+
+// CreateLXC creates a container from a template archive and returns the task
+// handle to follow, which is stored before the call is considered done for the
+// same reason a clone's is.
+func (c *Client) CreateLXC(ctx context.Context, node string, req LXCRequest) (string, error) {
+	var upid string
+	err := c.do(ctx, call{
+		op:   fmt.Sprintf("create container %d on %s from %s", req.VMID, node, req.OSTemplate),
+		ref:  fmt.Sprintf("%s/lxc/%d", node, req.VMID),
+		verb: http.MethodPost, path: "/nodes/" + url.PathEscape(node) + "/lxc", form: req.form(),
+	}, &upid)
+	return upid, err
+}
+
+// LXCInterface is one entry of GET /nodes/{node}/lxc/{vmid}/interfaces.
+type LXCInterface struct {
+	Name   string `json:"name"`
+	HWAddr string `json:"hwaddr"`
+	// Inet is the IPv4 address with its prefix length, 10.0.0.5/24, and absent
+	// until the container has one.
+	Inet string `json:"inet"`
+}
+
+// LXCInterfaces reads the addresses a running container has. Proxmox answers
+// this from the node itself, with no agent in the guest, which is what lets a
+// controller learn where a container is without trusting the container.
+func (c *Client) LXCInterfaces(ctx context.Context, node string, vmid int) ([]LXCInterface, error) {
+	var out []LXCInterface
+	err := c.do(ctx, call{
+		op:   fmt.Sprintf("read the addresses of container %d on %s", vmid, node),
+		ref:  fmt.Sprintf("%s/lxc/%d", node, vmid),
+		verb: http.MethodGet, path: "/nodes/" + url.PathEscape(node) + "/lxc/" + strconv.Itoa(vmid) + "/interfaces",
+	}, &out)
+	return out, err
+}
+
+// StorageVolume is one entry of a storage's content listing.
+type StorageVolume struct {
+	VolID string `json:"volid"`
+}
+
+// StorageContent lists the volumes of one content type on one storage of one
+// node, which is how a container template is proven to be where it was said to
+// be before any machine depends on it.
+func (c *Client) StorageContent(ctx context.Context, node, storage, content string) ([]StorageVolume, error) {
+	var out []StorageVolume
+	err := c.do(ctx, call{
+		op:   fmt.Sprintf("list the %s volumes on %s of %s", content, storage, node),
+		ref:  node + "/" + storage,
+		verb: http.MethodGet, path: "/nodes/" + url.PathEscape(node) + "/storage/" + url.PathEscape(storage) + "/content",
+		query: url.Values{"content": {content}},
+	}, &out)
+	return out, err
 }
 
 // Task reads an asynchronous operation's progress. The handle carries its own

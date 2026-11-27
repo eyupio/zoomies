@@ -59,10 +59,12 @@ type cacheServices struct {
 	// stopped on its own and is started again carries the counters on and the
 	// pool's totals never fall (a counter that falls is read downstream as the
 	// agent restarting). budgets are the pool-wide size ceilings.
-	running  map[string]*runningCacheService
-	services map[string]*ownedCacheService
-	budgets  map[string]*cacheservice.Budget
-	warned   map[string]bool
+	running          map[string]*runningCacheService
+	services         map[string]*ownedCacheService
+	budgets          map[string]*cacheservice.Budget
+	configuredLimits map[string]int64
+	policyLimits     map[string]int64
+	warned           map[string]bool
 }
 
 // ownedCacheService is an identity's one service and the pool it is reported
@@ -92,7 +94,8 @@ type runningCacheService struct {
 // folders as they are now. Nothing here is a setting or a decision: it is the
 // service's own account of what it did.
 type CacheStats struct {
-	PoolID string `json:"pool_id"`
+	PoolID  string        `json:"pool_id"`
+	Storage *CacheStorage `json:"storage,omitempty"`
 	cacheservice.Stats
 }
 
@@ -107,7 +110,7 @@ func newCacheServices(sharedDir, sharedProblem string, log *slog.Logger, gateway
 	return &cacheServices{
 		sharedDir: sharedDir, sharedProblem: sharedProblem, log: log, gateway: gateway,
 		running: map[string]*runningCacheService{}, warned: map[string]bool{},
-		services: map[string]*ownedCacheService{}, budgets: map[string]*cacheservice.Budget{},
+		services: map[string]*ownedCacheService{}, budgets: map[string]*cacheservice.Budget{}, configuredLimits: map[string]int64{},
 	}
 }
 
@@ -116,6 +119,10 @@ func newCacheServices(sharedDir, sharedProblem string, log *slog.Logger, gateway
 // pool has not asked for one, or when this host cannot offer one, and says why
 // once for each pool and reason.
 func (c *cacheServices) urlFor(ctx context.Context, spec Spec, network string) string {
+	return c.urlForGateway(ctx, spec, network, c.gateway)
+}
+
+func (c *cacheServices) urlForGateway(ctx context.Context, spec Spec, network string, gateway func(context.Context, string) (string, error)) string {
 	if !spec.Cache.Enabled || !spec.Cache.Service {
 		return ""
 	}
@@ -139,7 +146,7 @@ func (c *cacheServices) urlFor(ctx context.Context, spec Spec, network string) s
 		c.warnOnce(spec, "shared", errors.New(reason))
 		return ""
 	}
-	host, err := c.gateway(ctx, network)
+	host, err := gateway(ctx, network)
 	if err != nil {
 		c.warnOnce(spec, "gateway", err)
 		return ""
@@ -148,23 +155,22 @@ func (c *cacheServices) urlFor(ctx context.Context, spec Spec, network string) s
 	key := identity + "|" + host
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if r, ok := c.running[key]; ok {
-		return r.url
-	}
 	if c.closed {
 		return ""
 	}
 	limit := spec.Cache.SizeLimit
+	if current, ok := c.policyLimits[spec.PoolID]; ok {
+		limit = current
+	}
 	if limit <= 0 {
 		limit = defaultCacheServiceBytes
 	}
+	budget := c.budgetLocked(spec.PoolID, limit)
+	if r, ok := c.running[key]; ok {
+		return r.url
+	}
 	owned, ok := c.services[identity]
 	if !ok {
-		budget, ok := c.budgets[spec.PoolID]
-		if !ok {
-			budget = cacheservice.NewBudget(limit)
-			c.budgets[spec.PoolID] = budget
-		}
 		svc, err := cacheservice.New(cacheservice.Options{
 			Dir:    filepath.Join(c.sharedDir, "cache", "service", identity),
 			Budget: budget,
@@ -290,4 +296,18 @@ func (c *cacheServices) close() {
 		_ = r.srv.Shutdown(ctx)
 		cancel()
 	}
+}
+
+// budgetLocked changes an existing budget before urlFor returns its listener.
+// Reusing a listener must not also reuse yesterday's pool limit.
+func (c *cacheServices) budgetLocked(pool string, limit int64) *cacheservice.Budget {
+	b := c.budgets[pool]
+	if b == nil {
+		b = cacheservice.NewBudget(limit)
+		c.budgets[pool] = b
+	} else if c.configuredLimits[pool] != limit {
+		b.SetMaxBytes(limit)
+	}
+	c.configuredLimits[pool] = limit
+	return b
 }

@@ -46,7 +46,7 @@ test('evidence keeps its order and marks the figures', () => {
       ["GitHub's conclusion", 'failure', false, 'https://github.com/x'],
       ['exit code', '137', true, null],
       ['memory peak', '7900 MB', true, null],
-      ['queue wait', '42 s', true, null],
+      ['queue wait', '42s', true, null],
       ['host', 'healthy', false, '/hosts/host_1'],
     ],
   );

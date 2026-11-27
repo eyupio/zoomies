@@ -1721,3 +1721,41 @@ func TestAPanicInTheEmbeddedLogRelayEndsTheAgentsStreamInsteadOfHangingIt(t *tes
 		t.Fatal("the agent's write blocked on a pipe nobody was draining")
 	}
 }
+
+// A host that joins again is a new registration under the same id, and the rows
+// recorded against the old one go with it. The tasks queued for those rows did
+// not: only update tasks were withdrawn, so a task to start, stop or remove a
+// runner that no longer existed was handed to the machine joining now, and it
+// would act on a workload nothing recorded any more.
+func TestARejoinedHostIsNotSentTheTasksOfItsOldRegistration(t *testing.T) {
+	h := newHarness(t)
+	join := func() string {
+		t.Helper()
+		resp, err := h.c.EmbeddedTransport().Join(h.ctx, agent.JoinRequest{
+			ProtocolVersion: agent.ProtocolVersion, Name: "vm-1", Capacity: 4,
+			Backends: []backend.Info{{Kind: store.BackendDocker, Available: true}},
+		})
+		if err != nil {
+			t.Fatalf("Join: %v", err)
+		}
+		return resp.HostID
+	}
+	id := join()
+	h.c.enqueue(id, agent.Task{Kind: agent.TaskRemoveRunner, RunnerID: "run_gone"})
+	h.c.enqueue(id, agent.Task{Kind: agent.TaskStopRunner, RunnerID: "run_held"})
+	// One is in flight, taken by the agent that is about to go away, and would
+	// be offered again when its lease ran out.
+	if got := h.c.queues.get(id).take(1, time.Now()); len(got) != 1 {
+		t.Fatalf("the old agent took %d tasks, want 1", len(got))
+	}
+	if pending, inflight := h.c.queues.get(id).depth(); pending != 1 || inflight != 1 {
+		t.Fatalf("before the re-join the queue holds %d pending and %d in flight, want 1 and 1", pending, inflight)
+	}
+
+	if again := join(); again != id {
+		t.Fatalf("the re-join made host %s, want the row %s kept", again, id)
+	}
+	if pending, inflight := h.c.queues.get(id).depth(); pending != 0 || inflight != 0 {
+		t.Errorf("the re-joined host's queue holds %d pending and %d in flight tasks from its old registration, want none", pending, inflight)
+	}
+}

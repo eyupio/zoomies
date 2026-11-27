@@ -81,13 +81,15 @@
         <span class="age">{age}</span>
       </span>
       {#if where}<span class="where">{where}</span>{/if}
-      <span
-        class="bar"
-        class:sweep={busy}
-        class:unknown={share === null}
-        style:--share={share ?? 0}
-        aria-hidden="true"
-      ></span>
+      <span class="bar-row" aria-hidden="true">
+        <span class="bar-label">CPU</span>
+        <span
+          class="bar"
+          class:sweep={busy}
+          class:unknown={share === null}
+          style:--share={share ?? 0}
+        ></span>
+      </span>
     </a>
   {:else}
     <a
@@ -180,9 +182,21 @@
     line-height: var(--z-leading-2xs);
     color: var(--z-text-muted);
   }
+  .bar-row {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-1);
+    min-width: 0;
+  }
+  .bar-label {
+    flex: none;
+    font-size: var(--z-text-2xs);
+    line-height: var(--z-leading-2xs);
+    color: var(--z-text-muted);
+  }
   .bar {
     position: relative;
-    flex: none;
+    flex: 1;
     height: var(--z-space-1);
     overflow: hidden;
     border-radius: var(--z-radius-full);

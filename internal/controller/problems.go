@@ -183,9 +183,12 @@ var problemAudience = map[string]Audience{
 	"host.overprovisioned":              AudienceFleet,
 	"host.resources_unknown":            AudienceFleet,
 	"host.shared_folder_unmounted":      AudienceFleet,
+	"host.registry_mirror_degraded":     AudienceFleet,
+	"pool.registry_mirror_unused":       AudienceFleet,
 	"host.runtime_recovering":           AudienceFleet,
 	"host.scratch_unmeasured":           AudienceFleet,
 	"host.throttled":                    AudienceFleet,
+	"host.low_disk":                     AudienceFleet,
 	"host.unhealthy":                    AudienceFleet,
 	"host.os_health":                    AudienceFleet,
 	"host.health_stale":                 AudienceFleet,
@@ -284,6 +287,7 @@ var problemAudience = map[string]Audience{
 	"proxmox.privilege_missing":                     AudienceFleet,
 	"proxmox.storage_inactive":                      AudienceFleet,
 	"proxmox.storage_missing":                       AudienceFleet,
+	"proxmox.setting_invalid":                       AudienceFleet,
 	"proxmox.storage_no_images":                     AudienceFleet,
 	"proxmox.template_missing":                      AudienceFleet,
 	"proxmox.template_no_agent":                     AudienceFleet,
@@ -448,6 +452,8 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	})
 
 	gather("hosts", c.hostProblems)
+	gather("registry mirrors", c.registryMirrorProblems)
+	gather("host disk admission", c.hostDiskProblems)
 	gather("installations", c.installationProblems)
 	gather("the encryption key", c.keyProblems)
 	gather("host and machine versions", c.hostSkewProblems)

@@ -56,12 +56,24 @@ BENCH_PKGS  ?= $(sort $(patsubst %/,./%,$(dir $(shell grep -rl --include='*_test
 
 ##@ Build
 
+# The Windows launcher the WSL scheduled tasks run (cmd/zoomies-wsl), built for
+# the GUI subsystem so it opens no console, one per architecture, and embedded
+# in the binary. Cross-compiling it is a second or two.
+LAUNCHER_DIR := internal/wsl/launcher/dist
+LAUNCHERS    := $(LAUNCHER_DIR)/zoomies-wsl-amd64.exe $(LAUNCHER_DIR)/zoomies-wsl-arm64.exe
+
+$(LAUNCHER_DIR)/zoomies-wsl-%.exe: cmd/zoomies-wsl/main.go $(wildcard internal/wsl/silent/*.go)
+	CGO_ENABLED=0 GOOS=windows GOARCH=$* $(GO) build -trimpath -ldflags "-s -w -H windowsgui" -o $@ ./cmd/zoomies-wsl
+
+.PHONY: wsl-launcher
+wsl-launcher: $(LAUNCHERS) ## Build the Windows launcher the WSL scheduled tasks run, for embedding
+
 .PHONY: build
-build: ui ## Build the binary with the UI embedded
+build: ui wsl-launcher ## Build the binary with the UI embedded
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN) ./cmd/zoomies
 
 .PHONY: build-nogui
-build-nogui: $(UI_OUT)/.placeholder ## Build without rebuilding the UI (fast inner loop)
+build-nogui: $(UI_OUT)/.placeholder wsl-launcher ## Build without rebuilding the UI (fast inner loop)
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN) ./cmd/zoomies
 
 # The placeholder alone, with nothing compiled: what CI needs before go vet,
@@ -91,7 +103,7 @@ ui-dev: | $(UI_DIR)/node_modules ## Run the Vite dev server against a controller
 	cd $(UI_DIR) && $(NPM) run dev
 
 .PHONY: dist
-dist: ui ## Cross-compile release binaries into dist/
+dist: ui wsl-launcher ## Cross-compile release binaries into dist/
 	@mkdir -p $(DIST)
 	@for platform in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do \
 		os=$${platform%/*}; arch=$${platform#*/}; \

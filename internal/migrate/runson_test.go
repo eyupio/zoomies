@@ -13,6 +13,54 @@ var zoomies = Mapping{Labels: map[string]string{
 	"ubuntu-24.04":  "zoomies-linux-x64",
 }}
 
+// A matrix axis that happens to be called runs-on is a list of values, and the
+// job's own runs-on picks from it with an expression. Collapsing the axis into
+// one label turned a list into a scalar, which is not a matrix, and the workflow
+// stopped being valid. It is left alone and said so, because the values in it
+// still name hosted runners and only the operator knows what they should be.
+func TestAMatrixAxisNamedRunsOnIsLeftAlone(t *testing.T) {
+	cases := []struct {
+		name  string
+		in    string
+		want  string
+		skips int
+	}{
+		{
+			name:  "a flow axis beside the job's own label",
+			in:    "jobs:\n  test:\n    runs-on: ubuntu-latest\n    strategy:\n      matrix:\n        runs-on: [ubuntu-latest]\n",
+			want:  "jobs:\n  test:\n    runs-on: zoomies-linux-x64\n    strategy:\n      matrix:\n        runs-on: [ubuntu-latest]\n",
+			skips: 1,
+		},
+		{
+			name:  "a block axis chosen by an expression",
+			in:    "jobs:\n  test:\n    runs-on: ${{ matrix.runs-on }}\n    strategy:\n      matrix:\n        runs-on:\n          - ubuntu-latest\n",
+			want:  "jobs:\n  test:\n    runs-on: ${{ matrix.runs-on }}\n    strategy:\n      matrix:\n        runs-on:\n          - ubuntu-latest\n",
+			skips: 2,
+		},
+		{
+			name:  "an include entry",
+			in:    "jobs:\n  test:\n    runs-on: ${{ matrix.runs-on }}\n    strategy:\n      matrix:\n        include:\n          - runs-on: ubuntu-latest\n",
+			want:  "jobs:\n  test:\n    runs-on: ${{ matrix.runs-on }}\n    strategy:\n      matrix:\n        include:\n          - runs-on: ubuntu-latest\n",
+			skips: 2,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := File(c.in, zoomies)
+			if got.Content != c.want {
+				t.Fatalf("content =\n%q\nwant\n%q", got.Content, c.want)
+			}
+			if len(got.Skips) != c.skips {
+				t.Fatalf("skips = %+v, want %d", got.Skips, c.skips)
+			}
+			axis := got.Skips[len(got.Skips)-1]
+			if !strings.Contains(axis.Reason, "matrix") {
+				t.Errorf("the skip for the axis does not say it is a matrix: %q", axis.Reason)
+			}
+		})
+	}
+}
+
 func TestFileRewritesTheCommonForms(t *testing.T) {
 	cases := []struct {
 		name string
@@ -49,6 +97,27 @@ func TestFileRewritesTheCommonForms(t *testing.T) {
 			in:   "jobs:\n  build:\n    runs-on: ubuntu-latest # the cheap one\n",
 			want: "jobs:\n  build:\n    runs-on: zoomies-linux-x64 # the cheap one\n",
 			job:  "build",
+		},
+		// In YAML a # with no space before it is part of the scalar, so a label
+		// written straight against its comment is a different label, one no
+		// runner has, and the job waits for ever.
+		{
+			name: "a comment on the key line of a block sequence keeps its space",
+			in:   "jobs:\n  build:\n    runs-on: # the big one\n      - ubuntu-latest\n    steps: []\n",
+			want: "jobs:\n  build:\n    runs-on: zoomies-linux-x64 # the big one\n    steps: []\n",
+			job:  "build",
+		},
+		{
+			name: "extra space before that comment collapses to one",
+			in:   "jobs:\n  build:\n    runs-on:     # the big one\n      - ubuntu-latest\n",
+			want: "jobs:\n  build:\n    runs-on: zoomies-linux-x64 # the big one\n",
+			job:  "build",
+		},
+		{
+			name: "a job that is merely called matrix",
+			in:   "jobs:\n  matrix:\n    runs-on: ubuntu-latest\n",
+			want: "jobs:\n  matrix:\n    runs-on: zoomies-linux-x64\n",
+			job:  "matrix",
 		},
 		{
 			name: "an unusual key case",

@@ -4,7 +4,8 @@
  * is using the list.
  *
  * Content that moves by itself has to be stoppable, so the tour holds while
- * the pointer is over the frame or its pager, while the keyboard's focus is
+ * the pointer is over the frame or its pager and has moved within the last
+ * minute, while the keyboard's focus is
  * inside either, while its Pause is pressed, while the tab is hidden and
  * while its owner says it is busy. It never fights a hand: a page is found
  * from where the frame is scrolled to, so somebody who scrolled is carried on
@@ -14,6 +15,12 @@ import { untrack } from 'svelte';
 import { DWELL_MS, shown, stopAt, stops, tourLabel, type Span, type TourNoun } from './stops';
 
 const TICK_MS = 200;
+/**
+ * How long a pointer may lie still over the frame and still hold the tour. A
+ * hand reading a row moves; a mouse left where a drawer was closed does not,
+ * and on a wall display nobody is there to move it away again.
+ */
+const POINTER_REST_MS = 60_000;
 
 export interface TourOptions {
   /** The items a page is made of, in order: the frame's lanes, a table's rows. */
@@ -89,8 +96,18 @@ export class Tour {
       this.#holds += to ? 1 : -1;
       this.#engaged = this.#holds > 0;
     };
-    const over = () => set('pointer', true);
-    const out = () => set('pointer', false);
+    let rest: ReturnType<typeof setTimeout> | undefined;
+    const out = () => {
+      clearTimeout(rest);
+      set('pointer', false);
+    };
+    // Every movement holds afresh, so the tour waits for as long as somebody
+    // is pointing at the list and no longer than a minute after they stop.
+    const over = () => {
+      set('pointer', true);
+      clearTimeout(rest);
+      rest = setTimeout(out, POINTER_REST_MS);
+    };
     // Only focus the keyboard put there. A click leaves focus on what was
     // clicked, and a tour that stayed held because Pause had just been let go
     // with a mouse would never start again.
@@ -101,11 +118,13 @@ export class Tour {
       if (!node.contains(event.relatedTarget as Node | null)) set('focus', false);
     };
     node.addEventListener('pointerenter', over);
+    node.addEventListener('pointermove', over);
     node.addEventListener('pointerleave', out);
     node.addEventListener('focusin', focus);
     node.addEventListener('focusout', blur);
     return () => {
       node.removeEventListener('pointerenter', over);
+      node.removeEventListener('pointermove', over);
       node.removeEventListener('pointerleave', out);
       node.removeEventListener('focusin', focus);
       node.removeEventListener('focusout', blur);

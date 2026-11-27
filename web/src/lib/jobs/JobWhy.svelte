@@ -38,7 +38,7 @@
     job: Job;
     /** failed: the job is over and went wrong; waiting: it has not started. */
     mode: 'failed' | 'waiting';
-    /** Set when the viewer may ask GitHub to run the run's failed jobs again. */
+    /** Set when the viewer may ask GitHub to run this job again. */
     onRerun?: (() => void) | null;
     rerunning?: boolean;
     class?: string;
@@ -69,6 +69,7 @@
   });
 
   const failed = $derived(mode === 'failed');
+  const jobLevelRerun = $derived((job.github_job_id ?? 0) > 0);
   const status = $derived(jobStatus(job.state, job.conclusion));
   const step = $derived(job.failed_step ?? null);
   const ours = $derived(fleetFailed(job));
@@ -303,7 +304,12 @@
     </div>
     {#if failed && onRerun}
       <p class="detail muted">
-        GitHub has no job-level re-run, so this runs every failed job in the run again.
+        {#if jobLevelRerun}
+          GitHub re-runs this job, together with any job that needs it.
+        {:else}
+          This job has no GitHub job ID here, so GitHub has no job-level re-run to offer; this runs
+          every failed job in the run again.
+        {/if}
       </p>
     {/if}
   </div>

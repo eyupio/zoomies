@@ -15,6 +15,9 @@ const (
 	// maxEliWatchDiscoveryRepositories bounds one pass. Each repository can
 	// still return up to RepairPullDiscoveryLimit open pull requests.
 	maxEliWatchDiscoveryRepositories = 20
+	// eliWatchDiscoveryTimeout bounds the GitHub calls for one repository, so
+	// a slow installation cannot hold up the rest of a pass or a watch request.
+	eliWatchDiscoveryTimeout = 30 * time.Second
 )
 
 func (c *Controller) repairWatchDiscoveryLoop(ctx context.Context) {
@@ -57,7 +60,7 @@ func (c *Controller) discoverEliRepairWatches(ctx context.Context) {
 			if err != nil {
 				return
 			}
-			discoveryCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			discoveryCtx, cancel := context.WithTimeout(ctx, eliWatchDiscoveryTimeout)
 			raw, err := c.ClientFor(discoveryCtx, subscription.InstallationID)
 			if err != nil {
 				cancel()

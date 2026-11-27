@@ -431,6 +431,9 @@ func (c *appClient) CreateJITConfig(ctx context.Context, req JITRequest) (*JITCo
 		return nil, fmt.Errorf("github: create jit config for %q: GitHub requires at least one "+
 			"custom label: give the pool a label such as \"self-hosted\"", req.Name)
 	}
+	if len(labels) > MaxJITLabels {
+		return nil, fmt.Errorf("github: create jit config for %q: %d labels, and GitHub accepts at most %d", req.Name, len(labels), MaxJITLabels)
+	}
 	group := req.RunnerGroupID
 	if group == 0 {
 		group = 1 // "Default", the only group every target is guaranteed to have.
@@ -635,7 +638,11 @@ func (c *appClient) DeleteRunner(ctx context.Context, id int64) error {
 		}
 		_, name, _ := SplitTarget(repo)
 		resp, err = c.asInstallation.Actions.RemoveRunner(ctx, c.owner, name, id)
-		if err == nil {
+		// An ephemeral runner removes itself when its job ends, so the usual
+		// answer here is that GitHub no longer knows it. That is as gone as
+		// one this call removed; forgetting only on success kept an entry for
+		// every job the account ever ran.
+		if e := classify(resp, err); e == nil || errors.Is(e, ErrNotFound) {
 			c.forgetRunnerRepo(id)
 		}
 	case c.isOrg():
@@ -882,10 +889,14 @@ func (c *appClient) queuedJobsForRun(ctx context.Context, owner, repo string, ru
 // is already in progress the first time a sweep sees it, and a listing that
 // dropped it would leave the runner under it looking free for the whole build.
 // They cost no request -- they are on the page this sweep already paid for.
+//
+// A job is read the way GetWorkflowJob reads it, through jobAction: one GitHub
+// still calls in_progress after writing its conclusion is over, and listed as
+// running it would take its runner busy again for a sweep.
 func queuedJobsOnPage(full string, run *gh.WorkflowRun, jobs []*gh.WorkflowJob) []QueuedJob {
 	var out []QueuedJob
 	for _, j := range jobs {
-		status := store.JobState(j.GetStatus())
+		status := store.JobState(jobAction(j))
 		if status != store.JobQueued && status != store.JobInProgress {
 			continue
 		}
@@ -1117,12 +1128,28 @@ func (c *appClient) GetWorkflowJob(ctx context.Context, repo string, id int64) (
 		return nil, c.fail("read workflow job", resp, err)
 	}
 	body, err := json.Marshal(map[string]any{
-		"action": job.GetStatus(), "repository": map[string]string{"full_name": repo}, "workflow_job": job,
+		"action": jobAction(job), "repository": map[string]string{"full_name": repo}, "workflow_job": job,
 	})
 	if err != nil {
 		return nil, err
 	}
 	return ParseWorkflowJob(body)
+}
+
+// jobAction is the delivery action a job read back from GitHub stands for.
+//
+// It is the job's status, except when GitHub has already written the job's
+// conclusion or its completion time: GitHub's record of a job can go on saying
+// in_progress after it has finished, beside a conclusion and a completion time,
+// and stays that way. Read as in progress, such a job was never completed here,
+// and every recovery sweep linked it again to the reusable runner that had run
+// it, which then counted as busy for good. A conclusion is only ever written
+// once the job is over, so it is the better witness of the two.
+func jobAction(job *gh.WorkflowJob) string {
+	if job.GetConclusion() != "" || job.CompletedAt != nil {
+		return string(store.JobCompleted)
+	}
+	return job.GetStatus()
 }
 
 // GetWorkflowRun is the run-level authority for cancellation. workflow_job

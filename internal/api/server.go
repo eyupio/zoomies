@@ -55,6 +55,10 @@ type Server struct {
 	// autopilot is what the loop that applies suggested changes remembers.
 	autopilot autopilotState
 
+	// uploads is the slots for Zoomies-only snapshots being received: each one
+	// admitted holds up to aicontext.MaxSnapshotBytes while it arrives.
+	uploads chan struct{}
+
 	// bound is the address ListenAndServe's listener has, once it has one.
 	bound atomic.Pointer[string]
 
@@ -135,6 +139,7 @@ func New(opts Options) (*Server, error) {
 		streamHeartbeat: beat,
 		recentWaitCap:   maxRecentWait,
 		oidcRetry:       oidcRetryMin,
+		uploads:         make(chan struct{}, maxConcurrentUploads),
 	}
 
 	spa, err := newSPAHandler(cfg.Server.ExternalURL, cfg.Server.AllowIndexing)

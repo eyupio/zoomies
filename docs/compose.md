@@ -130,6 +130,28 @@ port at all. [Behind Cloudflare (or any reverse
 proxy)](configuration.md#behind-cloudflare-or-any-reverse-proxy) has the
 three things that go quietly wrong here.
 
+## Listener and published address
+
+For the installer's loopback-only and host reverse proxy deployments, the
+controller listens on `0.0.0.0:8080` inside the container so Docker can
+forward requests to it. The generated `.env` uses
+`ZOOMIES_PUBLISHED_ADDR=127.0.0.1` to restrict the published port to the host.
+When managing your own Compose file, set the host IP in the service's
+`ports` mapping. A proxy that runs in another container can also reach
+Zoomies through a shared Docker network.
+
+Changing **Listen address** to `127.0.0.1:8080` binds Zoomies to the
+container's own loopback interface. After restart, requests to the published
+port can fail and a reverse proxy can return Bad Gateway. To restore the
+installer's listener using the existing database, run these commands from the
+deployment directory:
+
+```sh
+docker compose stop zoomies
+docker compose run --rm --no-deps zoomies config set server.bind 0.0.0.0:8080
+docker compose up -d zoomies
+```
+
 ## The controller is also a host
 
 The compose file runs the controller with an **embedded agent**, so this is one

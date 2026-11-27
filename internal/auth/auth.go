@@ -292,9 +292,12 @@ type Service struct {
 	// guessing attempt into a denial of service on the thing that fixes it.
 	joins *RateLimiter
 	// registrations bounds MCP client registration, the one route that
-	// writes a row for anybody who asks; tokens bounds the token endpoint.
-	registrations *RateLimiter
-	tokens        *RateLimiter
+	// writes a row for anybody who asks; authorizations bounds the
+	// authorisation endpoint, which keeps a row per request that passes its
+	// checks; tokens bounds the token endpoint.
+	registrations  *RateLimiter
+	authorizations *RateLimiter
+	tokens         *RateLimiter
 	// metadata fetches client ID metadata documents.
 	metadata *metadataFetcher
 	audit    *Auditor
@@ -378,6 +381,7 @@ func New(st *store.Store, cfg *config.Config, bus *events.Bus, opts ...Option) *
 	// a few surfaces in an afternoon is well inside this; a script filling the
 	// clients table is not.
 	s.registrations = NewRateLimiter(mcpRegistrationsPerHour, time.Hour, s.clock)
+	s.authorizations = NewRateLimiter(mcpAuthorizationsPerMinute, time.Minute, s.clock)
 	s.tokens = NewRateLimiter(mcpTokenRequestsPerMinute, time.Minute, s.clock)
 	s.audit = NewAuditor(st, bus, s.logger)
 	return s
@@ -678,18 +682,35 @@ func (s *Service) SSOStartRetryAfter(ip string) time.Duration { return s.logins.
 // bound the memory used by requests spread across distinct identities.
 var passwordChecks = make(chan struct{}, 2)
 
-func (s *Service) Login(ctx context.Context, username, password, ip, ua string) (*store.User, string, error) {
+// takePasswordCheck admits one request to the work that holds that memory, or
+// turns it away at once rather than queueing it: a request that waits for a
+// slot is itself holding a connection, and the people who would fill the queue
+// are the ones this bound is for. The release func is for defer. what names the
+// request in the log line a refusal leaves.
+//
+// Every route that hashes or verifies the account password takes one, not only
+// sign-in: the others sit behind a session, but an account is cheap to hold and
+// a few of them asking at once would otherwise bypass the bound entirely.
+func (s *Service) takePasswordCheck(ctx context.Context, what, ip string) (release func(), err error) {
 	select {
 	case passwordChecks <- struct{}{}:
-		defer func() { <-passwordChecks }()
+		return func() { <-passwordChecks }, nil
 	case <-ctx.Done():
-		return nil, "", ctx.Err()
+		return nil, ctx.Err()
 	default:
-		// The other refusals below log; this one did not, and the audit row
-		// for a rate-limited attempt is now written once per window.
-		s.logger.Warn("login refused because password checks are saturated", "ip", ip)
-		return nil, "", ErrRateLimited
+		// The other refusals log; this one did not, and the audit row for a
+		// rate-limited attempt is now written once per window.
+		s.logger.Warn(what+" refused because password checks are saturated", "ip", ip)
+		return nil, ErrRateLimited
 	}
+}
+
+func (s *Service) Login(ctx context.Context, username, password, ip, ua string) (*store.User, string, error) {
+	release, err := s.takePasswordCheck(ctx, "login", ip)
+	if err != nil {
+		return nil, "", err
+	}
+	defer release()
 
 	account := normalizeForLimiter(username)
 	if !s.logins.Allow(ip) {
@@ -1090,6 +1111,13 @@ func (s *Service) ChangePassword(ctx context.Context, userID, oldPassword, newPa
 	if u.PasswordHash == "" && !u.MustChangePassword {
 		return ErrSSOOnly
 	}
+	// Held across both hashes below, the old password's check and the new
+	// one's, since a forced change hashes the new one and nothing else.
+	release, err := s.takePasswordCheck(ctx, "a password change", ip)
+	if err != nil {
+		return err
+	}
+	defer release()
 	if !u.MustChangePassword {
 		if !s.allowAttempt(ip, u.Username) {
 			return ErrRateLimited

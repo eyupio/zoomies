@@ -310,6 +310,9 @@ const SHOTS = [
     path: '/runners',
     heading: 'Runners',
     async prepare(page) {
+      // The activity chart is folded inside Fleet context, so open the outer
+      // fold first; the inner summary is not clickable while it is shut.
+      await page.locator('details.fleet-context > summary').click();
       await page
         .getByText('Explore fleet activity over the last 24 hours', { exact: true })
         .click();
@@ -567,9 +570,15 @@ const SHOTS = [
         .getByRole('group', { name: 'Select repositories', exact: true })
         .getByRole('checkbox', { name: 'acme/widgets', exact: true })
         .check();
-      await page.locator('#policy-installation').evaluate((el) => {
-        window.scrollBy(0, el.getBoundingClientRect().top - 220);
-      });
+      // The connection field is only drawn when more than one installation is
+      // connected; with one it is a sentence. Either way the form heading is
+      // in the same place, so scroll to whichever is there.
+      await page
+        .locator('#policy-installation, #policy-form-heading')
+        .first()
+        .evaluate((el) => {
+          window.scrollBy(0, el.getBoundingClientRect().top - 220);
+        });
       await page.mouse.move(0, 0);
     },
   },

@@ -56,6 +56,11 @@ func (a *Agent) sendReports(ctx context.Context, reports []RunnerReport) {
 // It is exported so the behaviour that deletes things can be tested directly
 // rather than through a ticker.
 func (a *Agent) ReconcileOnce(ctx context.Context) ([]RunnerReport, error) {
+	defer func() {
+		if !a.mutationsPaused.Load() {
+			a.opts.Backends.MaintainCaches(ctx)
+		}
+	}()
 	now := a.now()
 	var reports []RunnerReport
 	var errs []error

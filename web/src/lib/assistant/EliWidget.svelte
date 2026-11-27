@@ -22,18 +22,17 @@
   import { contextPrompt } from './prompts';
   import { layers, lockScroll, pageInert, trapFocus } from '$lib/keys';
   import { router } from '$lib/router';
+  import { viewport } from '$lib/state/viewport.svelte';
 
   let phone = $state(false);
   let size = $state('comfortable');
   let side = $state('right');
   let full = $state(false);
   const modal = $derived(full || phone);
-  // The repair pages already carry a decision and a primary action, often at
-  // the bottom of a phone screen. A floating launcher there covers the button
-  // it is meant to help with, so those pages open Eli from the shortcut only.
-  const hideLauncher = $derived(
-    router.pathname === '/repairs' || router.pathname.startsWith('/repairs/'),
-  );
+  // The launcher belongs to the immersive command centre, and only where the
+  // window has room for it. Every page with the top bar opens Eli from there,
+  // so a floating paw cannot cover a row action or a phone's first tile.
+  const hideLauncher = $derived(!router.route.immersive || viewport.phone);
   let loading = $state(false);
   const answering = $derived(loading ? undefined : eli.answering);
   let error = $state('');

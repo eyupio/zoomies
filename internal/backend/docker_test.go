@@ -539,7 +539,7 @@ func TestTheProbeCarriesTheMachineTheDaemonIsOn(t *testing.T) {
 		"GET " + v + "/_ping":   func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("OK")) },
 		"GET " + v + "/version": func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, VersionInfo{Version: "27.1.1"}) },
 		"GET " + v + "/info": func(w http.ResponseWriter, r *http.Request) {
-			writeJSON(w, 200, SystemInfo{ServerVersion: "27.1.1", NCPU: 64, MemTotal: 274_877_906_944})
+			writeJSON(w, 200, SystemInfo{ServerVersion: "27.1.1", NCPU: 64, MemTotal: 274_877_906_944, OSType: "linux", Architecture: "aarch64"})
 		},
 	})
 
@@ -549,6 +549,9 @@ func TestTheProbeCarriesTheMachineTheDaemonIsOn(t *testing.T) {
 		t.Fatalf("cpus = %d, want the 64 the daemon reported", info.CPUs)
 	}
 	// 256 GiB in megabytes, because that is the unit the host row speaks in.
+	if info.OS != "linux" || info.Arch != "arm64" {
+		t.Fatalf("platform = %s/%s, want the linux/arm64 the daemon reported (aarch64 read as arm64)", info.OS, info.Arch)
+	}
 	if info.MemoryMB != 262_144 {
 		t.Fatalf("memory = %d MB, want 262144", info.MemoryMB)
 	}
@@ -567,8 +570,8 @@ func TestTheProbeSaysNothingAboutAMachineTheDaemonDidNotDescribe(t *testing.T) {
 
 	info := dockerBackendFor(t, f, DockerOptions{}).Probe(context.Background())
 
-	if info.CPUs != 0 || info.MemoryMB != 0 {
-		t.Fatalf("info = %d cpus, %d MB; nothing said must stay nothing", info.CPUs, info.MemoryMB)
+	if info.CPUs != 0 || info.MemoryMB != 0 || info.OS != "" || info.Arch != "" {
+		t.Fatalf("info = %d cpus, %d MB, %q/%q; nothing said must stay nothing", info.CPUs, info.MemoryMB, info.OS, info.Arch)
 	}
 }
 

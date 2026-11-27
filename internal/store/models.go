@@ -370,6 +370,12 @@ type HostBackend struct {
 	// outright, however many cores the agent's machine has.
 	CPUs     int   `json:"cpus,omitempty"`
 	MemoryMB int64 `json:"memory_mb,omitempty"`
+	// OS and Arch are the platform the daemon runs containers on, as it
+	// reported them; empty from an agent that predates them and from a
+	// backend that is not a container runtime. A container runner registers
+	// as this platform, not as the host the agent runs on.
+	OS   string `json:"os,omitempty"`
+	Arch string `json:"arch,omitempty"`
 	// Limits is whether the daemon behind this backend can enforce a CPU
 	// quota, a memory limit and a pids limit at all. A rootless daemon on
 	// cgroup v1, or on cgroup v2 with no cpu controller delegated to the user,
@@ -900,10 +906,11 @@ func (s CacheScope) Valid() bool { return s == CacheScopePool || s == CacheScope
 type CacheConfig struct {
 	Enabled bool       `json:"enabled"`
 	Scope   CacheScope `json:"scope"`
-	// SizeLimit is enforced by evicting whole cache entries, least recently
-	// modified first, in the gap between one runner and the next. Only a cache
-	// in a host directory can be measured, so a limit is refused on a named
-	// volume rather than accepted and quietly ignored. Zero is unlimited.
+	// SizeLimit covers packages, tools and the local Actions cache service on
+	// each host. Idle maintenance evicts disposable entries and gives the
+	// service the room left over. A live job may exceed it; it is not a quota.
+	// A non-zero limit requires a host directory. Zero leaves package/tools
+	// unlimited; the service retains its own 10 GiB default.
 	SizeLimit int64  `json:"size_limit,omitempty"`
 	Source    string `json:"source,omitempty"`
 	// Repository names the repository a repository-scoped cache belongs to,

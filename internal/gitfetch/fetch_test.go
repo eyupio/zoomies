@@ -194,6 +194,62 @@ func TestRemoveDeletesABuiltRepository(t *testing.T) {
 	}
 }
 
+// Removing a workspace made one `chmod` per entry so that read-only objects
+// could be deleted, and chmod follows a symbolic link. The merge worker runs in a
+// container with the workspace bind-mounted writable, so a link it leaves behind
+// is the container's to choose, and the agent removes the workspace afterwards as
+// the user that owns the host's own files. The link has to be deleted as a link,
+// and what it points at left alone.
+func TestRemoveDoesNotChangeWhatASymlinkPointsAt(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	outside := filepath.Join(root, "outside")
+	for _, dir := range []string{workspace, outside} {
+		if err := os.Mkdir(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	secret := filepath.Join(outside, "secret")
+	if err := os.WriteFile(secret, []byte("not for the worker"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(outside, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, filepath.Join(workspace, "to-file")); err != nil {
+		t.Skipf("this host will not make a symlink: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(workspace, "to-dir")); err != nil {
+		t.Fatal(err)
+	}
+	// A read-only file beside them, which is what the chmod is for and must still work.
+	readOnly := filepath.Join(workspace, "object")
+	if err := os.WriteFile(readOnly, []byte("x"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Remove(workspace); err != nil {
+		t.Fatalf("removing the workspace: %v", err)
+	}
+	if _, err := os.Lstat(workspace); !os.IsNotExist(err) {
+		t.Fatalf("the workspace is still there: %v", err)
+	}
+	info, err := os.Stat(secret)
+	if err != nil {
+		t.Fatalf("what the link pointed at is gone: %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("the file a link pointed at is now %v; Remove followed the link and changed it", info.Mode().Perm())
+	}
+	dirInfo, err := os.Stat(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dirInfo.Mode().Perm() != 0o700 {
+		t.Errorf("the directory a link pointed at is now %v; Remove followed the link and changed it", dirInfo.Mode().Perm())
+	}
+}
+
 // lookupFromRepo is a Lookup over a real repository, which is what the
 // controller's GitHub client will be: the commit's tree and parents from one
 // read, and the files from another.

@@ -326,6 +326,17 @@ func File(content string, m Mapping) Result {
 		lineNo := i + 1
 		job := tracker.job
 
+		// A matrix axis, or an include entry, that is called runs-on is data for
+		// an expression, not this job's own label: collapsing it turned a list
+		// into a scalar and the workflow stopped being valid. It is left as it
+		// is and reported, because the values in it still name hosted runners
+		// and only the operator knows what they should become.
+		if underMatrix(lines, i) {
+			res.Skips = append(res.Skips, Skip{Line: lineNo, Job: job, Value: strings.TrimSpace(value),
+				Reason: "this is an axis of the job's matrix, which its runs-on picks from with an expression; change the values in it by hand"})
+			continue
+		}
+
 		// `runs-on:` with nothing after it introduces a block sequence:
 		//
 		//	runs-on:
@@ -530,7 +541,13 @@ func rewriteBlockSequence(lines []line, at int, job string, m Mapping) (int, boo
 	match := runsOnKey.FindStringSubmatch(lines[at].text)
 	comment := ""
 	if match != nil {
-		comment = match[3]
+		// The key's own whitespace is matched before the value, so on a line with
+		// no value the comment arrives with no space in front of it. One goes
+		// back: a # directly after a scalar is part of the scalar, and the label
+		// would stop being a label any runner has.
+		if c := strings.TrimLeft(match[3], " \t"); c != "" {
+			comment = " " + c
+		}
 	}
 	lines[at].text = strings.TrimRight(lines[at].text[:strings.Index(lines[at].text, ":")+1], " \t") + " " + out.to + comment
 	for j := at + 1; j <= at+consumed; j++ {
@@ -717,6 +734,32 @@ func joinLines(lines []line) string {
 		b.WriteString(l.ending)
 	}
 	return b.String()
+}
+
+// underMatrix reports whether the key on line at sits inside a strategy's
+// matrix: one of the keys above it, each indented less than the last, is
+// `matrix` directly under `strategy`. A job that is merely called matrix is not
+// one, which is why the parent is checked as well.
+func underMatrix(lines []line, at int) bool {
+	indent := indentOf(lines[at].text)
+	var keys []string
+	for j := at - 1; j >= 0 && indent > 0; j-- {
+		trimmed := strings.TrimSpace(lines[j].text)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if ind := indentOf(lines[j].text); ind < indent {
+			indent = ind
+			key, _, _ := strings.Cut(strings.TrimPrefix(trimmed, "- "), ":")
+			keys = append(keys, strings.TrimSpace(key))
+		}
+	}
+	for i := 0; i+1 < len(keys); i++ {
+		if keys[i] == "matrix" && keys[i+1] == "strategy" {
+			return true
+		}
+	}
+	return false
 }
 
 func indentOf(s string) int {

@@ -698,7 +698,10 @@ export function throttleCpuPercent(throttle: HostThrottle | undefined | null): n
   return Math.max(50, 100 - 25 * level);
 }
 
-export function hostStatus(host: Pick<Host, 'healthy' | 'cordoned' | 'throttle'>): StatusMeta {
+export function hostStatus(
+  host: Pick<Host, 'healthy' | 'cordoned' | 'throttle'>,
+  diskBlocked = false,
+): StatusMeta {
   if (host.healthy === false) {
     return meta(
       'unreachable',
@@ -717,6 +720,16 @@ export function hostStatus(host: Pick<Host, 'healthy' | 'cordoned' | 'throttle'>
       'slash',
       CircleSlash,
       'Existing runners keep going; no new ones are placed here.',
+    );
+  }
+  if (diskBlocked) {
+    return meta(
+      'disk-blocked',
+      'Disk blocked',
+      'danger',
+      'triangle',
+      TriangleAlert,
+      'Spare slots cannot take runners of one or more pools because of disk. Open the host for its disk requirements and next steps. Running jobs continue.',
     );
   }
   if (throttled(host.throttle)) {

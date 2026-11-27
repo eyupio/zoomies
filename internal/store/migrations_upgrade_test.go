@@ -6,9 +6,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 )
 
 // atSchemaBefore builds a database carrying every migration up to but not
@@ -457,6 +459,69 @@ func TestOpenTakesACopyBeforeMigratingAndRemovesNone(t *testing.T) {
 	}
 	if _, err := os.Stat(stranger); err != nil {
 		t.Errorf("a directory this package did not name was removed: %v", err)
+	}
+}
+
+// breakTable puts a table where a migration is about to create one, so that the
+// migration fails, as one does on a database that has been edited by hand.
+func breakTable(t *testing.T, path, table string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE ` + table + ` (x INTEGER)`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A migration that fails stops the controller from starting, and the service
+// unit restarts it every five seconds. Every start used to take another full
+// copy of the database before trying the migration again, so a database of
+// hundreds of megabytes filled the disk it shares with the runner images in
+// minutes, which made the migration less likely to ever succeed.
+func TestAMigrationThatFailsAgainDoesNotCopyTheDatabaseAgain(t *testing.T) {
+	ctx := context.Background()
+	path := atSchemaBefore(t, "0030_providers.sql")
+	breakTable(t, path, "providers")
+
+	start := time.Now()
+	for i := range 3 {
+		// A second apart, so that a copy per start would have a name of its own.
+		now := start.Add(time.Duration(i) * time.Second)
+		if s, err := Open(ctx, Options{Path: path, Now: func() time.Time { return now }}); err == nil {
+			s.Close()
+			t.Fatalf("open %d succeeded although a migration cannot apply", i+1)
+		}
+	}
+	if copies := preMigrationCopies(t, path); len(copies) != 1 {
+		t.Fatalf("three starts that failed the same migration left %d copies, want 1: %v", len(copies), copies)
+	}
+}
+
+// A copy is only the way back to the database it was taken of. One taken before
+// an earlier migration is not the way back to a database that has moved past it,
+// so a start whose ledger has changed since takes a copy of its own, and the
+// start after that reuses it.
+func TestAMigrationThatFailsLaterStillGetsACopyOfWhereTheDatabaseIsNow(t *testing.T) {
+	ctx := context.Background()
+	path := atSchemaBefore(t, "0030_providers.sql")
+	// 0030 and 0031 apply, 0032 fails: the ledger moves between the first start and the second.
+	breakTable(t, path, "host_samples")
+
+	start := time.Now()
+	var counts []int
+	for i := range 3 {
+		now := start.Add(time.Duration(i) * time.Second)
+		if s, err := Open(ctx, Options{Path: path, Now: func() time.Time { return now }}); err == nil {
+			s.Close()
+			t.Fatalf("open %d succeeded although a migration cannot apply", i+1)
+		}
+		counts = append(counts, len(preMigrationCopies(t, path)))
+	}
+	if want := []int{1, 2, 2}; !slices.Equal(counts, want) {
+		t.Fatalf("copies after each start = %v, want %v: one before the first migration, one once the ledger had moved, then none", counts, want)
 	}
 }
 

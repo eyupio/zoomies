@@ -36,6 +36,11 @@ type UpgradeOptions struct {
 	Image      string
 	Mode       Mode
 	Check      bool
+	// KeptPrevious is the SHA-256 of the previous binary the self-update that
+	// began this run kept beside the installed one (see KeptPreviousEnv), or ""
+	// when this run replaced no binary. Only a file that matches it is put back
+	// when the service does not answer.
+	KeptPrevious string
 	// Continuation keeps the binary-download half and service half under one heading.
 	Continuation bool
 	Out          io.Writer
@@ -326,8 +331,10 @@ func (p *upgradePlan) backupBeforeUpgrade(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	ui := PaletteFor(p.opts.Out)
 	entry, err := backup.Take(ctx, st, backup.TakeOptions{
 		Config: &cfg, Dir: root, Source: backup.SourceUpgrade, TakenBy: "zoomies upgrade",
+		Warn: func(format string, a ...any) { ui.Warn(p.opts.Out, format, a...) },
 	})
 	if err != nil {
 		return "", err
@@ -339,7 +346,6 @@ func (p *upgradePlan) backupBeforeUpgrade(ctx context.Context) (string, error) {
 	if !verified.OK {
 		return "", fmt.Errorf("the copy taken before the upgrade is not sound: %s", strings.Join(verified.Problems, "; "))
 	}
-	ui := PaletteFor(p.opts.Out)
 	ui.Done(p.opts.Out, "Backed up the database as %s and verified it", entry.ID)
 	ui.Hint(p.opts.Out, "Restore it with: zoomies restore %s --replace", entry.Dir)
 	// For the helper alone: the copy's directory, so an update that goes wrong

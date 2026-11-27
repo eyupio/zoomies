@@ -280,7 +280,7 @@ func (s *Service) finalise(sc scope, key, version string, size int64) (*entry, b
 // let a pool run well over its limit while a few large saves were open.
 func (s *Service) evictLocked(keep string) {
 	limit := s.limit()
-	if limit <= 0 {
+	if limit < 0 {
 		return
 	}
 	_, total := s.pendingTotalsLocked()

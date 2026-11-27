@@ -1204,6 +1204,42 @@ func TestPasswordVerificationHasAGlobalAdmissionBound(t *testing.T) {
 	}
 }
 
+// Each Argon2 hash holds 64 MiB while it runs, and the bound on how many run at
+// once was kept by Login alone. The two routes that check the account password
+// from behind a session, changing it and confirming it to turn two-step off,
+// asked for the same memory with no bound, so a handful of signed-in accounts
+// each sending requests at once could hold gigabytes between them even with
+// every per-address and per-account window respected.
+func TestSignedInPasswordChecksShareTheArgon2Bound(t *testing.T) {
+	s, st, _ := newService(t)
+	ctx := t.Context()
+	u := addUser(t, st, "alice", store.RoleViewer, nil)
+
+	for range cap(passwordChecks) {
+		passwordChecks <- struct{}{}
+	}
+	defer func() {
+		for range cap(passwordChecks) {
+			<-passwordChecks
+		}
+	}()
+
+	if err := s.ChangePassword(ctx, u.ID, testPassword, "a much longer password", "10.0.0.1"); !errors.Is(err, ErrRateLimited) {
+		t.Errorf("ChangePassword with every password check taken = %v; want ErrRateLimited", err)
+	}
+	if err := s.DisableTwoStep(ctx, u.ID, testPassword, "000000", "10.0.0.1"); !errors.Is(err, ErrRateLimited) {
+		t.Errorf("DisableTwoStep with every password check taken = %v; want ErrRateLimited", err)
+	}
+	// Nothing was hashed or changed: the old password still opens the account.
+	after, err := st.GetUser(ctx, u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.PasswordHash != u.PasswordHash {
+		t.Error("the password changed although the request was turned away")
+	}
+}
+
 // With password sign-in held to administrators, a correct password below that
 // is refused -- and only once it has been proved correct, so the refusal says
 // nothing about an account to somebody who does not hold its password. An

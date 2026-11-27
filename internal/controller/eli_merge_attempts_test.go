@@ -163,3 +163,39 @@ func TestAnsweredConflictWaitsForTheResolverBeyondTheWorkerDeadline(t *testing.T
 		t.Fatal("a handled answer did not expire")
 	}
 }
+
+// An attempt is the one host's. Until its task is queued nobody holds it, the
+// host it was queued to may use it, and a second host being given the same id is
+// refused rather than allowed to take it over. An id that holds nothing is
+// "not here" to every host alike.
+func TestAMergeAttemptBelongsToTheOneHostItWasQueuedTo(t *testing.T) {
+	attempts, _ := attemptsAt(time.Unix(1700000000, 0), time.Minute, 2)
+	id, err := attempts.add(gitfetch.Repository{Dir: t.TempDir()}, "image")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := attempts.assignedTo(id, "host-a"); !errors.Is(err, ErrNoMergeAttempt) {
+		t.Errorf("an attempt nobody was given is open to host-a: %v", err)
+	}
+	if !attempts.bind(id, "host-a") {
+		t.Fatal("the first host was refused the attempt")
+	}
+	if !attempts.bind(id, "host-a") {
+		t.Error("binding the same host twice was refused; a task queued again is the queue's business")
+	}
+	if attempts.bind(id, "host-b") {
+		t.Error("a second host was given an attempt that belongs to the first")
+	}
+	if err := attempts.assignedTo(id, "host-a"); err != nil {
+		t.Errorf("the host it was queued to is refused: %v", err)
+	}
+	if err := attempts.assignedTo(id, "host-b"); !errors.Is(err, ErrNoMergeAttempt) {
+		t.Errorf("another host is told %v; want the same ErrNoMergeAttempt an unknown id gets", err)
+	}
+	if !attempts.bind("nosuchattempt", "host-a") {
+		t.Error("binding an id that holds nothing must not be an error, the pull says it is not here")
+	}
+	if err := attempts.assignedTo("nosuchattempt", "host-a"); !errors.Is(err, ErrNoMergeAttempt) {
+		t.Errorf("an unknown id = %v; want ErrNoMergeAttempt", err)
+	}
+}

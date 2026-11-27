@@ -390,6 +390,11 @@
       .map((entry) => entry.command);
   });
 
+  const activeCommand = $derived(results[active]);
+  // Results are two kinds of thing, and Enter does a different thing to each.
+  // Saying only "run" made a host and "Cordon host" look like the same press.
+  const enterVerb = $derived(activeCommand?.group === 'Action' ? 'to run this action' : 'to open');
+
   $effect(() => {
     // Reading `results` keeps the highlight inside the list as it narrows --
     // but only while the palette is on screen. Unguarded, this effect read the
@@ -510,7 +515,7 @@
 
       <footer>
         <span><kbd>↑</kbd><kbd>↓</kbd> to move</span>
-        <span><kbd>Enter</kbd> to run</span>
+        <span><kbd>Enter</kbd> {enterVerb}</span>
         <span><kbd>Esc</kbd> to close</span>
         <!-- The palette floats clear of the page, so it is the one surface that
              has to say for itself whose it is. -->

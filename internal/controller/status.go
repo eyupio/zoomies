@@ -179,6 +179,10 @@ func ProjectStatus(problems []Problem, stats *Stats) FleetStatus {
 // turn the public page to "degraded" for people with no account over a sysctl,
 // and to "blocked" over a check that could not read a file.
 //
+// pool.registry_mirror_unused is the same kind of exception. It tells the
+// operator that a pool they gave an image of their own does not use the registry
+// mirror they turned on, which is their choice and which no job notices.
+//
 // The two host update codes are the same again. A host whose update failed is
 // still running the release it had and placing work on it, and one that cannot
 // be updated from here is an operator's convenience missing: neither says
@@ -187,7 +191,8 @@ func ProjectStatus(problems []Problem, stats *Stats) FleetStatus {
 func statusExempt(code string) bool {
 	switch code {
 	case "host.os_health", "host.health_stale", "host.reboot_pending",
-		"host.update_failed", "host.update_helper_stuck", "host.update_unavailable":
+		"host.update_failed", "host.update_helper_stuck", "host.update_unavailable",
+		"pool.registry_mirror_unused":
 		return true
 	}
 	return strings.HasPrefix(code, "ai_context.") || strings.HasPrefix(code, "kennel.")
@@ -282,9 +287,11 @@ var publicSentences = map[string]string{
 	"host.overprovisioned":                          "A machine is promised to more runners than it can hold at once.",
 	"host.resources_unknown":                        "A machine has not reported how much room it has, so it is used cautiously.",
 	"host.shared_folder_unmounted":                  "A machine keeps no tool cache, so jobs there download their tools again and start slower.",
+	"host.registry_mirror_degraded":                 "A machine is not keeping the container images its jobs pull, so jobs there download them again and may start slower.",
 	"host.runtime_recovering":                       "A machine's container runtime is recovering, so it is taking no new jobs for now.",
 	"host.scratch_unmeasured":                       "A machine cannot tell how full its in-memory folders get, so a job that fills one fails without saying why.",
 	"host.throttled":                                "A machine is busy enough that it is taking new jobs more slowly.",
+	"host.low_disk":                                 "A machine has spare slots but too little disk for new runners of one or more pools.",
 	"host.unhealthy":                                "A machine has stopped checking in, so fewer jobs can run at once.",
 	"host.version_behind":                           "A machine is running an older agent than the controller.",
 	"installation.unhealthy":                        "The fleet has lost a permission it needs on GitHub, so jobs from some repositories cannot start.",
@@ -360,6 +367,7 @@ var publicSentences = map[string]string{
 	"proxmox.privilege_missing":                     "The fleet lacks a permission at a machine provider, so some machines cannot be added.",
 	"proxmox.storage_inactive":                      "Storage at a machine provider is inactive, so no new machines can be added there.",
 	"proxmox.storage_missing":                       "A machine provider is missing storage the fleet is set to use.",
+	"proxmox.setting_invalid":                       "A machine provider has a setting that is not one it can use.",
 	"proxmox.storage_no_images":                     "Storage at a machine provider cannot hold machine images.",
 	"proxmox.template_missing":                      "A machine provider is missing the template new machines are made from.",
 	"proxmox.template_no_agent":                     "The template new machines are made from cannot report their address.",

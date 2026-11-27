@@ -57,6 +57,35 @@ and the sections keep their original text so the reasoning stays readable:
 
 #11, invite links, is still open exactly as written.
 
+## Checked again, 17 November 2026
+
+One entry gained evidence from outside the comparator this document was written
+against, and its section keeps its text, its status and its size.
+
+* **#4, VM per job.** [Codemany](https://codemany.com/docs/advanced#isolation),
+  a paid desktop app that runs jobs on Macs and Linux machines its customers
+  own, ships isolation beyond a container, opt-in on Linux: a KVM virtual
+  machine per job, laid out like GitHub's runner image with Docker and `sudo`,
+  and an LXD container, or an LXD virtual machine, per job. Its documentation
+  says the opt-in modes never fall back to running a job as the user, that
+  their caches start cold, that the virtual machine is the slower of the two
+  and that an LXD container starts in a second or two. That is evidence that
+  the demand this entry is gated on exists in this market, and nothing more:
+  the status, the fit and the size above stand.
+
+  It also names a third shape that the two weighed above leave out: **an LXD
+  container or LXD virtual machine per job, as a backend.** It needs LXD on the
+  host rather than a Firecracker or Kata binary. What it isolates depends on
+  which mode is used, because a container shares the host's kernel, as Docker
+  does, and an LXD virtual machine does not; the entry's reason for wanting a
+  virtual machine applies to the second and not the first. It is a shape to
+  weigh when the work is picked up, not a proposal, and decision 28's spike
+  still comes first. Read on 17 November 2026; the
+  [comparison page](../docs/alternatives/codemany.md) records the rest of what
+  was read, and
+  [the plan](plans/2026-11-17-codemany-follow-ups.md) is where the follow-ups
+  from that review are tracked.
+
 ## Summary
 
 | # | Candidate | Status | Fit | Size |

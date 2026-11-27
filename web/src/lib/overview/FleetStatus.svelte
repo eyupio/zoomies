@@ -103,8 +103,7 @@
 <style>
   /*
     The window the waits and the outcomes under the band cover, said once rather
-    than in each figure. The lane keeps its last words clear of the assistant's
-    button, which sits over the window's right edge.
+    than in each figure.
   */
   .coverage {
     display: flex;
@@ -112,7 +111,6 @@
     justify-content: flex-end;
     gap: var(--z-space-1) var(--z-space-4);
     margin: calc(-1 * var(--z-space-2)) 0 var(--z-space-4);
-    padding-inline-end: var(--z-eli-lane);
     color: var(--z-text-muted);
     font-size: var(--z-text-xs);
     line-height: var(--z-leading-xs);

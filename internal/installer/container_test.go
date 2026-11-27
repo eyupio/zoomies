@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -739,5 +740,59 @@ func TestLogsCommandNamesWhicheverHoldsTheLogs(t *testing.T) {
 
 	if got, want := i.logsCommand(Plan{Deployment: DeploymentDocker}), "docker logs -f "+ContainerName; got != want {
 		t.Errorf("docker logs command = %q, want %q", got, want)
+	}
+}
+
+// A compose file's volume is a YAML string that compose then splits on colons and
+// scans for $, and the template wrote the operator's certificate and socket paths
+// into it as they were typed. A "#" after a space ended the line as a comment, and
+// a "$" was an interpolation that expanded to nothing: each a volume that mounted
+// the wrong thing, or nothing, with compose reporting at most that a variable was
+// unset. A
+// path that is nothing but ordinary characters is left as it was.
+func TestComposeVolumesKeepAnOperatorsPathsAsTheyWereGiven(t *testing.T) {
+	spec := ComposeFileSpecFor(containerPlan(t))
+	spec.TLSCertFile = "/etc/my certs/it's #1.pem"
+	spec.TLSKeyFile = "/etc/my certs/$key.pem"
+	spec.MountSocket = true
+	spec.SocketPath = "/run/user/1000/&docker.sock"
+	body, err := RenderComposeFile(spec)
+	if err != nil {
+		t.Fatalf("RenderComposeFile: %v", err)
+	}
+	var doc struct {
+		Services map[string]struct {
+			Volumes []string `yaml:"volumes"`
+		} `yaml:"services"`
+	}
+	if err := yaml.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatalf("the compose file is not valid YAML: %v\n%s", err, body)
+	}
+	volumes := doc.Services["zoomies"].Volumes
+	for _, want := range []string{
+		"/etc/my certs/it's #1.pem:/etc/my certs/it's #1.pem:ro",
+		// Compose reads $$ as a literal $, so that is how a path that has one is written.
+		"/etc/my certs/$$key.pem:/etc/my certs/$$key.pem:ro",
+		"/run/user/1000/&docker.sock:/run/user/1000/&docker.sock",
+	} {
+		if !slices.Contains(volumes, want) {
+			t.Errorf("no volume reads back as %q; the volumes are %q\n%s", want, volumes, body)
+		}
+	}
+}
+
+// A colon is how a short volume separates its parts and has no way to be part of
+// a path, so a path with one is refused where it is chosen instead of mounting
+// something else.
+func TestComposeRefusesAVolumePathWithAColonInIt(t *testing.T) {
+	spec := ComposeFileSpecFor(containerPlan(t))
+	spec.TLSCertFile = "/etc/certs/a:b.pem"
+	spec.TLSKeyFile = "/etc/certs/key.pem"
+	_, err := RenderComposeFile(spec)
+	if err == nil {
+		t.Fatal("a compose file was rendered with a colon in a volume path")
+	}
+	if !strings.Contains(err.Error(), "colon") {
+		t.Errorf("the refusal does not say what is wrong: %v", err)
 	}
 }

@@ -842,9 +842,9 @@ func TestAPoolWithNoPlatformFallsBackToTheInstanceDefault(t *testing.T) {
 	}
 }
 
-// GitHub adds self-hosted and the os and arch labels to every just-in-time
-// runner itself, so an ephemeral pool cannot promise to leave them out; saying
-// so at creation is better than a scheduler that disagrees with GitHub.
+// Zoomies mints every just-in-time runner with self-hosted and the os and
+// arch labels, so an ephemeral pool cannot promise to leave them out; saying
+// so at creation is better than a pool that says one thing and does another.
 func TestOnlyANonEphemeralPoolMayLeaveOutTheDefaultLabels(t *testing.T) {
 	h := newHarness(t)
 	inst := h.installation()

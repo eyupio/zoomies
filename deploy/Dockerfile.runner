@@ -85,7 +85,7 @@ ARG BASE=ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d3149364
 # why. It is built for the platform the image is for and without cgo, which is
 # what makes it static. The golang digest is the one deploy/Dockerfile builds
 # the controller with.
-FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS nodewrap
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280 AS nodewrap
 ARG TARGETOS
 ARG TARGETARCH
 WORKDIR /src

@@ -739,13 +739,13 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 	if p.MinRunners > p.MaxRunners {
 		add("min_runners", fmt.Sprintf("the minimum (%d) is above the maximum (%d); warm runners cannot exceed the cap", p.MinRunners, p.MaxRunners))
 	}
-	// GitHub adds self-hosted, the operating system and the architecture to
-	// every just-in-time runner itself; the generate-jitconfig request has no
-	// way to ask otherwise. Accepting the setting on an ephemeral pool would
-	// have the scheduler refuse jobs asking for self-hosted that GitHub then
-	// happily offers the runner -- a pool that says one thing and does another.
+	// An ephemeral runner's just-in-time configuration carries exactly the
+	// labels it is minted with, and the controller always mints it with
+	// self-hosted, the operating system and the architecture (jitLabels), since
+	// GitHub adds none of them itself. Ephemeral pools therefore keep the
+	// default labels.
 	if p.NoDefaultLabels && p.Ephemeral {
-		add("no_default_labels", "GitHub adds the self-hosted, operating-system and architecture labels to every ephemeral (just-in-time) runner, "+
+		add("no_default_labels", "Zoomies registers every ephemeral (just-in-time) runner with the self-hosted, operating-system and architecture labels, "+
 			"so only a non-ephemeral pool can leave them out; set ephemeral to false, or turn no_default_labels off")
 	}
 	if p.NoDefaultLabels && len(p.Labels) == 0 {

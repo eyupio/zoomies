@@ -69,6 +69,11 @@ type Service struct {
 	budget  *Budget
 	entries map[string]*entry   // finished entries by id
 	pending map[string]*pending // reservations by id
+	// inflight is the room handed to writes that have started and not been
+	// recorded, guarded by mu. Without it uploads that overlap each learn the
+	// same free room and each write up to it, so N parallel blocks stage N
+	// times the bound. A write holds its grant until record applies its bytes.
+	inflight int64
 }
 
 // Budget is one size ceiling shared by several services. It is how a pool with
@@ -82,7 +87,24 @@ type Budget struct {
 
 // NewBudget returns a budget of max bytes of finished entries; zero or less
 // means none.
-func NewBudget(max int64) *Budget { return &Budget{max: max} }
+func NewBudget(max int64) *Budget {
+	if max <= 0 {
+		max = -1
+	}
+	return &Budget{max: max}
+}
+
+// SetMaxBytes applies a live ceiling and evicts finished entries under the
+// same lock as uploads. Zero leaves no room for saves; a negative value is
+// unlimited. Pending transfers finish or expire through their normal path.
+func (b *Budget) SetMaxBytes(max int64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.max = max
+	if len(b.members) > 0 {
+		b.members[0].evictLocked("")
+	}
+}
 
 // New opens the folder and learns what an earlier run left in it.
 func New(opts Options) (*Service, error) {
@@ -137,6 +159,9 @@ func (s *Service) limit() int64 {
 	if s.budget != nil {
 		return s.budget.max
 	}
+	if s.opts.MaxBytes <= 0 {
+		return -1
+	}
 	return s.opts.MaxBytes
 }
 
@@ -144,7 +169,7 @@ func (s *Service) limit() int64 {
 // the toolkit's own.
 func (s *Service) entryLimit() int64 {
 	l := s.limit()
-	if l <= 0 || l > maxEntryBytes {
+	if l < 0 || l > maxEntryBytes {
 		return maxEntryBytes
 	}
 	return l
@@ -172,9 +197,11 @@ func (s *Service) maxPendingBytes() int64 {
 }
 
 // pendingTotalsLocked counts the open reservations and the bytes they have
-// staged, across the group.
+// staged, across the group, with the room handed to writes still in flight:
+// those bytes are as good as staged, they have only not finished arriving.
 func (s *Service) pendingTotalsLocked() (n int, bytes int64) {
 	for _, m := range s.group() {
+		bytes += m.inflight
 		for _, p := range m.pending {
 			n++
 			bytes += p.stagedBytes()

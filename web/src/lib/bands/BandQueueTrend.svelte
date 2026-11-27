@@ -137,7 +137,7 @@
         <figcaption>
           <span>Running</span>
           <b
-            >{last?.running ?? 0}{#if slots}<small> of {slots} slots</small>{/if}</b
+            >{last?.running ?? 0}{#if slots}<small>of {slots} slots</small>{/if}</b
           >
         </figcaption>
         <svg
@@ -213,6 +213,9 @@
     font-variant-numeric: tabular-nums;
   }
   figcaption small {
+    /* The figure and "of 10 slots" are two elements with no space between
+       them in the markup, and read "3of 10 slots" without one here. */
+    margin-inline-start: var(--z-space-1);
     font-size: var(--z-text-2xs);
     font-weight: var(--z-weight-medium);
     color: var(--z-panel-text-muted);

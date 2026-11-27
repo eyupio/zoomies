@@ -496,6 +496,44 @@ func TestRevokeAPITokenKeepsTheRow(t *testing.T) {
 	}
 }
 
+// Whether an account owns credentials at all, revoked ones included, says
+// what it was made for: an account made ahead of somebody's first sign-in owns
+// none, and one that automation has used does. A user id of nothing must not
+// count the tokens that belong to nobody.
+func TestCountAPITokensForUserCountsEveryTokenTheAccountOwns(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	u := &User{Username: "ada", Role: RoleAdmin}
+	other := &User{Username: "bob", Role: RoleViewer}
+	for _, user := range []*User{u, other} {
+		if err := s.CreateUser(ctx, user); err != nil {
+			t.Fatalf("CreateUser(%s): %v", user.Username, err)
+		}
+	}
+	n, err := s.CountAPITokensForUser(ctx, u.ID)
+	if err != nil || n != 0 {
+		t.Fatalf("an account with no tokens counts %d, %v; want 0, nil", n, err)
+	}
+
+	for _, tok := range []*APIToken{
+		{Name: "mine", Role: RoleAdmin, UserID: u.ID, TokenHash: "h-mine"},
+		{Name: "revoked", Role: RoleAdmin, UserID: u.ID, TokenHash: "h-revoked", Revoked: true},
+		{Name: "bobs", Role: RoleViewer, UserID: other.ID, TokenHash: "h-bobs"},
+		{Name: "orphan", Role: RoleViewer, TokenHash: "h-orphan"},
+	} {
+		if err := s.CreateAPIToken(ctx, tok); err != nil {
+			t.Fatalf("CreateAPIToken(%s): %v", tok.Name, err)
+		}
+	}
+	if n, err := s.CountAPITokensForUser(ctx, u.ID); err != nil || n != 2 {
+		t.Fatalf("CountAPITokensForUser = %d, %v; want 2, nil (a revoked token still shows what the account is for)", n, err)
+	}
+	if n, err := s.CountAPITokensForUser(ctx, ""); err != nil || n != 0 {
+		t.Fatalf("CountAPITokensForUser(\"\") = %d, %v; want 0, nil", n, err)
+	}
+}
+
 // A token is a bearer credential with its own role: nothing about the owning
 // account is consulted when one is presented, so disabling an account has to
 // revoke its tokens explicitly or a departed administrator keeps their access.

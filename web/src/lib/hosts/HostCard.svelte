@@ -9,6 +9,8 @@
 -->
 <script lang="ts">
   import { navigate } from '$lib/router';
+  import { fleet } from '$lib/state/fleet.svelte';
+  import { diskProblemFor } from './disk';
   import { healthSummary } from './health';
   import { cardLine, diskIsLow, diskLink } from './health-card';
   import { slotsOf } from './slots';
@@ -41,9 +43,11 @@
   import Tooltip from '$lib/components/Tooltip.svelte';
   import UtilisationBar from '$lib/components/UtilisationBar.svelte';
   import BackendList from './BackendList.svelte';
+  import RegistryMirrorLine from './RegistryMirrorLine.svelte';
   import HostMemoryPool from './HostMemoryPool.svelte';
   import HostUpdateRow from './HostUpdateRow.svelte';
   import HostVitals from './HostVitals.svelte';
+  import HostCacheStorage from './HostCacheStorage.svelte';
   import ResourceBar from './ResourceBar.svelte';
   import { backendTrouble } from './backends';
   import { committedNotice } from './committed';
@@ -106,9 +110,8 @@
     class: className = '',
   }: Props = $props();
 
-  const status = $derived(
-    hostStatus({ healthy: host.healthy, cordoned: host.cordoned, throttle: host.throttle }),
-  );
+  const diskProblem = $derived(diskProblemFor(host, fleet.problems));
+  const status = $derived(hostStatus(host, Boolean(diskProblem)));
   // Whether the controller has stepped this host down. The slots line, the
   // bar and the menu all follow it; the sentence itself is the controller's.
   const isThrottled = $derived(throttled(host.throttle));
@@ -392,12 +395,14 @@
   }
 
   /** Amber by the doctor's own rule, so the card and the Warning row agree. */
-  const diskLow = $derived(diskIsLow(host.disk_free_mb ?? 0, host.disk_total_mb ?? 0));
+  const diskLow = $derived(
+    Boolean(diskProblem) || diskIsLow(host.disk_free_mb ?? 0, host.disk_total_mb ?? 0),
+  );
   const diskHref = $derived(diskLink(host, health));
 
   // The three figures a closed card keeps in view, worked out the way the
   // capacity map works them out, so the chart and the card cannot disagree.
-  const vitals = $derived(hostVitals(host, now));
+  const vitals = $derived(hostVitals(host, now, diskProblem));
   // A host with nothing to run a job in has its reason in the Backends block, so
   // for that host the block stays out of the fold. One that merely lacks a second
   // backend (Docker without Podman) is the ordinary case and folds with the rest.
@@ -612,6 +617,12 @@
        card, so that a row of cards leaves the same space for it whether or not
        any card has something to say. -->
   <div class="alerts">
+    {#if diskProblem}
+      <p class="health bad" data-testid="host-disk-blocked">
+        {diskProblem.detail}
+        <a href="/hosts/{host.id}#disk-admission">Disk requirements and next steps</a>
+      </p>
+    {/if}
     {#if host.healthy === false}
       <p class="health bad">
         No heartbeat since <RelativeTime value={host.last_heartbeat} plain />. The agent is not
@@ -744,6 +755,7 @@
 
   <div class="vitals-slot">
     <HostVitals {vitals} name={host.name || host.id || ''} />
+    <HostCacheStorage {host} />
   </div>
 
   <!--
@@ -1002,6 +1014,13 @@
 
       {#if !noBackend}
         {@render backendsBlock()}
+      {/if}
+
+      {#if host.registry_mirror}
+        <section class="block" aria-label="Registry mirror on {host.name || host.id}">
+          <h4>Registry mirror</h4>
+          <RegistryMirrorLine mirror={host.registry_mirror} />
+        </section>
       {/if}
 
       <section class="block" aria-label="Tags on {host.name || host.id}">

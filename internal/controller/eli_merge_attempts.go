@@ -35,7 +35,11 @@ type mergeAttempt struct {
 	image    string
 	job      *conflictJob
 	deadline time.Time
-	answer   *gitmerge.WorkerResponse
+	// host is the one host the attempt's task was queued to, and the only host
+	// that may pull its repository or answer it. It is empty until the task is
+	// queued, which is when the id first leaves the controller.
+	host   string
+	answer *gitmerge.WorkerResponse
 	// handled says the answer has been taken for resolution. A duplicate
 	// answer still receives "already answered"; the work is not repeated.
 	handled bool
@@ -94,6 +98,40 @@ func (m *mergeAttempts) add(repo gitfetch.Repository, image string, job ...*conf
 	}
 	m.byID[id] = attempt
 	return id, nil
+}
+
+// bind gives an attempt to the one host its task is queued to. Binding the same
+// host again is fine, since a task queued twice is the queue's business; giving
+// an attempt to a second host is refused, because the second host would be
+// answering for work it was not asked to do. An id that holds no attempt binds
+// nothing and is not an error: there is nothing in it to guard, and the pull
+// that follows says it is not here.
+func (m *mergeAttempts) bind(id, hostID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	attempt, ok := m.byID[id]
+	if !ok {
+		return true
+	}
+	if attempt.host != "" && attempt.host != hostID {
+		return false
+	}
+	attempt.host = hostID
+	return true
+}
+
+// assignedTo says whether hostID may use the attempt, which is only the host
+// the task was queued to. It answers ErrNoMergeAttempt for every other host,
+// the same as for an id that does not exist, so a host that was not given an
+// attempt learns nothing about whether it is there.
+func (m *mergeAttempts) assignedTo(id, hostID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	attempt, ok := m.byID[id]
+	if !ok || attempt.host == "" || attempt.host != hostID {
+		return ErrNoMergeAttempt
+	}
+	return nil
 }
 
 // repository returns the prepared repository an agent asked for.

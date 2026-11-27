@@ -254,7 +254,7 @@ jobs:
       # both leave a buildx builder that the same build step drives.
       - name: Set up the builder (Blacksmith)
         if: env.BLACKSMITH == 'true'
-        uses: useblacksmith/setup-docker-builder@06dd9c83a5d541274d2e3ac67625560979275267 # v2.3.0
+        uses: useblacksmith/setup-docker-builder@9657a6e02ca6445e6d6ce5ffaf370f4828dea50d # v2.4.0
         with:
           # The same key as ci.yml's controller image on purpose: a tagged build
           # should reuse the layers main has already built rather than start cold.
@@ -343,6 +343,11 @@ jobs:
             COMMIT=${{ github.sha }}
             DATE=${{ steps.release.outputs.date }}
           tags: ${{ steps.tags.outputs.controller }}
+          annotations: |
+            index:org.opencontainers.image.description=Self-hosted GitHub Actions runner fleet controller
+            index:org.opencontainers.image.source=https://github.com/eyupio/zoomies
+            index:org.opencontainers.image.url=https://zoomies.sh
+            index:org.opencontainers.image.licenses=AGPL-3.0-only
       - id: build-github
         if: env.BLACKSMITH != 'true'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -358,6 +363,11 @@ jobs:
             COMMIT=${{ github.sha }}
             DATE=${{ steps.release.outputs.date }}
           tags: ${{ steps.tags.outputs.controller }}
+          annotations: |
+            index:org.opencontainers.image.description=Self-hosted GitHub Actions runner fleet controller
+            index:org.opencontainers.image.source=https://github.com/eyupio/zoomies
+            index:org.opencontainers.image.url=https://zoomies.sh
+            index:org.opencontainers.image.licenses=AGPL-3.0-only
 
       # Against the digest rather than a tag: a tag is a name somebody can move,
       # and the claim being made is about the bytes.
@@ -385,6 +395,11 @@ jobs:
             COMMIT=${{ github.sha }}
             DATE=${{ steps.release.outputs.date }}
           tags: ${{ steps.tags.outputs.agent }}
+          annotations: |
+            index:org.opencontainers.image.description=Zoomies agent: runs a runner fleet on one host for a controller
+            index:org.opencontainers.image.source=https://github.com/eyupio/zoomies
+            index:org.opencontainers.image.url=https://zoomies.sh
+            index:org.opencontainers.image.licenses=AGPL-3.0-only
       - id: build-agent-github
         if: env.BLACKSMITH != 'true'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -400,6 +415,11 @@ jobs:
             COMMIT=${{ github.sha }}
             DATE=${{ steps.release.outputs.date }}
           tags: ${{ steps.tags.outputs.agent }}
+          annotations: |
+            index:org.opencontainers.image.description=Zoomies agent: runs a runner fleet on one host for a controller
+            index:org.opencontainers.image.source=https://github.com/eyupio/zoomies
+            index:org.opencontainers.image.url=https://zoomies.sh
+            index:org.opencontainers.image.licenses=AGPL-3.0-only
 
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
@@ -421,6 +441,11 @@ jobs:
             COMMIT=${{ github.sha }}
             DATE=${{ steps.release.outputs.date }}
           tags: ${{ steps.tags.outputs.gitworker }}
+          annotations: |
+            index:org.opencontainers.image.description=Zoomies Git worker: the bounded merge that conflict repair runs, holding no credentials
+            index:org.opencontainers.image.source=https://github.com/eyupio/zoomies
+            index:org.opencontainers.image.url=https://zoomies.sh
+            index:org.opencontainers.image.licenses=AGPL-3.0-only
       - id: build-gitworker-github
         if: env.BLACKSMITH != 'true'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -435,6 +460,11 @@ jobs:
             COMMIT=${{ github.sha }}
             DATE=${{ steps.release.outputs.date }}
           tags: ${{ steps.tags.outputs.gitworker }}
+          annotations: |
+            index:org.opencontainers.image.description=Zoomies Git worker: the bounded merge that conflict repair runs, holding no credentials
+            index:org.opencontainers.image.source=https://github.com/eyupio/zoomies
+            index:org.opencontainers.image.url=https://zoomies.sh
+            index:org.opencontainers.image.licenses=AGPL-3.0-only
 
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
@@ -493,7 +523,7 @@ jobs:
 
       - name: Set up the builder (Blacksmith)
         if: env.BLACKSMITH == 'true'
-        uses: useblacksmith/setup-docker-builder@06dd9c83a5d541274d2e3ac67625560979275267 # v2.3.0
+        uses: useblacksmith/setup-docker-builder@9657a6e02ca6445e6d6ce5ffaf370f4828dea50d # v2.4.0
         with:
           cache-key: deploy/Dockerfile.runner-${{ matrix.tag }}
           nofallback: true
@@ -782,9 +812,22 @@ jobs:
                 continue
               fi
               tags=$(sort -u "$dir"/*-"$image".tags | sed 's/^/-t /' | tr '\n' ' ')
+              # The Dockerfile's labels describe each platform's image, but
+              # GitHub reads a package's description from the index, which is
+              # what this command writes, so the same text goes on it here.
+              case "$image" in
+                zoomies-runner) description="GitHub Actions runner image for Zoomies" ;;
+                zoomies-runner-docker) description="GitHub Actions runner image for Zoomies, with the Docker CLI" ;;
+                *) description="GitHub Actions runner image for Zoomies, with the Docker CLI and the language toolchains setup-* actions install" ;;
+              esac
               # Both lists are split into words on purpose.
               # shellcheck disable=SC2086
-              docker buildx imagetools create $tags $refs
+              docker buildx imagetools create $tags \
+                --annotation "index:org.opencontainers.image.description=$description" \
+                --annotation "index:org.opencontainers.image.source=https://github.com/eyupio/zoomies" \
+                --annotation "index:org.opencontainers.image.url=https://zoomies.sh" \
+                --annotation "index:org.opencontainers.image.licenses=AGPL-3.0-only" \
+                $refs
             done
           done
           exit "$failed"

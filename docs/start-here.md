@@ -16,11 +16,6 @@ after its job. You manage the fleet through a web UI, CLI or API.
 then [run your first job](quickstart.md). **Already running Zoomies?** Use the
 task table below or go straight to [advanced operations](advanced.md).
 
-Prefer to skip controller setup? [Zoomies Cloud](https://cloud.zoomies.sh/)
-hosts the controller and handles its updates and backups. You still supply and
-look after the machines that run your jobs. It is an optional paid service;
-self-hosting the open-source controller stays free.
-
 ## Choose a path
 
 <div class="zoomies-paths" markdown>
@@ -74,6 +69,7 @@ can publish a fix and watch CI after you configure and authorise repairs.
 | --- | --- | --- |
 | Install on one Linux machine | [Quick start](quickstart.md) | A manually triggered job completes and its runner is removed. |
 | Deploy the controller with a file | [Docker Compose](compose.md) or [PaaS](paas.md) | Claim the instance, connect GitHub and create a pool. |
+| Have the controller hosted for me | [Zoomies Cloud](cloud.md) | Your hosted controller is upgraded and backed up; a joined machine takes a job. |
 | Add a machine | [Hosts and pools](hosts-and-pools.md#adding-a-host) | The host checks in and an eligible pool can place a runner there. |
 | Use a private home or office host | [Private hosts with Tailcat](private-hosts.md) | The agent joins through the private connection and reports capacity. |
 | Move existing workflows | [Migration](migration.md) | Review a diff, run one migrated workflow, then expand. |

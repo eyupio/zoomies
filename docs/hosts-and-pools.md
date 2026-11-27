@@ -208,8 +208,9 @@ it is in WSL2 (`WSL_DISTRO_NAME`, or `microsoft-standard-WSL2` in
   `zoomies agent --wsl-ensure` when the distro starts (a command you already had
   there is kept, and ours is chained after it), and two Windows scheduled tasks
   start the distro if it is not running: `Zoomies\WslOnStart` at startup and
-  `Zoomies\WslEvery5Minutes`. Both run a small script under
-  `%LOCALAPPDATA%\Zoomies` that checks `wsl -l --running` first.
+  `Zoomies\WslEvery5Minutes`. Both run `zoomies-wsl.exe`, a small program under
+  `%LOCALAPPDATA%\Zoomies` that checks `wsl -l --running` first, and never open
+  a window (see below).
 
 `zoomies init`, `zoomies upgrade` and `zoomies agent join` notice a WSL2 distro
 and offer all of this, listing what is missing and asking before anything is
@@ -225,6 +226,49 @@ password: writing `/etc/wsl.conf` needs root, and an `ONSTART` task needs an
 elevated Windows session, so without those it says so and carries on with the
 rest (the five-minute task runs as you, and only while you are signed in).
 `zoomies agent join` runs the same step as root.
+
+#### The scheduled tasks never open a window
+
+Earlier versions registered the two tasks to run `powershell.exe -WindowStyle
+Hidden -File wsl-ensure.ps1`. `powershell.exe` and `wsl.exe` are console
+programs, so Task Scheduler gave each run a console, and where Windows Terminal
+is the default terminal that console is a visible terminal window that took
+focus every five minutes. `-WindowStyle Hidden` is applied after the window
+exists, and a task's own Hidden setting only hides it from the task list, so
+neither helped.
+
+The tasks now run `zoomies-wsl.exe ensure <distro>`, built for the Windows GUI
+subsystem, which is never given a console. It starts `wsl.exe` with
+`CREATE_NO_WINDOW`, so neither does its child. It does what the script did: ask
+`wsl -l --running -q`, and start the distro with `wsl.exe -d <distro> --exec
+/bin/sleep 120` only if it is not running. Its exit code is wsl.exe's. The
+tasks still run as you, only while you are signed in, and `zoomies agent
+--wsl-ensure` still never asks for a password. Interactive use is not touched:
+a terminal you open yourself is opened as it always was, and so is `wsl.exe`
+run by hand.
+
+**Existing installations repair themselves.** The next time `zoomies agent
+--wsl-ensure` runs (the agent runs it at start-up, the boot command runs it when
+the distro starts, and `zoomies upgrade` offers it) it writes the launcher,
+replaces the two tasks in place under the same names (so there is no
+duplicate), and removes `wsl-ensure.ps1`. It does nothing on a run after that.
+It also deletes tasks named `Zoomies WSL` and `Zoomies WSL keepalive` when their
+definition runs `wsl.exe`; a task under those names that runs something else is
+left alone. Deleting or replacing a task made elevated needs an elevated
+session once: without one the step is a warning that says so, and nothing is
+asked of you. A zoomies binary built without `make build` or `make dist` carries
+no launcher, says so, and leaves the tasks as they are.
+
+**Diagnosing without a window.** Run `sudo zoomies agent --wsl-ensure` to see
+each step. The launcher writes what it did, and why anything failed, to
+`%LOCALAPPDATA%\Zoomies\wsl-launcher.log` (it is trimmed at 256 KB); a run
+that found the distro already up writes nothing. Task Scheduler's **Last Run
+Result** is wsl.exe's exit code (0 is success, 1 means wsl.exe could not be
+started, 2 means the task had no distro name). Check a task from a terminal:
+
+```bash
+schtasks.exe /Query /TN 'Zoomies\WslEvery5Minutes' /V /FO LIST
+```
 
 When a host goes away, the controller fails its runners after five minutes and
 removes their GitHub registrations. A registration GitHub still reports as busy
@@ -1160,11 +1204,29 @@ pool only if the pool lists that label itself. A job naming only the pool's own
 labels matches as before.
 
 Only a pool with `ephemeral` off can do this. An ephemeral runner registers with
-a just-in-time configuration, and GitHub adds `self-hosted`, the operating
-system and the architecture to every one of those itself (the request has no
-way to ask otherwise) so the API refuses the combination rather than keep a
-pool whose runners advertise labels the scheduler thinks they do not. Existing
-pools keep the default labels; the setting is off until you turn it on.
+a just-in-time configuration, which carries exactly the labels it is minted
+with: GitHub adds no `self-hosted`, operating system or architecture label to
+one. Zoomies mints every one of those runners with them, so that they advertise
+what the scheduler assumes, and the API keeps ephemeral pools on the default
+labels. The operating system and architecture are the pool's platform where it
+states them, and otherwise what the runner really is on the host it lands on:
+the host itself for a process runner, and the platform its container runtime
+runs for a container runner (Docker Desktop on a Mac runs `linux` containers).
+A pool whose stated platform contradicts what its runner would run as on the
+host it was placed on (a `macos` pool whose Docker runs Linux containers) has
+that runner refused before it is registered, with a message naming the pool and
+both platforms; a host whose agent has not reported its runtime's platform is
+taken at the pool's word, as before. GitHub accepts at most 100 labels for one such runner, these included, so a
+pool with more fails each runner it starts with a message naming the pool and
+the limit. Existing pools keep the default labels; the setting is off until you
+turn it on.
+
+A queued job can ask for an operating system or architecture in its
+`runs-on` list even when its pool leaves that part of the platform open.
+Zoomies checks those labels when choosing the host and when counting idle or
+starting runners that can take the job. If none of the hosts that can take
+the pool can provide the job's requested platform, the pool explains which
+labels are blocking the start.
 
 ### A pool belongs to one installation
 
@@ -1716,7 +1778,11 @@ has stopped, and the job's explanation says it was the sidecar that was short of
 room. A build runs in a container of the sidecar's own daemon, and a kill there
 need not set that flag, so on a host with cgroup v2 the agent also reads the
 kernel's own count of kills (`memory.events`) in each container while it runs,
-and a count above nothing marks the job the same way. It cannot be read where
+and a count above nothing marks the job the same way. That count includes
+containers a job started with a limit of their own (`docker run -m`), so a kill
+is the runner's only where the container's own limit is what ran out
+(`memory.events.local`, on kernels that keep it): a job that carries on past a
+kill under a limit it set itself is left as it ended. It cannot be read where
 the Docker daemon is in a virtual machine or on another host, and a kill that
 ends the job within a second or two can still be missed. Both show on the job's page, in
 `GET /api/v1/jobs/{id}`, in `job_stats` and in the MCP tools.

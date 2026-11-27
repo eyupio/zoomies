@@ -443,6 +443,21 @@ func TestATokenCannotMintMoreThanItsMakerHolds(t *testing.T) {
 	}
 }
 
+// A blank scope is dropped when a token is stored, so a list of nothing but
+// blanks mints a token with no scopes at all, which means the whole role. The
+// refusal of an unscoped token has to be made on the list that is stored, not
+// on the one that was sent.
+func TestAScopedTokenCannotMintWithScopesThatComeToNothing(t *testing.T) {
+	by := &Identity{Kind: KindToken, Role: store.RoleAdmin, Scopes: []string{"pools:read", "tokens:own"}}
+	for _, scopes := range [][]string{{""}, {" "}, {"", "  "}, nil} {
+		if err := MintWithin(by, store.RoleAdmin, scopes); err == nil {
+			t.Errorf("a scoped token minted an unscoped one with scopes %q", scopes)
+		} else if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("scopes %q: a refusal has to be something the API answers 422 to, got %v", scopes, err)
+		}
+	}
+}
+
 // The fence and the backups moved above the fleet's administrator. A backup
 // is the whole database under the key this host holds, and lifting the fence
 // decides whether a restored instance acts on the world again; on an instance

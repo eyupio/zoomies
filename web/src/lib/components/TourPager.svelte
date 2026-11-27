@@ -111,7 +111,7 @@
     transform: scaleX(var(--progress));
     transform-origin: left;
     /* One tick of the tour's clock, so the bar runs rather than steps. */
-    transition: transform 200ms linear;
+    transition: transform var(--z-motion-base) linear;
   }
   /* Held, the bar says so by going quiet rather than by stopping half full
      in the colour of something still running. */

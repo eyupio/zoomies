@@ -199,10 +199,40 @@ func (c *Controller) explainCompleted(job *store.Job, out *JobExplanation) {
 			out.Fix = "this is the fleet's failure rather than the workflow's: the runner's page has what it said as it went."
 		}
 	case store.IsFailedConclusion(job.Conclusion):
-		out.Summary = "This job ran and " + job.Conclusion + "."
+		out.Summary = completedSummary(job.Conclusion)
 		out.Detail = "The fleet did its part: a conclusion is the workflow's own outcome."
 	default:
-		out.Summary = "This job ran and " + job.Conclusion + "."
+		out.Summary = completedSummary(job.Conclusion)
+	}
+}
+
+// completedSummary turns GitHub's conclusion id into the verb the sentence
+// needs. Concatenating the id read "This job ran and failure." for the most
+// common outcome, which is the one sentence every failed job shows.
+func completedSummary(conclusion string) string {
+	switch conclusion {
+	case "success":
+		return "This job ran and succeeded."
+	case "failure":
+		return "This job ran and failed."
+	case "timed_out":
+		return "This job ran and timed out."
+	case "cancelled":
+		return "This job ran and was cancelled."
+	case "skipped":
+		return "This job ran and was skipped."
+	case "startup_failure":
+		return "This job ran and failed to start."
+	case "action_required":
+		return "This job ran and needs action."
+	case "neutral":
+		return "This job ran and ended neutrally."
+	case "stale":
+		return "This job ran and went stale."
+	case "":
+		return "This job finished without a conclusion."
+	default:
+		return "This job finished with the conclusion " + conclusion + "."
 	}
 }
 

@@ -118,14 +118,15 @@ test('saving vocabulary does not turn a fresh style default into an explicit glo
   await expectLayout(page, 'Cards');
 });
 
-test('Classic shares the current-work-first overview and retains its Rows fallback', async ({
+test('Classic shares the current-work-first overview, retains its Rows fallback and folds its filters on a phone', async ({
   page,
 }) => {
   await useClassic(page);
   await page.setViewportSize({ width: 375, height: 900 });
   await goto(page, '/jobs', 'Jobs');
   await expectLayout(page, 'Rows');
-  await expect(page.locator('details.advanced')).toHaveAttribute('open');
+  // The fold follows the viewport now, not the visual style.
+  await expect(page.locator('details.advanced')).not.toHaveAttribute('open');
   await goto(page, '/', 'Overview');
   const history = page.locator('#history > summary');
   const pools = page.getByRole('heading', { name: 'Pools', exact: true });

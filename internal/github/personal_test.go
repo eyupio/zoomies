@@ -223,3 +223,31 @@ func TestTheFactoryBuildsAPersonalClientFromTheInstallation(t *testing.T) {
 		t.Fatalf("runners = %+v", runners)
 	}
 }
+
+// An ephemeral runner removes itself when its job ends, so the delete that
+// follows is usually told the runner is not there. That is the end state asked
+// for, and it has to end the remembering too: kept until GitHub's delete
+// succeeded, the index held one entry for every job the account had ever run.
+func TestAPersonalAccountForgetsARunnerGitHubHasAlreadyDropped(t *testing.T) {
+	f := newFake(t)
+	f.AddRepo("acme/widgets")
+	c := f.PersonalClient("acme")
+	jit, err := c.CreateJITConfig(context.Background(), JITRequest{Name: "r1", Labels: []string{"linux"}, Repo: "acme/widgets"})
+	if err != nil {
+		t.Fatalf("CreateJITConfig: %v", err)
+	}
+	// The runner leaves by itself: another client stands in for GitHub.
+	if err := f.PersonalClient("acme").DeleteRunner(context.Background(), jit.RunnerID); err != nil {
+		t.Fatalf("removing the runner behind the client's back: %v", err)
+	}
+	app := c.(*appClient)
+	if _, ok := app.rememberedRunnerRepo(jit.RunnerID); !ok {
+		t.Fatal("the client never remembered where it registered the runner, so this would prove nothing")
+	}
+	if err := c.DeleteRunner(context.Background(), jit.RunnerID); err != nil {
+		t.Fatalf("deleting a runner that is gone: %v", err)
+	}
+	if repo, ok := app.rememberedRunnerRepo(jit.RunnerID); ok {
+		t.Fatalf("still remembering %s for a runner GitHub no longer has", repo)
+	}
+}

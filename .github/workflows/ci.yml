@@ -752,7 +752,11 @@ jobs:
     name: Windows
     runs-on: windows-latest
     needs: [changes]
-    if: github.event.action != 'closed' && (needs.changes.outputs.go == 'true' || needs.changes.outputs.installer == 'true')
+    # A UI change reaches this leg as well: the bundle it builds is embedded in
+    # the binary that is built and vetted on Windows, and the images rebuild for
+    # web/package.json and web/package-lock.json, so the platform the binary is
+    # also shipped for is tested against the same tree.
+    if: github.event.action != 'closed' && (needs.changes.outputs.go == 'true' || needs.changes.outputs.web == 'true' || needs.changes.outputs.installer == 'true')
     timeout-minutes: 60
     defaults:
       run:
@@ -771,7 +775,7 @@ jobs:
       - name: Build
         run: go build -trimpath -o zoomies.exe ./cmd/zoomies
       - name: Test the packages the Windows agent is made of
-        run: go test -count=1 -timeout 20m ./internal/backend/ ./internal/machine/ ./internal/agent/ ./internal/installer/ ./internal/config/ ./internal/naming/ ./cmd/zoomies/
+        run: go test -count=1 -timeout 20m ./internal/backend/ ./internal/machine/ ./internal/agent/ ./internal/wsl/... ./internal/installer/ ./internal/config/ ./internal/naming/ ./cmd/zoomies/
       # The database lock is a byte-range lock here rather than flock, and it
       # is the one thing in the store that has a Windows implementation of its
       # own; the test proves it holds across processes.
@@ -991,7 +995,12 @@ jobs:
     # below unpacks them into a private prefix instead of installing them
     # system-wide when sudo is not available.
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
-    timeout-minutes: 90 # the longest successful run seen was 46 minutes
+    # The phone leg was cancelled at the old 90 minute limit twice running on one
+    # pull request, still passing tests and with none failing, and the desktop
+    # leg took 65 minutes beside it on a busy fleet. A limit that a healthy run
+    # can reach turns a slow runner into a red gate, so it now sits well above
+    # the slowest leg seen and not at it.
+    timeout-minutes: 150 # the longest successful run seen was 65 minutes
     # The suite drives the real binary, which `ui` builds and uploads, so a Go
     # change can break it as surely as a web one. Only the binary is shared: the
     # toolchain stays here because the connect project boots its fake GitHub with

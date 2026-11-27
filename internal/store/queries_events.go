@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -236,10 +237,22 @@ func (s *Store) ApplyJob(ctx context.Context, j *Job, conditions ...JobCondition
 				merged.Steps = j.Steps
 			}
 		}
-		if existing.State == JobWaiting && merged.State == JobQueued {
+		if existing.State == JobWaiting && (merged.State == JobQueued || merged.State == JobInProgress) {
 			// The deployment review ended and the job has actually entered
 			// the queue. Replayed deliveries cannot move this boundary again.
-			merged.QueuedAt = s.Now()
+			//
+			// "In progress" counts as well as "queued": deliveries can arrive
+			// out of order and the poller finds jobs the webhook never
+			// announced, so a held job's first news after its review can be that
+			// it is already running. When that is so, nothing says it queued any
+			// earlier than it started, and leaving the boundary where the review
+			// began would report the review as queue wait on a job the fleet
+			// picked up at once.
+			boundary := s.Now()
+			if merged.State == JobInProgress && j.StartedAt != nil {
+				boundary = *j.StartedAt
+			}
+			merged.QueuedAt = boundary
 		}
 		text := func(dst *string, v string) {
 			if v != "" && (current || *dst == "") {
@@ -1388,13 +1401,21 @@ func unreplacedJobSQL() string {
 //
 // The price is the one an operator accepts with it: a path-filtered workflow
 // that is still broken leaves the list when the branch next moves, unfixed.
+//
+// A pull request's run names the branch the pull request comes from, and that
+// branch may be in a fork: a contributor's own "main" is not this repository's.
+// So a pull request's run shows that a branch moved only to a failure that was
+// itself a pull request's; otherwise anybody opening one from a fork's main
+// took the real failure on main off the list with nothing fixed.
 func branchNotMovedSQL() string {
 	return `NOT EXISTS (
 		SELECT 1 FROM jobs later
 		WHERE jobs.github_run_id != 0 AND jobs.head_branch != '' AND jobs.head_sha != ''
 			AND later.repo = jobs.repo AND later.head_branch = jobs.head_branch
 			AND later.github_run_id > jobs.github_run_id
-			AND later.head_sha != '' AND later.head_sha != jobs.head_sha)`
+			AND later.head_sha != '' AND later.head_sha != jobs.head_sha
+			AND (later.run_event NOT IN ('pull_request', 'pull_request_target')
+				OR jobs.run_event IN ('pull_request', 'pull_request_target')))`
 }
 
 // dependabotNotRetriedSQL says that Dependabot has not tried this update again.
@@ -1569,11 +1590,41 @@ func (s *Store) PruneJobs(ctx context.Context, before time.Time) (int64, error) 
 	return pruneInBatches(ctx, pruneJobBatch, pruneMaxBatches, func(ctx context.Context) (int64, error) {
 		var pruned int64
 		err := s.tx(ctx, func(tx *sql.Tx) error {
-			if _, err := tx.ExecContext(ctx, `DELETE FROM job_events WHERE job_id IN
-				(SELECT id FROM jobs WHERE `+old+` ORDER BY id LIMIT 500)`, ms(before), ms(before)); err != nil {
+			// The batch is chosen once. Nothing indexes "old", so choosing it is a
+			// walk of the table in key order until enough rows are found, and it
+			// used to be done twice, once for the timelines and once for the jobs,
+			// under the writer every other write is waiting for. The ids go back
+			// as one JSON array so the two deletes stay constant statements.
+			rows, err := tx.QueryContext(ctx, `SELECT id FROM jobs WHERE `+old+` ORDER BY id LIMIT `+strconv.Itoa(pruneJobBatch), ms(before), ms(before))
+			if err != nil {
 				return err
 			}
-			res, err := tx.ExecContext(ctx, `DELETE FROM jobs WHERE id IN (SELECT id FROM jobs WHERE `+old+` ORDER BY id LIMIT 500)`, ms(before), ms(before))
+			var ids []string
+			for rows.Next() {
+				var id string
+				if err := rows.Scan(&id); err != nil {
+					_ = rows.Close()
+					return err
+				}
+				ids = append(ids, id)
+			}
+			if err := rows.Close(); err != nil {
+				return err
+			}
+			if err := rows.Err(); err != nil {
+				return err
+			}
+			if len(ids) == 0 {
+				return nil
+			}
+			batch, err := json.Marshal(ids)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `DELETE FROM job_events WHERE job_id IN (SELECT value FROM json_each(?))`, string(batch)); err != nil {
+				return err
+			}
+			res, err := tx.ExecContext(ctx, `DELETE FROM jobs WHERE id IN (SELECT value FROM json_each(?))`, string(batch))
 			if err != nil {
 				return err
 			}

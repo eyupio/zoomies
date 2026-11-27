@@ -171,6 +171,16 @@ test('a failed check opens on the detail and the fix, not only the title', async
   await expect(card).toContainText('use a bridge that exists on every node');
 });
 
+test('the provider wizard does not promise a step count the automatic flow folds away', async ({
+  page,
+}) => {
+  await goto(page, '/providers/new', 'Add a provider');
+  // Automatic setup folds Machine into Capacity, so the default flow has four
+  // steps. The subtitle used to say "Five steps" over them.
+  await expect(page.locator('ol.steps li')).toHaveCount(4);
+  await expect(page.locator('.subtitle')).not.toContainText(/\b(?:four|five)\s+steps?\b/i);
+});
+
 test("the wizard is rendered from the driver's schema, with the driver's own defaults filled in", async ({
   page,
 }) => {
@@ -203,11 +213,11 @@ test("the wizard is rendered from the driver's schema, with the driver's own def
   await expect(page.getByLabel('Lowest VMID')).toHaveValue('9000');
   await expect(page.getByLabel('Highest VMID')).toHaveValue('9099');
 
-  // The seven a homelab never touches are folded away, counted so an operator
+  // The eight a homelab never touches are folded away, counted so an operator
   // knows what is behind the disclosure before opening it.
   // Reached by its own summary: a <details> carries no role for a test to ask
   // for, and the words on it are the whole of what an operator sees closed.
-  const advanced = page.getByText('Advanced settings (7)');
+  const advanced = page.getByText('Advanced settings (8)');
   await expect(advanced).toBeVisible();
   await expect(page.getByLabel('Resource pool')).toBeHidden();
   await advanced.click();

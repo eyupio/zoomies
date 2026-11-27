@@ -12,7 +12,7 @@
 # base-image bump that nothing else moved with it, so the image shipped a build
 # on a Node that no check ran. Changing the major is a deliberate change of all
 # of them together, which is why dependabot.yml leaves node's majors alone.
-FROM --platform=$BUILDPLATFORM node:22-alpine@sha256:0e1754758c2df4cfa3e68d59e2e1b7374bb7fd9ea6328eaaacf15cc934af8202 AS ui
+FROM --platform=$BUILDPLATFORM node:22-alpine@sha256:1314fb30ec37592d5845e5a160d522c0e680972aa534549940b8d73bde88481a AS ui
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json* ./
 # No `|| npm install` fallback: that turns a lockfile CI would reject into an
@@ -28,7 +28,7 @@ RUN npm run build
 # it should be the one CI and the release binaries are built with (the version in
 # .github/actions/setup-go): it was left on 1.27.1 while they moved to 1.27.2, so
 # the images were built with a different compiler from the binaries.
-FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:0a5f7fe796599ff487605987432e7619ae45beeb2fba4c2ce0b907879932aebf AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280 AS build
 WORKDIR /src
 RUN apk add --no-cache git ca-certificates
 COPY go.mod go.sum ./
@@ -168,7 +168,7 @@ CMD ["agent"]
 # CI and releases publish ghcr.io/eyupio/zoomies-git so a moved base image is
 # checked before conflict repair needs it. `make image-gitworker` builds it
 # locally; the controller does not start the worker yet.
-FROM alpine:3.22@sha256:2e0b81d60597f449baa56dc25d355367869d2dca4cd57e866f1e2b52af3eb55f AS gitworker
+FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf AS gitworker
 # No package index is kept: after this line the image installs nothing, ever.
 RUN apk add --no-cache git
 # Re-declared after FROM for the same reason the other targets' are.

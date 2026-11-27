@@ -218,7 +218,7 @@ and edits nothing without a selection. A controller joins in only when
 
 The Zoomies software is free and open source under the GNU Affero General Public
 License (AGPL-3.0). You pay for the machines you run it on and the time to look
-after them. [Zoomies Cloud](https://cloud.zoomies.sh/) is an optional paid
+after them. [Zoomies Cloud](cloud.md) is an optional paid
 service that hosts the controller and handles its updates and backups; you
 still supply the runner machines. See [current Cloud pricing](https://cloud.zoomies.sh/pricing).
 [What self-hosted runners cost](costs.md) works through the sums against

@@ -60,6 +60,10 @@ type Prereqs struct {
 	// GuestAgent says the bootstrap goes through the QEMU guest agent, which
 	// needs two privileges most roles do not include.
 	GuestAgent bool
+	// LXC says machines are containers made from OSTemplate, a volume id
+	// (storage:vztmpl/file), rather than clones of TemplateID.
+	LXC        bool
+	OSTemplate string
 }
 
 // Preflight checks configuration, credentials and prerequisites, changing
@@ -226,8 +230,11 @@ func (pf *preflight) requiredPrivileges() []privilege {
 		storage = append([]string{"/storage/" + s}, storage...)
 	}
 
-	required := []privilege{
-		{"VM.Clone", template, "cloning the template is how every machine starts"},
+	var required []privilege
+	if !pf.prereqs.LXC {
+		required = append(required, privilege{"VM.Clone", template, "cloning the template is how every machine starts"})
+	}
+	required = append(required, []privilege{
 		{"VM.Allocate", vms, "creating a machine and destroying it again"},
 		{"VM.Config.Disk", vms, "giving a machine its disk"},
 		{"VM.Config.CPU", vms, "giving a machine its processors"},
@@ -237,6 +244,17 @@ func (pf *preflight) requiredPrivileges() []privilege {
 		{"VM.PowerMgmt", vms, "starting a machine and shutting it down"},
 		{"VM.Audit", vms, "inspecting machines, and the sweep that tells this fleet's guests from everybody else's"},
 		{"Datastore.AllocateSpace", storage, "the disk a clone allocates"},
+	}...)
+	if pf.prereqs.LXC {
+		// shortcut: Datastore.Audit on the template's storage is the privilege
+		// Proxmox's own source suggests reading a container template needs, not
+		// one confirmed against a restricted token; confirm on the first real
+		// cluster and correct this list and docs/proxmox.md together.
+		tpl := []string{"/storage"}
+		if name, _, ok := strings.Cut(pf.prereqs.OSTemplate, ":"); ok {
+			tpl = append([]string{"/storage/" + name}, tpl...)
+		}
+		required = append(required, privilege{"Datastore.Audit", tpl, "reading the container template when a container is made from it"})
 	}
 	if pf.prereqs.GuestAgent {
 		// One privilege, not two. Proxmox accepts either VM.GuestAgent.FileWrite
@@ -380,13 +398,17 @@ func (pf *preflight) checkStorage(ctx context.Context, node string) {
 		if s.Storage != want {
 			continue
 		}
+		content, what := "images", "disk images"
+		if pf.prereqs.LXC {
+			content, what = "rootdir", "container root filesystems"
+		}
 		switch {
-		case !s.Accepts("images"):
+		case !s.Accepts(content):
 			pf.add(config.Finding{
 				Code: "proxmox.storage_no_images", Severity: config.SeverityError, Setting: SettingStorage,
-				Title:  fmt.Sprintf("storage %s on %s does not hold disk images", want, node),
-				Detail: fmt.Sprintf("it is configured for %q, so a clone into it will be refused.", s.Content),
-				Fix:    "choose a storage whose content types include images, or add images to this one.",
+				Title:  fmt.Sprintf("storage %s on %s does not hold %s", want, node, what),
+				Detail: fmt.Sprintf("it is configured for %q, so a machine's disk on it will be refused.", s.Content),
+				Fix:    fmt.Sprintf("choose a storage whose content types include %s, or add %s to this one.", content, content),
 			})
 		case !bool(s.Enabled) || !bool(s.Active):
 			pf.add(config.Finding{
@@ -445,7 +467,49 @@ func (pf *preflight) checkBridge(ctx context.Context, node string) {
 	})
 }
 
+// checkContainerTemplate proves the container template archive is on every
+// node machines are placed on. Unlike a VM template it is not cloned across
+// nodes: each node reads the archive from its own view of the storage, so on a
+// storage that is not shared a node missing the file is a node that refuses
+// every container.
+func (pf *preflight) checkContainerTemplate(ctx context.Context, usable []string) {
+	volid := strings.TrimSpace(pf.prereqs.OSTemplate)
+	storage, _, ok := strings.Cut(volid, ":")
+	if !ok || storage == "" {
+		pf.add(config.Finding{
+			Code: "proxmox.template_missing", Severity: config.SeverityError, Setting: SettingOSTemplate,
+			Title:  "no container template is configured",
+			Detail: "every container is made from a template archive, named by its volume id.",
+			Fix:    "give the volume id, for example local:vztmpl/zoomies-runner.tar.zst.",
+		})
+		return
+	}
+	for _, node := range usable {
+		vols, err := pf.client.StorageContent(ctx, node, storage, "vztmpl")
+		if err != nil {
+			pf.explainFailure(err, fmt.Sprintf("list the container templates on %s of %s", storage, node))
+			continue
+		}
+		found := false
+		for _, v := range vols {
+			found = found || v.VolID == volid
+		}
+		if !found {
+			pf.add(config.Finding{
+				Code: "proxmox.template_missing", Severity: config.SeverityError, Setting: SettingOSTemplate,
+				Title:  fmt.Sprintf("node %s has no container template %s", node, volid),
+				Detail: fmt.Sprintf("there is nothing to make a container from on that node; storage %s holds %d container template(s) there.", storage, len(vols)),
+				Fix:    "upload the archive to that storage on every node machines are placed on, or use a storage every node shares.",
+			})
+		}
+	}
+}
+
 func (pf *preflight) checkTemplate(ctx context.Context, usable []string) {
+	if pf.prereqs.LXC {
+		pf.checkContainerTemplate(ctx, usable)
+		return
+	}
 	if pf.prereqs.TemplateID <= 0 {
 		pf.add(config.Finding{
 			Code: "proxmox.template_missing", Severity: config.SeverityError, Setting: SettingTemplateID,

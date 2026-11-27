@@ -602,6 +602,23 @@ func sharedDirIn(log *slog.Logger, inContainer bool, isMount func(string) bool) 
 	return dir, ""
 }
 
+// dockerOptions is what the configuration says about the container backends,
+// before the shared folder, which is found on the host rather than configured.
+// It is read once, when the backends are built, so a change to any of it takes
+// effect when the agent restarts.
+func dockerOptions(cfg *config.Config, log *slog.Logger) backend.DockerOptions {
+	return backend.DockerOptions{
+		Network:                cfg.Agent.Network,
+		WorkDir:                cfg.Agent.WorkDir,
+		RegistryAuth:           cfg.Agent.RegistryAuth,
+		ExtraCAFile:            cfg.Agent.ExtraCAFile,
+		DinDImage:              cfg.Agent.DinDImage,
+		RegistryMirror:         cfg.Agent.RegistryMirror.Enabled,
+		RegistryMirrorMaxBytes: cfg.Agent.RegistryMirror.MaxBytes,
+		Logger:                 log,
+	}
+}
+
 // buildBackends prepares the runner backends this host can use.
 //
 // Construction does not contact a daemon -- that is Probe's job -- so a host
@@ -609,14 +626,7 @@ func sharedDirIn(log *slog.Logger, inContainer bool, isMount func(string) bool) 
 // says why, instead of refusing to boot.
 func buildBackends(ctx context.Context, cfg *config.Config, log *slog.Logger) (*backend.Registry, error) {
 	var backends []backend.Backend
-	opts := backend.DockerOptions{
-		Network:      cfg.Agent.Network,
-		WorkDir:      cfg.Agent.WorkDir,
-		RegistryAuth: cfg.Agent.RegistryAuth,
-		ExtraCAFile:  cfg.Agent.ExtraCAFile,
-		DinDImage:    cfg.Agent.DinDImage,
-		Logger:       log,
-	}
+	opts := dockerOptions(cfg, log)
 	opts.SharedDir, opts.SharedDirProblem = sharedDirFor(log)
 	// An explicit agent.docker_host belongs to the backend it was configured
 	// for; the other container backend keeps autodetecting its own socket.

@@ -419,6 +419,9 @@ func TestDiskChecksSayWhatTheyFoundInReadableUnits(t *testing.T) {
 				if r.ID != id {
 					continue
 				}
+				if !c.inodes && (!strings.Contains(r.Reason, "host.low_disk") || !strings.Contains(r.Reason, "reserve")) {
+					t.Errorf("the disk check must explain the separate placement requirement: %q", r.Reason)
+				}
 				if r.Status != c.status || r.Current != c.current {
 					t.Fatalf("%s = %s %q, want %s %q", id, r.Status, r.Current, c.status, c.current)
 				}

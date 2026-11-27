@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/backup"
 	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -256,6 +258,23 @@ func TestRestoreRefusesABackupFromANewerRelease(t *testing.T) {
 	}
 	if err := plantFutureMigration(filepath.Join(src, backupDBName)); err != nil {
 		t.Fatalf("planting a future migration: %v", err)
+	}
+	// The copy was changed on purpose, so its manifest is brought up to date: a
+	// restore refuses a copy that no longer matches the digest it recorded, which
+	// would otherwise be what stops this one, and not the release.
+	m, err := backup.ReadManifest(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Database.SHA256, err = backup.FileSHA256(filepath.Join(src, backupDBName)); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, backup.ManifestName), raw, 0o600); err != nil {
+		t.Fatal(err)
 	}
 
 	live := filepath.Join(dir, "zoomies.db")

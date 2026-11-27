@@ -342,7 +342,7 @@
   <Checkbox
     bind:checked={draft.no_default_labels}
     label="Leave out the default labels"
-    description="Register runners with only this pool’s labels, without self-hosted, the operating system and the architecture. A job whose runs-on asks for one of those no longer lands here unless the pool lists it. GitHub adds them to every ephemeral runner, so this is only offered for a pool that reuses its runners."
+    description="Register runners with only this pool’s labels, without self-hosted, the operating system and the architecture. A job whose runs-on asks for one of those no longer lands here unless the pool lists it. Zoomies registers every ephemeral runner with them, so this is only offered for a pool that reuses its runners."
     onchange={() => touch('no_default_labels')}
   />
 {/if}

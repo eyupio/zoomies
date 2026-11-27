@@ -8,6 +8,7 @@
   import Button from '$lib/components/Button.svelte';
   import Select from '$lib/components/Select.svelte';
   import HostCapacityMap from '$lib/insights/HostCapacityMap.svelte';
+  import { ApiError } from '$lib/api/client';
   import { navigate } from '$lib/router';
   import { fleet } from '$lib/state/fleet.svelte';
   import { formatDuration, pluralise } from '$lib/format';
@@ -46,6 +47,20 @@
   let pageNav = $state<HTMLElement>();
   let jumped: { id: string; y: number } | null = null;
   const loading = $derived(!fleet.loaded);
+  /**
+   * The server's sentence for a failed fleet read says the same thing as the
+   * page's title. When it does, replace it with the part only the page knows:
+   * what the operator can do about it.
+   */
+  function fleetFailure(error: unknown): string | undefined {
+    if (
+      error instanceof ApiError &&
+      /^the fleet could not be read\.?$/i.test(error.message.trim())
+    ) {
+      return 'The controller did not answer with the fleet. Check that it is running and reachable, then try again.';
+    }
+    return undefined;
+  }
   // The body under the band: the registry in this person's order, less what
   // they hid and what this fleet state leaves out.
   const layout = $derived(prefs.panelLayout('overview'));
@@ -273,6 +288,7 @@
     <ErrorState
       error={fleet.error}
       title="The fleet could not be loaded"
+      description={fleetFailure(fleet.error)}
       onretry={() => void fleet.reconcile()}
     />
   {:else}
@@ -468,10 +484,10 @@
       grid-row: 2;
       margin-top: var(--z-nudge-2);
     }
+    /* The tagline earns its line on a desk and costs the first live figure on
+       a phone; the page's own panels say the same thing in more useful words. */
     .overview :global(.page-header .titles .subtitle) {
-      grid-column: 1 / -1;
-      grid-row: 3;
-      margin-top: var(--z-nudge-2);
+      display: none;
     }
     .overview :global(.page-header .titles .meta) {
       grid-column: 2;
@@ -685,8 +701,22 @@
     .overview :global(.page-header .row) {
       gap: var(--z-space-2);
     }
+    /*
+      Refresh, Arrange and the scope in one row: the scope used to wrap onto a
+      line of its own and push the band under the first screen. It takes the
+      room the two buttons leave, which is enough for "This fleet".
+    */
     .overview :global(.page-header .actions) {
-      width: auto;
+      width: 100%;
+      flex-wrap: nowrap;
+    }
+    .overview .scope {
+      flex: 1 1 0;
+      min-width: 0;
+      max-width: none;
+    }
+    .overview .scope :global(select) {
+      width: 100%;
     }
   }
 </style>

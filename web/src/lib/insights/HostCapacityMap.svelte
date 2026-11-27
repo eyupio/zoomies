@@ -62,6 +62,7 @@
   import Switch from '$lib/components/Switch.svelte';
   import { NO_VALUE } from '$lib/format';
   import { fleet } from '$lib/state/fleet.svelte';
+  import { diskProblemFor } from '$lib/hosts/disk';
   import { remember, remembered } from '$lib/state/prefs.svelte';
   import { session } from '$lib/state/session.svelte';
   import { hostStatus } from '$lib/status';
@@ -462,7 +463,12 @@
       <button type="button" class="toggle" aria-pressed={shown} onclick={() => toggleHost(id)}>
         <span class="swatch" style:background={tone}></span>
         <span class="name">{host.name ?? id}</span>
-        <StatusDot status={hostStatus(host)} size="sm" />
+        <!-- The card's own verdict, disk included: a host the map showed as ready
+             while its card said "Disk blocked" hid why its spare slots took nothing. -->
+        <StatusDot
+          status={hostStatus(host, Boolean(diskProblemFor(host, fleet.problems)))}
+          size="sm"
+        />
       </button>
     </Tooltip>
     <span class="meters">

@@ -15,6 +15,8 @@
   } from '$lib/insights/analysis';
   import { href, router } from '$lib/router';
   import { fleet } from '$lib/state/fleet.svelte';
+  import { diskProblemFor } from '$lib/hosts/disk';
+  import HostCacheStorage from '$lib/hosts/HostCacheStorage.svelte';
   import { freshness } from '$lib/hosts/freshness';
   import { session } from '$lib/state/session.svelte';
   import {
@@ -68,6 +70,7 @@
   let now = $state(Date.now());
   $effect(() => onClockTick((t) => (now = t)));
   const host = $derived(fleet.hosts.find((h) => h.id === id) ?? fetched);
+  const diskProblem = $derived(host ? diskProblemFor(host, fleet.problems) : undefined);
   const report = $derived(host?.doctor);
   // Whether this report can be acted on at all: a Mac, an unsupported distribution
   // and a container can be read but not tuned, and the page must not say otherwise.
@@ -532,6 +535,9 @@
       >
     </span>
   {/if}
+  {#if diskProblem}
+    <Badge label="Disk blocked" tone="danger" help={diskProblem.detail} />
+  {/if}
   <Badge label={summary.label} tone={summary.tone} help={summary.hint} />
   {#snippet meta()}
     {#if fresh && report}
@@ -580,6 +586,14 @@
     />
   {/if}
 </PageHeader>
+{#if host}<HostCacheStorage {host} />{/if}
+{#if diskProblem}
+  <section id="disk-admission" aria-label="Disk admission" class="disk-admission">
+    <Panel title="Disk prevents placement" description={diskProblem.detail}>
+      <p>{diskProblem.fix}</p>
+    </Panel>
+  </section>
+{/if}
 {#if error}<ErrorState {error} onretry={refresh} />
 {:else if loading && !host}<Skeleton />
 {:else if !report}
@@ -991,6 +1005,9 @@
 {/snippet}
 
 <style>
+  .disk-admission {
+    margin-block-end: var(--z-space-4);
+  }
   .health-content {
     display: grid;
     gap: var(--z-space-4);

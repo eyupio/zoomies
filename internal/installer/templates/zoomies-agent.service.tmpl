@@ -26,9 +26,9 @@ SupplementaryGroups={{join .SupplementaryGroups " "}}
 # Read by systemd itself, before privileges are dropped, so the file can stay
 # root-owned and 0600 around the join token it carries. The dash makes a
 # missing file a non-event: a host that joined by hand has none.
-EnvironmentFile=-{{.EnvFile}}
+EnvironmentFile=-{{setting .EnvFile}}
 {{- end}}
-ExecStart={{.ExecPath}} {{.Command}} --config {{.ConfigFile}}
+ExecStart={{execPath .ExecPath}} {{.Command}} --config {{execArg .ConfigFile}}
 Restart=always
 RestartSec=5s
 # Generous, because a graceful stop waits for in-flight jobs to finish.
@@ -47,7 +47,7 @@ StateDirectoryMode=0750
 ConfigurationDirectory=zoomies
 ConfigurationDirectoryMode=0750
 {{- end}}
-WorkingDirectory={{.StateDir}}
+WorkingDirectory={{setting .StateDir}}
 
 NoNewPrivileges=yes
 PrivateTmp=yes
@@ -61,7 +61,7 @@ RestrictSUIDSGID=yes
 LockPersonality=yes
 SystemCallArchitectures=native
 UMask=0027
-ReadWritePaths={{.StateDir}}
+ReadWritePaths={{pathList .StateDir}}
 
 [Install]
 WantedBy=multi-user.target

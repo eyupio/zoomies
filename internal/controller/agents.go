@@ -691,7 +691,15 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 	// written before the row would name a host that may never appear.
 	machineID, joinTokenID := "", ""
 	if !embedded {
-		tok, err := c.authsvc.RedeemJoinToken(ctx, req.JoinToken, store.JoinClaim{HostID: hostID, Name: name})
+		joinToken := req.JoinToken
+		if joinToken == agent.ClaimToken {
+			// Placed here, after every refusal that keeps a token usable, so a
+			// claim that is turned away has minted nothing.
+			if joinToken, err = c.claimJoinToken(ctx, name, ip); err != nil {
+				return nil, err
+			}
+		}
+		tok, err := c.authsvc.RedeemJoinToken(ctx, joinToken, store.JoinClaim{HostID: hostID, Name: name})
 		if err != nil {
 			return nil, err
 		}
@@ -781,6 +789,15 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 			return nil, fmt.Errorf("replacing the previous registration of host %s: %w", name, err)
 		}
 		c.publishRunnersDeleted(dropped)
+		// The rows went with the row, so the tasks queued for them are for runners
+		// that no longer exist: a start, stop or remove, still pending or held by
+		// the agent that went away and offered again when its lease ran out. They
+		// would be handed to the machine joining now, which would act on a
+		// workload nothing records. Deleting a host explicitly drops its queue for
+		// the same reason; a carried-over host keeps its rows and so its queue.
+		if !existing.RecoveryRequired {
+			c.queues.forget(existing.ID)
+		}
 		// The delete cancelled the old registration's open update attempt. A task
 		// for it still queued, or held by the agent that went away, would update
 		// the machine joining now with nothing recording it.
@@ -1097,6 +1114,9 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 	// Telemetry only: kept in memory for the metrics endpoint and never put on
 	// the host row or a view, because it changes with every cache request.
 	c.noteCaches(hostID, req.Caches)
+	// The same, for the registry mirror: what the agent said at this beat, and
+	// nothing when it said nothing.
+	c.noteRegistryMirror(hostID, req.RegistryMirror)
 	// The ladder runs on the measurements just recorded, and on every beat
 	// rather than only the ones that carry a sample: a host whose agent has
 	// stopped measuring is lifted here after StaleThrottleReset, not left on a
@@ -1142,6 +1162,7 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 		Throttle:           c.throttleDirective(ctx, h),
 		ElasticCPU:         elasticCPU,
 		ElasticMemory:      elasticMemory,
+		CachePolicies:      c.cachePolicies(ctx, h),
 		UpdateHeld:         updateHeld,
 	}, nil
 }
@@ -2204,6 +2225,8 @@ func hostBackends(infos []backend.Info) store.HostBackends {
 			SupportsDinD: i.SupportsDinD,
 			CPUs:         i.CPUs,
 			MemoryMB:     i.MemoryMB,
+			OS:           i.OS,
+			Arch:         i.Arch,
 			Limits:       i.Limits,
 			SharedFolder: i.SharedFolder,
 		})

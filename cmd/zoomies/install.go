@@ -259,6 +259,8 @@ func runUpgradeNamed(ctx context.Context, e *env, args []string, name string) er
 		ConfigDir: *configDir, BinaryPath: *binary, DockerHost: *dockerHost, Runtime: *runtime, Image: *image,
 		Mode: parsed, Check: *check, Out: e.out, Continuation: true, NoAnimation: *noAnimation,
 		In: e.in, Interactive: interactive, NonInteractive: !interactive, AssumeYes: *yes, UpdateHelper: *updateHelper,
+		// Set only by the self-update that began this run, across its re-execution.
+		KeptPrevious: os.Getenv(installer.KeptPreviousEnv),
 	}
 	ui := installer.PaletteFor(e.out)
 	if os.Getenv("ZOOMIES_UPGRADE_STARTED") == "" {
@@ -563,6 +565,11 @@ func selfUpdate(ctx context.Context, e *env, binary, wantVersion string, sel dep
 	ui.Done(e.out, "Downloaded %s, checksum verified; continuing with it", res.Tag)
 	fmt.Fprintln(e.out)
 	env := append(os.Environ(), installer.SelfUpdateEnv+"=1", "ZOOMIES_UPGRADE_STARTED=1")
+	// Which kept binary is this upgrade's own, for the run that waits for the
+	// service: see installer.KeptPreviousEnv.
+	if marker := installer.KeptPreviousMarker(binary); marker != "" {
+		env = append(env, marker)
+	}
 	if fromHome, _ := ctx.Value(homeInvocationKey{}).(bool); fromHome {
 		env = append(env, "ZOOMIES_RETURN_HOME=1")
 	}
@@ -577,6 +584,7 @@ func selfUpdate(ctx context.Context, e *env, binary, wantVersion string, sel dep
 }
 
 func clearUpgradeContinuation() {
+	_ = os.Unsetenv(installer.KeptPreviousEnv)
 	_ = os.Unsetenv(installer.SelfUpdateEnv)
 	_ = os.Unsetenv("ZOOMIES_UPGRADE_STARTED")
 }
