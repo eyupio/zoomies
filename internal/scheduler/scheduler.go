@@ -640,8 +640,9 @@ func (t *tick) decidePool(p *store.Pool, runners []*store.Runner, queued []*stor
 	plan.Held = t.holdWhileRateLimited(p)
 
 	// Surplus is counted among the runners that are staying: one already on its
-	// way out is not a reason to stop another.
-	if surplus := live - draining - want; surplus > 0 {
+	// way out is not a reason to stop another. Desired is read again because the
+	// repository and platform decisions above may have raised it past want.
+	if surplus := live - draining - max(plan.Desired-draining, want); surplus > 0 {
 		t.scaleDown(p, &plan, remaining, live, surplus)
 	}
 	return plan

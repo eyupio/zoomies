@@ -136,3 +136,23 @@ func TestAJobAskingForAPlatformNoHostHasDoesNotSayAnyMachineWouldDo(t *testing.T
 			pp.BlockedNoEligibleHost, pp.BlockedAtCapacity)
 	}
 }
+
+// The surplus is counted against what the repository-aware decision settled
+// on, not the pool's total: a personal account's runners are not
+// interchangeable, so an idle runner for one repository is no reason to stop
+// the runner starting for another repository's queued job.
+func TestARunnerStartingForARepositorysJobIsNotSurplusBesideAnotherRepositorysIdleRunner(t *testing.T) {
+	pool := testPool("ci", "ci")
+	host := hostOn("host_a", "ubuntu", "24.04", "amd64", 4)
+	idle := idleRunner("idle-a", pool, time.Second)
+	idle.Repo = "acme/a"
+	starting := testRunner("starting-b", pool, store.RunnerProvisioning, 3*time.Second)
+	starting.Repo = "acme/b"
+	job := queued("b", time.Minute, "ci")
+	job.Repo = "acme/b"
+	s := snap([]*store.Pool{pool}, []*store.Runner{idle, starting}, []*store.Job{job}, []*store.Host{host})
+	s.Installations[0].AccountType = store.AccountUser
+	if drains := actionsOf(Decide(s).Actions, ActionDrain); len(drains) != 0 {
+		t.Fatalf("drained %+v, want nothing: the job on acme/b is still waiting for its runner", drains)
+	}
+}
