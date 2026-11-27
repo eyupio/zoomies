@@ -8654,6 +8654,7 @@ paths:
       responses:
         "200": { description: The zip, content: { application/zip: { schema: { type: string, format: binary } } } }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
     post:
       operationId: downloadBackupEncrypted
       tags: [backups]
@@ -8676,6 +8677,7 @@ paths:
       responses:
         "200": { description: The sealed zip, content: { application/zip: { schema: { type: string, format: binary } } } }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/Unprocessable" }
 
   /backups/{id}/restore:
@@ -13767,10 +13769,12 @@ components:
         taken_at: { type: string, format: date-time }
         source:
           type: string
-          enum: [cli, manual, scheduled, uploaded, fetched, pre-migration]
+          enum: [cli, manual, scheduled, uploaded, fetched, pre-migration, unknown]
           description: >-
             Who took it. `pre-migration` is a copy the store took before applying
             migrations, and `fetched` one pulled back out of a backup remote.
+            `unknown` is a backup the service cannot read, listed with its
+            problem; nothing that could say who took it can be read.
             Neither an uploaded nor a fetched backup is counted or removed by
             retention.
         taken_by: { type: string }

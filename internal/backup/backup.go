@@ -84,6 +84,10 @@ const (
 	// carried here, and a fetched one is the offsite copy of a fleet that has
 	// lost the local ones.
 	SourceFetched = "fetched"
+	// SourceUnknown is a backup this process cannot read, so nothing that
+	// could say who took it can be read either. It is listed, with its
+	// problem, rather than left out, and retention leaves it alone.
+	SourceUnknown = "unknown"
 )
 
 // ErrNotFound is a backup id that names nothing in the directory.
@@ -594,8 +598,9 @@ func describe(root, id string) (*Entry, error) {
 		// owned by root) is listed with its problem rather than failing the
 		// whole listing: retention would otherwise stop for every other
 		// backup, and the schedule would take one every minute. Without a
-		// manifest, retention leaves it alone. Its source is left empty,
+		// manifest, retention leaves it alone. Its source is SourceUnknown,
 		// since nothing that could say where it came from can be read.
+		entry.Source = SourceUnknown
 		entry.Problem = fmt.Sprintf("this backup cannot be read: %v", dbErr)
 		return entry, nil
 	}

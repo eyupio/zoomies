@@ -9389,10 +9389,10 @@ export interface components {
             /** Format: date-time */
             taken_at: string;
             /**
-             * @description Who took it. `pre-migration` is a copy the store took before applying migrations, and `fetched` one pulled back out of a backup remote. Neither an uploaded nor a fetched backup is counted or removed by retention.
+             * @description Who took it. `pre-migration` is a copy the store took before applying migrations, and `fetched` one pulled back out of a backup remote. `unknown` is a backup the service cannot read, listed with its problem; nothing that could say who took it can be read. Neither an uploaded nor a fetched backup is counted or removed by retention.
              * @enum {string}
              */
-            source: "cli" | "manual" | "scheduled" | "uploaded" | "fetched" | "pre-migration";
+            source: "cli" | "manual" | "scheduled" | "uploaded" | "fetched" | "pre-migration" | "unknown";
             taken_by?: string;
             /**
              * @description Which directory it is in.
@@ -23838,6 +23838,7 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     downloadBackupEncrypted: {
@@ -23868,6 +23869,7 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             422: components["responses"]["Unprocessable"];
         };
     };

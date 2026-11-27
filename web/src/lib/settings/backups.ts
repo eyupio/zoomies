@@ -11,6 +11,7 @@ import {
   ArchiveRestore,
   Clock,
   CloudDownload,
+  FileQuestionMark,
   KeyRound,
   Terminal,
   Upload,
@@ -61,6 +62,12 @@ export const SOURCES: Record<
     icon: ArchiveRestore,
     tone: 'pending',
     hint: 'The copy the controller took before applying migrations. It has no manifest, so nothing about it can be checked before restoring except the database itself.',
+  },
+  unknown: {
+    label: 'Cannot be read',
+    icon: FileQuestionMark,
+    tone: 'pending',
+    hint: 'The service cannot read this backup, so it cannot say who took it. Its problem says why.',
   },
 };
 

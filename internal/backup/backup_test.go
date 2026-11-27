@@ -233,6 +233,9 @@ func TestAnUnreadableBackupDoesNotStopRetention(t *testing.T) {
 			if e.Problem == "" || e.Manifest != nil {
 				t.Errorf("the unreadable backup is listed as sound: %+v", e)
 			}
+			if e.Source != SourceUnknown {
+				t.Errorf("the unreadable backup's source is %q, want %q: nothing that says who took it can be read", e.Source, SourceUnknown)
+			}
 		}
 	}
 	if !found {
