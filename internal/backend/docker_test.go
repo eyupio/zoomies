@@ -753,6 +753,33 @@ func TestDockerListOnlyReturnsOurRunners(t *testing.T) {
 	}
 }
 
+// A stopped container's exit code comes from an inspect of its own, and that
+// inspect can fail while the list worked: a busy daemon, a deadline. Listed as
+// exited with no code, it read as exit 0, the agent recorded a clean end and
+// never looked again, so a runner killed for memory was filed as a finished job.
+func TestDockerListDoesNotCallAStoppedContainerExitedWhenItsInspectFails(t *testing.T) {
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"GET " + v + "/containers/json": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 200, []ContainerSummary{{
+				ID: "c1", State: "exited",
+				Labels: map[string]string{LabelRole: roleRunner, LabelName: "runner-1", LabelRunnerID: "run_1"},
+			}})
+		},
+		"GET " + v + "/containers/c1/json": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 500, map[string]string{"message": "the daemon is busy"})
+		},
+	})
+	b := dockerBackendFor(t, f, DockerOptions{})
+
+	got, err := b.List(context.Background())
+	if err != nil || len(got) != 1 {
+		t.Fatalf("list = %+v, %v", got, err)
+	}
+	if p := got[0].Status.Phase; p == PhaseExited || p == PhaseFailed {
+		t.Fatalf("phase = %q with exit code %d, from a container whose exit code nobody read", p, got[0].Status.ExitCode)
+	}
+}
+
 // A live pool with docker-in-docker has two containers, and only one of them
 // is the runner. Returning both would give the caller two workloads carrying
 // one runner id, and whichever it looked at first would decide which container

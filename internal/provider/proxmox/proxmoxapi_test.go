@@ -632,12 +632,12 @@ func TestEveryCallSendsTheParametersProxmoxExpects(t *testing.T) {
 		}
 	}
 
-	if _, err := c.ConfigureVM(ctx, "pve-1", 143, map[string][]string{
+	if err := c.ConfigureVM(ctx, "pve-1", 143, map[string][]string{
 		"cores": {"4"}, "memory": {"8192"}, "net0": {"virtio,bridge=vmbr0"}, "tags": {"zoomies;zoomies-abc"},
 	}); err != nil {
 		t.Fatalf("ConfigureVM: %v", err)
 	}
-	config := f.request(http.MethodPost, v+"/nodes/pve-1/qemu/143/config")
+	config := f.request(http.MethodPut, v+"/nodes/pve-1/qemu/143/config")
 	if got := formValue(config, "net0"); got != "virtio,bridge=vmbr0" {
 		t.Errorf("net0 = %q", got)
 	}

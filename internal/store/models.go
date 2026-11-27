@@ -1329,11 +1329,14 @@ type Host struct {
 // pool asking for Ubuntu 24.04 needs to know it landed on Ubuntu. macOS and
 // Windows report no distribution, so for them the kernel is the answer.
 func (h *Host) Platform() Platform {
-	os := h.Distro
-	if naming.NormalizeOS(os) == "" {
-		os = h.OS
+	// Each field is normalised once, here. Building the struct and calling
+	// Normalized on it re-ran NormalizeOS over the result, and the scheduler
+	// asks this of every host for every pool it considers.
+	os := naming.NormalizeOS(h.Distro)
+	if os == "" {
+		os = naming.NormalizeOS(h.OS)
 	}
-	return Platform{OS: os, OSVersion: h.OSVersion, Arch: h.Arch}.Normalized()
+	return Platform{OS: os, OSVersion: strings.TrimSpace(h.OSVersion), Arch: naming.NormalizeArch(h.Arch)}
 }
 
 // The values of Host.AutoAdjust. Empty means the host follows the fleet.

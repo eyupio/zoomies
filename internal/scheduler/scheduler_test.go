@@ -833,6 +833,65 @@ func TestRetiredRunnerIsReplaced(t *testing.T) {
 	}
 }
 
+// A draining runner holds its slot until it is gone and counts for nothing
+// else. Counted towards the minimum, it made every pass that ran during a drain
+// find the same surplus again: a warm pool was drained to nothing and rebuilt,
+// a retired runner's replacement was stopped the pass after it was made, and
+// making room for one job took every idle runner the pool had.
+func TestADrainingRunnerCountsOnlyAgainstTheMaximum(t *testing.T) {
+	draining := func(id string, p *store.Pool) *store.Runner {
+		r := testRunner(id, p, store.RunnerDraining, time.Minute)
+		since := ago(3 * time.Second)
+		r.DrainingSince = &since
+		return r
+	}
+	warm := func(min, max int) *store.Pool {
+		p := testPool("ci", "ci")
+		p.MinRunners, p.MaxRunners = min, max
+		return p
+	}
+	amd, arm := hostOn("host_a", "ubuntu", "24.04", "amd64", 8), hostOn("host_b", "ubuntu", "24.04", "arm64", 1)
+
+	tests := []struct {
+		name        string
+		pool        *store.Pool
+		runners     func(p *store.Pool) []*store.Runner
+		jobs        []*store.Job
+		wantCreates int
+	}{
+		{"three of five idle runners are draining and the minimum of two is kept", warm(2, 10),
+			func(p *store.Pool) []*store.Runner {
+				return []*store.Runner{draining("a", p), draining("b", p), draining("c", p),
+					idleRunner("d", p, 10*time.Minute), idleRunner("e", p, 10*time.Minute)}
+			}, nil, 0},
+		{"a retired runner's replacement outlives the retirement", warm(1, 10),
+			func(p *store.Pool) []*store.Runner {
+				return []*store.Runner{draining("old", p), testRunner("new", p, store.RunnerProvisioning, 3*time.Second)}
+			}, nil, 0},
+		{"and does so in a pool whose minimum is its maximum", warm(1, 1),
+			func(p *store.Pool) []*store.Runner {
+				return []*store.Runner{draining("old", p), testRunner("new", p, store.RunnerProvisioning, 3*time.Second)}
+			}, nil, 0},
+		{"room made for one job is not made twice", warm(0, 2),
+			func(p *store.Pool) []*store.Runner {
+				return []*store.Runner{draining("r1", p), idleRunner("r2", p, time.Second)}
+			}, []*store.Job{queued("arm", time.Minute, "arm64", "ci")}, 0},
+		{"a draining runner is not one of the minimum", warm(2, 10),
+			func(p *store.Pool) []*store.Runner { return []*store.Runner{draining("a", p), draining("b", p)} }, nil, 2},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pp := only(t, Decide(snap([]*store.Pool{tc.pool}, tc.runners(tc.pool), tc.jobs, []*store.Host{amd, arm})))
+			if got := runnerIDs(pp.Actions, ActionDrain); len(got) != 0 {
+				t.Errorf("drained %v, want nothing: the pool has no more than it wants (reason %q)", got, pp.Reason)
+			}
+			if n := countOf(pp.Actions, ActionCreate); n != tc.wantCreates {
+				t.Errorf("got %d creates, want %d (desired %d, current %d)", n, tc.wantCreates, pp.Desired, pp.Current)
+			}
+		})
+	}
+}
+
 func TestFailedRunnerDoesNotHoldThePoolShort(t *testing.T) {
 	p := testPool("linux-x64", "linux")
 	p.MinRunners = 1

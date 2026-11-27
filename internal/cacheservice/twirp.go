@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // The toolkit's four calls are Twirp over JSON: a POST of a JSON body to
@@ -118,6 +119,16 @@ type downloadResponse struct {
 // characters and ten restore keys.
 const maxJSONBody = 1 << 20
 
+// maxKeyRunes is GitHub's own limit on a key. A key is kept in memory and on
+// disk for as long as its entry is, so its length is not the job's to choose.
+const maxKeyRunes = 512
+
+// slotNamed says whether a call names a key and a version the service will keep.
+func slotNamed(key, version string) bool {
+	return key != "" && version != "" &&
+		utf8.RuneCountInString(key) <= maxKeyRunes && utf8.RuneCountInString(version) <= maxKeyRunes
+}
+
 func (s *Service) twirp(w http.ResponseWriter, r *http.Request, method string) {
 	if r.Method != http.MethodPost {
 		writeTwirpError(w, "bad_route", "Twirp calls are POSTs")
@@ -136,8 +147,8 @@ func (s *Service) twirp(w http.ResponseWriter, r *http.Request, method string) {
 	switch method {
 	case "CreateCacheEntry":
 		var req createRequest
-		if json.Unmarshal(body, &req) != nil || req.Key == "" || req.Version == "" {
-			writeTwirpError(w, "invalid_argument", "key and version are required")
+		if json.Unmarshal(body, &req) != nil || !slotNamed(req.Key, req.Version) {
+			writeTwirpError(w, "invalid_argument", "key and version are required, and neither may be over 512 characters")
 			return
 		}
 		if !sc.canWrite() {
@@ -157,8 +168,8 @@ func (s *Service) twirp(w http.ResponseWriter, r *http.Request, method string) {
 		writeJSON(w, http.StatusOK, createResponse{OK: true, SignedUploadURL: blobURL(r, p.ID)})
 	case "FinalizeCacheEntryUpload":
 		var req finalizeRequest
-		if json.Unmarshal(body, &req) != nil || req.Key == "" || req.Version == "" {
-			writeTwirpError(w, "invalid_argument", "key, version and sizeBytes are required")
+		if json.Unmarshal(body, &req) != nil || !slotNamed(req.Key, req.Version) {
+			writeTwirpError(w, "invalid_argument", "key, version and sizeBytes are required, and neither key nor version may be over 512 characters")
 			return
 		}
 		size, perr := strconv.ParseInt(req.size(), 10, 64)
@@ -174,8 +185,8 @@ func (s *Service) twirp(w http.ResponseWriter, r *http.Request, method string) {
 		writeJSON(w, http.StatusOK, finalizeResponse{OK: true, EntryID: numericID(e.ID)})
 	case "GetCacheEntryDownloadURL":
 		var req downloadRequest
-		if json.Unmarshal(body, &req) != nil || req.Key == "" || req.Version == "" {
-			writeTwirpError(w, "invalid_argument", "key and version are required")
+		if json.Unmarshal(body, &req) != nil || !slotNamed(req.Key, req.Version) {
+			writeTwirpError(w, "invalid_argument", "key and version are required, and neither may be over 512 characters")
 			return
 		}
 		e := s.find(sc, req.Key, req.restoreKeys(), req.Version)

@@ -74,8 +74,8 @@ func (c *Controller) CollectExperimentAttempts(ctx context.Context, installation
 	if err != nil {
 		return nil, err
 	}
-	owner, name, kind := github.SplitTarget(repo)
-	if kind != store.TargetRepo || name == "" || !(inst.TargetType == store.TargetRepo && inst.Target == repo || inst.TargetType == store.TargetOrg && inst.Target == owner) {
+	_, name, kind := github.SplitTarget(repo)
+	if kind != store.TargetRepo || name == "" || !installationCovers(inst, repo) {
 		return nil, fmt.Errorf("%w: the installation does not cover the selected repository", ErrExperimentEvidence)
 	}
 	r := &ExperimentRetainedEvidence{Repository: repo, InstallationID: installation, Attempts: make([]ExperimentRetainedAttempt, 0, len(selected))}

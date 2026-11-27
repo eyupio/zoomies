@@ -548,9 +548,18 @@ func ManageWithin(by *Identity, roles ...store.Role) error {
 	if by == nil {
 		return Invalid("an account can only be changed by an authenticated caller")
 	}
+	// An account signs in with its whole role, so a caller narrowed by scopes
+	// that could make or take over one would hand itself everything the role reaches.
+	narrowed := slices.ContainsFunc(AllActions(), func(a Action) bool {
+		return len(by.Scopes) > 0 && !scopesAllow(by.Scopes, a)
+	})
 	for _, role := range roles {
 		if !by.Role.AtLeast(role) {
 			return Invalid("the %s role cannot grant or change a %s account; ask somebody with the %s role", by.Role, role, role)
+		}
+		if narrowed && role.AtLeast(store.RoleOperator) {
+			return Invalid("this %s is limited to %s, and a %s account signs in with the whole role, so it cannot create, change or reset one; "+
+				"sign in as an administrator, or use a token with no scopes", by.subject(), strings.Join(by.Scopes, ", "), role)
 		}
 	}
 	return nil

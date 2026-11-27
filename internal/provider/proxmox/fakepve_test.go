@@ -516,7 +516,7 @@ func (f *fakePVE) routes() map[string]http.HandlerFunc {
 			}
 			writeData(w, upid)
 		},
-		"POST " + v + "/nodes/{node}/qemu/{vmid}/config": func(w http.ResponseWriter, r *http.Request) {
+		"PUT " + v + "/nodes/{node}/qemu/{vmid}/config": func(w http.ResponseWriter, r *http.Request) {
 			f.mu.Lock()
 			defer f.mu.Unlock()
 			vm, ok := f.vms[pathInt(r, "vmid")]

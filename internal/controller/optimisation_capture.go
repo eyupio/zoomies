@@ -54,8 +54,8 @@ func (c *Controller) readCheckoutEvidence(ctx context.Context, installation, rep
 	if err != nil {
 		return nil, none, err
 	}
-	owner, name, kind := github.SplitTarget(repo)
-	if kind != store.TargetRepo || name == "" || !(inst.TargetType == store.TargetRepo && inst.Target == repo || inst.TargetType == store.TargetOrg && inst.Target == owner) {
+	_, name, kind := github.SplitTarget(repo)
+	if kind != store.TargetRepo || name == "" || !installationCovers(inst, repo) {
 		return nil, none, ErrOptimisationPreview
 	}
 	if c.githubHeld(installation, c.Now()) {

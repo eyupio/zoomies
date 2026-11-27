@@ -517,9 +517,10 @@ func (c *Controller) applyWorkflowJob(ctx context.Context, e *github.WorkflowJob
 	}
 	// A recovery response may omit runner_name even though the earlier
 	// in-progress event linked this job. Use the durable link as the fallback,
-	// or a completed job can still miss its runner cleanup.
+	// or a completed job can still miss its runner cleanup. The row is found by
+	// job id alone, so the link is held to the rule a named runner is.
 	if runner == nil && saved.RunnerID != "" {
-		if r, err := c.st.GetRunner(ctx, saved.RunnerID); err == nil {
+		if r, err := c.st.GetRunner(ctx, saved.RunnerID); err == nil && c.runnerServesDelivery(ctx, r, claimable, job) {
 			runner = r
 		}
 	}

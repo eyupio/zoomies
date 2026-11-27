@@ -68,7 +68,7 @@ func poolsByRepository(pools []*store.Pool, insts []*store.Installation) ([]*sto
 // repository at a time. It fills in what the pool wants and which repository
 // each new runner is for, stops the free runners nothing waiting can reach,
 // and returns the runners it left alone with how many it stopped.
-func (t *tick) decideByRepository(p *store.Pool, plan *PoolPlan, remaining []*store.Runner, queued []*store.Job, eligible []placementDemand, live int) ([]*store.Runner, int) {
+func (t *tick) decideByRepository(p *store.Pool, plan *PoolPlan, remaining []*store.Runner, queued []*store.Job, eligible []placementDemand, live, draining int) ([]*store.Runner, int) {
 	// A free runner is one that could still take a job: live, not on one and
 	// not on its way out.
 	free := map[string][]*store.Runner{}
@@ -113,7 +113,8 @@ func (t *tick) decideByRepository(p *store.Pool, plan *PoolPlan, remaining []*st
 
 	// What is left free is in a repository with nothing waiting.
 	timeout := p.IdleTimeout.Duration()
-	short := live + len(plan.pending) - p.MaxRunners
+	// A draining runner is room already on its way: counting it stopped a second.
+	short := live - draining + len(plan.pending) - p.MaxRunners
 	stopped := map[string]bool{}
 	for _, r := range remaining {
 		key := strings.ToLower(r.Repo)

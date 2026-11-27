@@ -92,6 +92,22 @@ func TestHTTPTransportHasNoGlobalTimeout(t *testing.T) {
 	}
 }
 
+// The controller's REST API never answers with a redirect, so the agent treats
+// one as a visible failure rather than following it to somewhere the operator
+// did not name.
+func TestHTTPTransportDoesNotFollowRedirects(t *testing.T) {
+	tr, err := NewHTTPTransport(HTTPOptions{ControllerURL: "https://controller.example:8080", Logger: testLogger()})
+	if err != nil {
+		t.Fatalf("NewHTTPTransport: %v", err)
+	}
+	if tr.http.CheckRedirect == nil {
+		t.Fatal("CheckRedirect is unset, so the agent follows redirects an honest controller never sends")
+	}
+	if err := tr.http.CheckRedirect(nil, nil); err != http.ErrUseLastResponse {
+		t.Fatalf("CheckRedirect returned %v, want http.ErrUseLastResponse", err)
+	}
+}
+
 func TestHTTPTransportLongPollOutlivesTheRequestedWait(t *testing.T) {
 	var gotWait string
 	mux := http.NewServeMux()

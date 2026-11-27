@@ -308,7 +308,7 @@ func TestAMachineIsSizedAndMarkedWhenItIsStarted(t *testing.T) {
 	if op.Zero() {
 		t.Fatal("Start returned no handle; there is a task to follow")
 	}
-	config := f.request(http.MethodPost, v+"/nodes/pve-1/qemu/"+ref.ID+"/config")
+	config := f.request(http.MethodPut, v+"/nodes/pve-1/qemu/"+ref.ID+"/config")
 	for key, want := range map[string]string{
 		// 1.5 processors is not a thing a guest can be given, and a runner
 		// with less than it was promised is a slow build nobody can explain.
@@ -335,6 +335,29 @@ func TestAMachineIsSizedAndMarkedWhenItIsStarted(t *testing.T) {
 	}
 }
 
+// POST on a guest's configuration is Proxmox's asynchronous form: it answers
+// with a task handle and applies the change in a worker, so a refusal there
+// (memory below the template's balloon, say) never reaches this call and the
+// machine boots at the template's size with nothing to report it. PUT applies
+// the change before it answers.
+func TestAMachinesShapeIsWrittenThroughTheSynchronousConfigCall(t *testing.T) {
+	f := newFakePVE(t, nil)
+	p := newTestProvider(t, f, nil)
+	_, spec := newSpec(2, 4096, 0)
+	ref := buildMachine(t, p, spec)
+
+	if _, err := p.Start(context.Background(), ref); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	path := v + "/nodes/pve-1/qemu/" + ref.ID + "/config"
+	if f.request(http.MethodPut, path) == nil {
+		t.Error("the configuration was not sent with PUT, the form that reports a refusal in its answer")
+	}
+	if f.request(http.MethodPost, path) != nil {
+		t.Error("the configuration was sent with POST, whose failure is only ever in a task nobody follows")
+	}
+}
+
 // The shape is recorded on the guest rather than kept in this process, because
 // the call that sizes a machine is handed a reference and no specification and
 // a controller may have restarted in between. A machine that came back the
@@ -352,7 +375,7 @@ func TestTheShapeAMachineWasAskedForSurvivesAControllerRestart(t *testing.T) {
 	if _, err := restarted.Start(context.Background(), ref); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	config := f.request(http.MethodPost, v+"/nodes/pve-1/qemu/"+ref.ID+"/config")
+	config := f.request(http.MethodPut, v+"/nodes/pve-1/qemu/"+ref.ID+"/config")
 	if got := formValue(config, "cores"); got != "4" {
 		t.Errorf("cores = %q, want 4: the shape was read back off the machine", got)
 	}

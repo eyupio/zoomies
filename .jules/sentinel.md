@@ -3,6 +3,20 @@
 Short notes on security findings and the fixes made for them. One entry per
 pull request, newest first.
 
+## 2026-11-26: Agent's HTTP client refuses redirects
+
+The ordinary agent HTTP client (`internal/agent/httptransport.go`) left
+`CheckRedirect` unset, so Go's default policy followed up to ten redirects on
+any response. The tailcat variant has always refused them with
+`http.ErrUseLastResponse`, because a redirect from inside the tunnel could
+reroute credentials, and the reasoning applies to the ordinary client too: the
+controller's REST API never answers with a redirect, so one from it is either
+a misconfiguration or an attempt to reroute the agent to somewhere the operator
+did not name.
+
+Fix: set the same `CheckRedirect` on the main client, and add a test that
+fails if it is unset so the pattern does not drift back.
+
 ## 2026-10-08: MCP discovery responses no-store without an external URL
 
 When `security.mcp_oauth` is on and `server.external_url` is empty, the OAuth
