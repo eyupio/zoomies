@@ -474,7 +474,17 @@ func (p *OIDCProvider) sync(ctx context.Context, st *store.Store, u *store.User,
 	// mapped groups to roles, and only when the mapping produced a real role;
 	// otherwise an existing account keeps the role an administrator gave it.
 	if p.mapsRoles() && claims.Role.Valid() {
-		u.Role = claims.Role
+		// The provider's word does not outrank the last-administrator rule: a
+		// mistyped group name would otherwise lock the instance.
+		if err := ensureAdminRemains(ctx, st, &before, claims.Role, false); errors.Is(err, ErrLastAdmin) || errors.Is(err, ErrLastPlatform) {
+			slog.Warn("single sign-on would have lowered the role of the last account that holds it, so the role was kept; "+
+				"check the oidc group mapping, or give another account the role first",
+				"user", username, "role", before.Role, "mapped_role", claims.Role)
+		} else if err != nil {
+			return nil, fmt.Errorf("checking the role for %q: %w", username, err)
+		} else {
+			u.Role = claims.Role
+		}
 	}
 	if before == *u {
 		return u, nil

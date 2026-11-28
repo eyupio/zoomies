@@ -890,6 +890,10 @@ func (c *Controller) runEliRepair(parent context.Context, r *store.EliRepair) {
 			return
 		}
 	}
+	if refusal := repairKindRefusal(provider.Kind); refusal != "" {
+		fail(refusal)
+		return
+	}
 	if (strings.HasPrefix(r.DedupKey, "ui:") || strings.HasPrefix(r.DedupKey, "offer:")) && assistant.Subscription(assistant.Kind(provider.Kind)) && !r.RequesterAdmin {
 		fail("The requesting credential needs administrator permission to run subscription tools.")
 		return
@@ -1013,6 +1017,28 @@ func (c *Controller) runEliRepair(parent context.Context, r *store.EliRepair) {
 		return
 	}
 	c.repairNotice(ctx, client, r, "Pushed commit `"+sha+"`. "+plan.Summary+"\n\nWaiting for checks on this commit. No local tests were run by Eli.")
+}
+
+// repairKindRefusal says why a provider of this kind may not answer a repair, or
+// nothing when it may. A repair's question holds what the pull request's author
+// wrote (its text, its diff, its failing log) and its answer is committed, and
+// Codex and Copilot keep tools that can read the controller's files, so a line
+// in a log could carry one of those files out through the pull request.
+func repairKindRefusal(kind string) string {
+	switch assistant.Kind(kind) {
+	case assistant.KindCodex, assistant.KindCopilot:
+		return "Eli repairs cannot use Codex or GitHub Copilot: a repair sends the pull request's own text to the model, and those tools can read files on the controller's machine. Make an API provider (Anthropic, OpenAI or OpenAI-compatible) or Claude Code your default provider in Zoomies, Settings, Assistant, then ask again."
+	}
+	return ""
+}
+
+// repairKindRefused is that refusal as a request's error. It matches the
+// subscription refusal because that is the one the API answers in its own words.
+type repairKindRefused struct{ message string }
+
+func (e *repairKindRefused) Error() string { return e.message }
+func (e *repairKindRefused) Is(target error) bool {
+	return target == ErrAssistantSubscriptionRestricted
 }
 
 // readRepairFailures reads the failed job's evidence. A job that never started,
@@ -1191,6 +1217,9 @@ func (c *Controller) requestPinnedEliRepair(ctx context.Context, userID, repo st
 	provider, err := c.personalChatProvider(ctx, "", userID)
 	if err != nil {
 		return nil, err
+	}
+	if refusal := repairKindRefusal(provider.Kind); refusal != "" {
+		return nil, &repairKindRefused{refusal}
 	}
 	if assistant.Subscription(assistant.Kind(provider.Kind)) && !requesterAdmin {
 		return nil, ErrAssistantSubscriptionRestricted

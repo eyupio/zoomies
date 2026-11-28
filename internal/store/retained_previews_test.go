@@ -366,3 +366,49 @@ func TestARetainedPublicationRequiresAnApprovalAndLivePreview(t *testing.T) {
 		}
 	})
 }
+
+// An installation's target is stored folded to lower case, and a repository
+// arrives in the case GitHub gives it: from a job's delivery, or from Kennel
+// Club's list. Compared byte for byte, every owner or repository with a capital
+// in its name was refused as outside its own installation, which the webhook
+// path, folding both, never did.
+func TestEvidenceIsKeptForARepositoryWhoseNameHasCapitals(t *testing.T) {
+	const repo = "Acme/Widgets"
+	payload := func(version string) json.RawMessage { return json.RawMessage(`{"version":"` + version + `"}`) }
+	checks := []struct {
+		name string
+		put  func(*Store, context.Context, string) error
+	}{
+		{"a retained preview", func(s *Store, ctx context.Context, inst string) error {
+			return s.PutKennelFixPreview(ctx, &KennelFixPreview{ID: NewID(PrefixKennelFixPreview), InstallationID: inst, Repository: repo,
+				InitiatingUser: "usr_actor", Version: KennelFixPreviewVersion, Payload: payload(KennelFixPreviewVersion)}, optimisationAudit())
+		}},
+		{"a checkout preview", func(s *Store, ctx context.Context, inst string) error {
+			return s.PutOptimisationPreview(ctx, &OptimisationPreview{ID: NewID(PrefixOptimisationPreview), InstallationID: inst, Repository: repo,
+				InitiatingUser: "usr_actor", Version: OptimisationPreviewVersion, Payload: payload(OptimisationPreviewVersion)}, optimisationAudit())
+		}},
+		{"comparison evidence", func(s *Store, ctx context.Context, inst string) error {
+			return s.PutComparisonEvidence(ctx, &ComparisonEvidence{ID: NewID(PrefixComparison), InstallationID: inst, Repository: repo,
+				InitiatingUser: "usr_actor", Version: ComparisonEvidenceVersion, Payload: payload(ComparisonEvidenceVersion)}, optimisationAudit())
+		}},
+	}
+	targets := []struct {
+		target string
+		kind   TargetType
+	}{{"Acme", TargetOrg}, {repo, TargetRepo}}
+	for _, check := range checks {
+		for _, target := range targets {
+			t.Run(check.name+" under "+string(target.kind), func(t *testing.T) {
+				s := newTestStore(t)
+				ctx := context.Background()
+				inst := &Installation{AppID: 1, InstallationID: 2, Target: target.target, TargetType: target.kind}
+				if err := s.CreateInstallation(ctx, inst); err != nil {
+					t.Fatal(err)
+				}
+				if err := check.put(s, ctx, inst.ID); err != nil {
+					t.Fatalf("%s for %s under the installation for %q (stored as %q) was refused: %v", check.name, repo, target.target, inst.Target, err)
+				}
+			})
+		}
+	}
+}

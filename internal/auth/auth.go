@@ -1256,7 +1256,7 @@ func (s *Service) UpdateUser(ctx context.Context, u *store.User) error {
 	if !u.Role.Valid() {
 		return Invalid("%q is not a role; use %s", u.Role, store.RoleList())
 	}
-	if err := s.ensureAdminRemains(ctx, existing, u.Role, u.Disabled); err != nil {
+	if err := ensureAdminRemains(ctx, s.store, existing, u.Role, u.Disabled); err != nil {
 		return err
 	}
 	// The password hash is not part of a profile update; it moves only through
@@ -1310,7 +1310,7 @@ func (s *Service) SetUserDisabled(ctx context.Context, id string, disabled bool)
 	if u.Disabled == disabled {
 		return nil
 	}
-	if err := s.ensureAdminRemains(ctx, u, u.Role, disabled); err != nil {
+	if err := ensureAdminRemains(ctx, s.store, u, u.Role, disabled); err != nil {
 		return err
 	}
 	u.Disabled = disabled
@@ -1331,7 +1331,7 @@ func (s *Service) DeleteUser(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if err := s.ensureAdminRemains(ctx, u, store.RoleViewer, true); err != nil {
+	if err := ensureAdminRemains(ctx, s.store, u, store.RoleViewer, true); err != nil {
 		return err
 	}
 	// Before the row goes, because api_tokens has no foreign key to users:
@@ -1384,8 +1384,8 @@ func (s *Service) ResetPassword(ctx context.Context, userID, newPassword string)
 
 // ensureAdminRemains refuses a change that would take away the last enabled
 // admin. It is the invariant behind "you cannot lock yourself out".
-func (s *Service) ensureAdminRemains(ctx context.Context, existing *store.User, newRole store.Role, newDisabled bool) error {
-	if err := s.ensurePlatformRemains(ctx, existing, newRole, newDisabled); err != nil {
+func ensureAdminRemains(ctx context.Context, st *store.Store, existing *store.User, newRole store.Role, newDisabled bool) error {
+	if err := ensurePlatformRemains(ctx, st, existing, newRole, newDisabled); err != nil {
 		return err
 	}
 	// "At least admin" rather than exactly admin: a platform account
@@ -1395,7 +1395,7 @@ func (s *Service) ensureAdminRemains(ctx context.Context, existing *store.User, 
 	if !wasAdmin || stillAdmin {
 		return nil
 	}
-	n, err := s.store.CountAdmins(ctx)
+	n, err := st.CountAdmins(ctx)
 	if err != nil {
 		return fmt.Errorf("counting administrators: %w", err)
 	}
@@ -1410,13 +1410,13 @@ func (s *Service) ensureAdminRemains(ctx context.Context, existing *store.User, 
 // the only direction that matters here: the settings the process reads about
 // itself, the fence and the backups all need a platform, and an instance
 // with none is one only a shell can rescue.
-func (s *Service) ensurePlatformRemains(ctx context.Context, existing *store.User, newRole store.Role, newDisabled bool) error {
+func ensurePlatformRemains(ctx context.Context, st *store.Store, existing *store.User, newRole store.Role, newDisabled bool) error {
 	stillPlatform := newRole == store.RolePlatform && !newDisabled
 	wasPlatform := existing.Role == store.RolePlatform && !existing.Disabled
 	if !wasPlatform || stillPlatform {
 		return nil
 	}
-	n, err := s.store.CountPlatform(ctx)
+	n, err := st.CountPlatform(ctx)
 	if err != nil {
 		return fmt.Errorf("counting platform accounts: %w", err)
 	}

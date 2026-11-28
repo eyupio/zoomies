@@ -106,7 +106,7 @@ func TestAContainerIsStartedWithoutBeingConfiguredAndReportsItsAddress(t *testin
 		t.Fatalf("Start: %v", err)
 	}
 	for _, r := range f.Requests() {
-		if strings.HasSuffix(r, "/config") && strings.HasPrefix(r, "POST") {
+		if strings.HasSuffix(r, "/config") && strings.HasPrefix(r, "PUT") {
 			t.Errorf("a container was configured after its create: %s", r)
 		}
 	}
@@ -282,7 +282,7 @@ func TestAVMGetsItsVLANTagToo(t *testing.T) {
 	if _, err := p.Start(context.Background(), ref); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	if got := formValue(f.request("POST", v+"/nodes/pve-1/qemu/9100/config"), "net0"); !strings.HasSuffix(got, ",bridge=vmbr0,tag=30") {
+	if got := formValue(f.request("PUT", v+"/nodes/pve-1/qemu/9100/config"), "net0"); !strings.HasSuffix(got, ",bridge=vmbr0,tag=30") {
 		t.Errorf("net0 = %q, want the tag on the interface", got)
 	}
 }

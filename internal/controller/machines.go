@@ -1253,6 +1253,16 @@ func (c *Controller) stepPlanned(ctx context.Context, env *machineEnv, pr *machi
 	if errors.Is(err, store.ErrConflict) && c.releaseStaleHolder(ctx, env, pr, m, ref.Zone, id) {
 		err = c.st.SetMachineResource(ctx, m.ID, ref.Zone, id, owner.Fingerprint, owner.ControllerID)
 	}
+	if errors.Is(err, store.ErrConflict) {
+		// A sibling stepped in the same pass was offered this id first, because a
+		// provider that hands out its lowest free one offers it until the guest
+		// exists. Released uncounted, and only for a holder still being built: its
+		// create or its failure ends the wait, where any other holder is a fault.
+		holder, hErr := c.st.GetMachineByResource(ctx, pr.row.ID, ref.Zone, id)
+		if hErr == nil && holder.ID != m.ID && (holder.State == store.MachinePlanned || holder.State == store.MachineCreating) {
+			return fmt.Errorf("%w: %s offered %s, which machine %s was given a moment ago", errMachineHeld, pr.row.Name, id, holder.ID)
+		}
+	}
 	if err != nil {
 		return err
 	}
@@ -1408,6 +1418,7 @@ func (c *Controller) resolveMissing(ctx context.Context, env *machineEnv, pr *ma
 
 // stepStarting powers a machine on and waits for it to be running.
 func (c *Controller) stepStarting(ctx context.Context, env *machineEnv, pr *machineProvider, m *store.Machine) error {
+	var refused *provider.Error
 	if m.OpHandle != "" {
 		status, err := pr.p.Operation(ctx, provider.OperationRef{Kind: provider.OpStart, Handle: m.OpHandle})
 		switch {
@@ -1416,6 +1427,11 @@ func (c *Controller) stepStarting(ctx context.Context, env *machineEnv, pr *mach
 			return err
 		case !status.Done:
 			return errMachineWaiting
+		case !status.OK:
+			// Held until the machine has been looked at: a start that ended with
+			// warnings leaves it running, and that is not a failure to count.
+			refused = &provider.Error{Kind: provider.FailureRefused, Op: "start", Ref: m.Name,
+				Message: status.Detail, Remedy: "the provider's own task log carries the rest of it"}
 		}
 	}
 	got, err := pr.p.Inspect(ctx, machineRef(m))
@@ -1429,6 +1445,9 @@ func (c *Controller) stepStarting(ctx context.Context, env *machineEnv, pr *mach
 	if got.Phase == provider.PhaseRunning {
 		c.transitionMachine(ctx, env, m, store.MachineBootstrapping, "the machine is running; installing the agent")
 		return nil
+	}
+	if refused != nil {
+		return refused
 	}
 	power, ok := pr.p.(provider.PowerController)
 	if !ok || got.Phase != provider.PhaseStopped {

@@ -127,7 +127,7 @@ func (hs *hostSet) host(id string) *store.Host {
 
 // matchPlatformSupply returns the runners that scale-down may consider.
 // A runner promised to a queued job must survive while that job waits.
-func (t *tick) matchPlatformSupply(p *store.Pool, plan *PoolPlan, runners []*store.Runner, eligible []placementDemand, live int) []*store.Runner {
+func (t *tick) matchPlatformSupply(p *store.Pool, plan *PoolPlan, runners []*store.Runner, eligible []placementDemand, live, draining int) []*store.Runner {
 	if !slices.ContainsFunc(eligible, func(d placementDemand) bool { return d.platform != 0 }) {
 		return runners
 	}
@@ -156,7 +156,8 @@ func (t *tick) matchPlatformSupply(p *store.Pool, plan *PoolPlan, runners []*sto
 	plan.Desired = max(plan.Desired, min(live+len(plan.pending), p.MaxRunners))
 	// An incompatible warm runner can hold the last pool slot forever.
 	// Drain an unused runner only if another host can serve that job.
-	short := live + len(plan.pending) - p.MaxRunners
+	// A draining runner is room already on its way: counting it drained a second.
+	short := live - draining + len(plan.pending) - p.MaxRunners
 	for _, d := range plan.pending {
 		if short <= 0 || len(free) == 0 || live > p.MaxRunners {
 			break
