@@ -92,18 +92,25 @@ stop() {
     pid=""
 }
 
-# field <url-path> <json-key> [value-prefix]: the first string value of a key,
-# optionally the first one that starts with value-prefix. The bodies here are
-# small and flat, and a jq dependency in a shell check that exists to run on a
-# bare machine is a worse trade than this.
-#
-# The prefix is for a host's id. A host's body carries its doctor findings, and
-# a finding has an "id" of its own that can come before the host's (inotify.watches
-# does, on a GitHub-hosted runner), so the first "id" is not always the host's.
+# field <url-path> <json-key>: the first value of a top-level string key. The
+# bodies here are small and flat, and a jq dependency in a shell check that
+# exists to run on a bare machine is a worse trade than this.
 field() {
     curl -fsS "$url$1" |
         tr ',' '\n' |
-        sed -n "s/.*\"$2\"[[:space:]]*:[[:space:]]*\"\\(${3:-}[^\"]*\\)\".*/\\1/p" |
+        sed -n "s/.*\"$2\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p" |
+        head -1
+}
+
+# host_id: this host's own id. The first "id" in the hosts body is the host's
+# only until the host has a doctor report, which is rendered ahead of the id and
+# whose checks each have an id of their own (inotify.watches is the first). A
+# read that landed after the report came back with a check, and the rollback was
+# blamed for losing a host. Host ids all begin host_.
+host_id() {
+    curl -fsS "$url/api/v1/hosts" |
+        tr ',' '\n' |
+        sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\(host_[^"]*\)".*/\1/p' |
         head -1
 }
 
@@ -122,7 +129,7 @@ config_before=$(sha_of "$state/zoomies.yaml")
 echo "-> starting the published release"
 start "$old" "published"
 old_version=$(field /readyz version)
-old_host=$(field /api/v1/hosts id host_)
+old_host=$(host_id)
 old_schema=$(field /readyz latest)
 [ -n "$old_version" ] || fail "the published release reported no version"
 [ -n "$old_host" ] || fail "the published release registered no host to survive the upgrade"
@@ -132,7 +139,7 @@ stop
 echo "-> swapping in the build under test"
 start "$new" "new"
 new_version=$(field /readyz version)
-new_host=$(field /api/v1/hosts id host_)
+new_host=$(host_id)
 new_schema=$(field /readyz latest)
 echo "   ok $new_version, host $new_host, schema $new_schema"
 
@@ -170,7 +177,7 @@ else
     cp "$pre" "$state/zoomies.db"
     start "$old" "rolled back"
     rolled_version=$(field /readyz version)
-    rolled_host=$(field /api/v1/hosts id host_)
+    rolled_host=$(host_id)
     rolled_schema=$(field /readyz latest)
 
     [ "$rolled_version" = "$old_version" ] ||
