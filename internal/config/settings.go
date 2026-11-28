@@ -422,7 +422,7 @@ var registry = buildRegistry([]Setting{
 	},
 	{
 		Key: "agent.disk.stop_free_gib", Label: "Free disk admission reserve", Env: "ZOOMIES_AGENT_DISK_STOP_FREE_GIB", Kind: KindFloat, Scope: ScopeInstance,
-		Summary: "Pause new runners below this many GiB of free work-directory disk. Running jobs finish; admission resumes when free space recovers. Defaults to 0, disabled.", RestartReason: "the agent disk policy is loaded at startup",
+		Summary: "Pause new runners below this many GiB of free work-directory disk. It measures the filesystem holding agent.work_dir only, which is where the process backend keeps its runners; a container backend's images live under the daemon's own root and are not measured. Running jobs finish; admission resumes when free space recovers. Defaults to 0, disabled.", RestartReason: "the agent disk policy is loaded at startup",
 	},
 	{
 		Key: "agent.capacity", Label: "Runners per host", Env: "ZOOMIES_AGENT_CAPACITY", Kind: KindInt, Scope: ScopeInstance,

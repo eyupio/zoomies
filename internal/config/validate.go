@@ -845,14 +845,23 @@ func (c *Config) validateAgent(add func(Finding)) {
 		for _, threshold := range []struct {
 			setting string
 			value   float64
+			limit   float64
 		}{
-			{"warn_free_percent", c.Agent.Disk.WarnFreePercent},
-			{"warn_free_gib", c.Agent.Disk.WarnFreeGiB},
-			{"stop_free_gib", c.Agent.Disk.StopFreeGiB},
+			{"warn_free_percent", c.Agent.Disk.WarnFreePercent, 100},
+			{"warn_free_gib", c.Agent.Disk.WarnFreeGiB, math.Inf(1)},
+			{"stop_free_gib", c.Agent.Disk.StopFreeGiB, math.Inf(1)},
 		} {
-			setting, value := threshold.setting, threshold.value
-			if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || (setting == "warn_free_percent" && value > 100) {
-				add(Finding{Code: "agent.disk", Severity: SeverityError, Setting: "agent.disk." + setting, Title: "invalid disk threshold", Fix: "Use a finite nonnegative threshold; percentages cannot exceed 100."})
+			if math.IsNaN(threshold.value) || math.IsInf(threshold.value, 0) || threshold.value < 0 || threshold.value > threshold.limit {
+				key := "agent.disk." + threshold.setting
+				fix := fmt.Sprintf("set %s to a number of at least 0.", key)
+				if threshold.limit == 100 {
+					fix = fmt.Sprintf("set %s to a percentage from 0 to 100.", key)
+				}
+				add(Finding{
+					Code: "agent.disk", Severity: SeverityError, Setting: key,
+					Title: fmt.Sprintf("%s is %v, which is not a usable disk threshold", key, threshold.value),
+					Fix:   fix,
+				})
 			}
 		}
 		if c.Agent.Capacity <= 0 {

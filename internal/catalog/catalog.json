@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_from": "1ead14f",
+  "generated_from": "9cb099e",
   "entries": [
     {
       "id": "agent.backend_missing",
@@ -79,8 +79,8 @@
       "category": "configuration",
       "severity": "error",
       "detection": "static",
-      "detects": "A disk threshold must be finite and nonnegative. The warning percentage must be at most 100.",
-      "fix": "A disk threshold must be finite and nonnegative. The warning percentage must be at most 100.",
+      "detects": "A disk threshold is not a finite number of at least 0, or the warning percentage is above 100. The finding names the setting and its value.",
+      "fix": "A disk threshold is not a finite number of at least 0, or the warning percentage is above 100. The finding names the setting and its value.",
       "verify": null,
       "setting": "agent.disk",
       "docs_html": "https://zoomies.sh/problem-codes/#configuration-the-agent",

@@ -1061,7 +1061,7 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 	hctx, cancel := context.WithTimeout(ctx, reportTimeout)
 	defer cancel()
 
-	infos := a.diskBackends(a.refreshBackends(ctx))
+	infos := a.refreshBackends(ctx)
 	runners := a.Runners()
 	m := a.machine()
 	cpus, memoryMB := hostSize(infos, m)
@@ -1082,7 +1082,7 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 		DiskKind:          m.DiskKind,
 		DiskTotalMB:       total,
 		DiskFreeMB:        free,
-		Backends:          infos,
+		Backends:          a.diskBackends(infos),
 		Runners:           runners,
 		Runtime:           a.runtimeReport(),
 		Update:            update,
@@ -1384,9 +1384,6 @@ func incompatibleSentence(resp *HeartbeatResponse) string {
 // may. Incompatibility is named first: it is the one of the two an operator
 // did not choose, and the one whose fix is a version rather than a decision.
 func (a *Agent) refuseNewWork() string {
-	if why := a.diskRefusal(); why != "" {
-		return why
-	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	switch {
@@ -1831,6 +1828,16 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 			TaskID: task.ID, Kind: task.Kind, RunnerID: task.RunnerID, OK: true,
 			Handle: handle, State: state, CompletedAt: now,
 		})
+		return
+	}
+
+	// Only a runner this host does not already have costs disk, so the reserve
+	// is checked here, after the redelivery answer above. Refusing earlier
+	// would report a live runner as failed when its create came round again
+	// below the reserve.
+	if why := a.diskRefusal(); why != "" {
+		release()
+		a.reportFailure(ctx, task, why, store.FaultBackend)
 		return
 	}
 

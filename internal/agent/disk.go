@@ -2,9 +2,10 @@ package agent
 
 import (
 	"fmt"
-	"github.com/eyupio/zoomies/internal/backend"
 	"math"
 	"slices"
+
+	"github.com/eyupio/zoomies/internal/backend"
 )
 
 // diskFromStatfs turns a filesystem's raw block counts into bytes, and refuses
@@ -33,6 +34,14 @@ func diskFromStatfs(blocks, bavail uint64, bsize int64) (total, avail int64, ok 
 	return total, avail, true
 }
 
+// diskRefusal says why a new runner may not start for want of disk, or "" when
+// it may. It measures the filesystem holding the agent's work directory only:
+// that is where the process backend keeps a runner and its job. A container
+// backend keeps images and layers under the daemon's own root, which this does
+// not look at, so the reserve is meant for hosts running the process backend.
+//
+// An unmeasurable disk refuses too. A reserve that waves work through when it
+// cannot see the disk would fail exactly when it is needed.
 func (a *Agent) diskRefusal() string {
 	if a.opts.StopFreeGiB <= 0 {
 		return ""
@@ -51,8 +60,13 @@ func (a *Agent) diskRefusal() string {
 	return ""
 }
 
-// Advertise the admission pause without changing the operator's cordon or
-// cached runtime probes. An older controller already understands availability.
+// diskBackends is the probes as the controller should see them while the
+// reserve holds: every backend unavailable, with the reason as its detail, so
+// an older controller that only knows availability stops placing runners here.
+// It is applied to the heartbeat's Backends field alone. The probes the agent
+// sizes the host from keep their CPU and memory figures, which a pause must not
+// replace with the agent's own, smaller cgroup limits. The operator's cordon is
+// left as it was.
 func (a *Agent) diskBackends(infos []backend.Info) []backend.Info {
 	why := a.diskRefusal()
 	if why == "" {

@@ -138,7 +138,7 @@ than about what any one setting says.
 | --- | --- | --- | --- |
 | `agent.backend_missing` | error | `agent.backend` | No runner backend selected. |
 | `agent.backend_unknown` | error | `agent.backend` | Not a backend. They are `docker`, `podman` and `process`. |
-| `agent.disk` | error | `agent.disk` | A disk threshold must be finite and nonnegative. The warning percentage must be at most 100. |
+| `agent.disk` | error | `agent.disk` | A disk threshold is not a finite number of at least 0, or the warning percentage is above 100. The finding names the setting and its value. |
 | `agent.capacity` | error | `agent.capacity` | Must be at least 1, or the host can never take a runner. |
 | `agent.workdir` | error | `agent.work_dir` | Empty. |
 | `agent.process_backend` | warning | `agent.backend` | The process backend gives jobs no container isolation: a job can read and write anything the agent user can. |

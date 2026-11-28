@@ -438,10 +438,40 @@ settings page reports rather than refusing the edit.
 | `agent.registry_auth` | `ZOOMIES_REGISTRY_AUTH` | next restart | Registry credentials: A base64 X-Registry-Auth value, or the auths map of a docker config.json for one credential per registry, that the container backends send when they pull. Without it a pool on a private registry cannot use pinned-only pulls at all. |
 | `agent.runner_download_url` | `ZOOMIES_AGENT_RUNNER_DOWNLOAD_URL` | next restart | Runner download mirror: Where the process backend fetches runner archives from, for hosts that mirror releases internally. The path below it is the same. |
 | `agent.runner_sha256` | `ZOOMIES_AGENT_RUNNER_SHA256` | next restart | Runner archive digest: The expected digest of the actions/runner archive the process backend downloads. Zoomies ships the digest for the release it pins; supply one when you pin another. |
-| `agent.disk.warn_free_percent` | `ZOOMIES_AGENT_DISK_WARN_FREE_PERCENT` | next restart | Warn below this percentage of free disk space; default 10. |
-| `agent.disk.warn_free_gib` | `ZOOMIES_AGENT_DISK_WARN_FREE_GIB` | next restart | Warn below this many GiB of free disk space; default 10. |
-| `agent.disk.stop_free_gib` | `ZOOMIES_AGENT_DISK_STOP_FREE_GIB` | next restart | Pause new runners below this reserve in GiB; 0 disables the pause. Running jobs finish. |
+| `agent.disk.warn_free_percent` | `ZOOMIES_AGENT_DISK_WARN_FREE_PERCENT` | next restart | Free disk warning percentage: Warn below this percentage of free work-directory disk. Defaults to 10; 0 disables the percentage warning. |
+| `agent.disk.warn_free_gib` | `ZOOMIES_AGENT_DISK_WARN_FREE_GIB` | next restart | Free disk warning reserve: Warn below this many GiB of free work-directory disk. Defaults to 10; 0 disables this warning. |
+| `agent.disk.stop_free_gib` | `ZOOMIES_AGENT_DISK_STOP_FREE_GIB` | next restart | Free disk admission reserve: Pause new runners below this many GiB of free work-directory disk. Running jobs finish; admission resumes when free space recovers. Defaults to 0, disabled. See [Disk reserve](#disk-reserve). |
 | `agent.work_dir` | `ZOOMIES_WORK_DIR` | next restart | Working directory: Where runner working directories and the agent's own credentials live. |
+
+#### Disk reserve
+
+```yaml
+agent:
+  disk:
+    warn_free_percent: 10
+    warn_free_gib: 10
+    stop_free_gib: 0
+```
+
+The two warning levels feed the host-health check for free space and change
+nothing else. The reserve, `stop_free_gib`, is the only one that stops work:
+below it the agent refuses to create a runner and reports its backends
+unavailable, so the controller places nothing there. Running jobs and cleanup
+continue, and a create the host already carries out is acknowledged, not
+refused, so a redelivered task cannot fail a live runner. Admission resumes at or
+above the threshold. An unmeasurable disk pauses admission when a reserve is
+enabled. Zero disables it.
+
+The reserve measures the filesystem holding `agent.work_dir` and nothing else.
+That is where the process backend keeps its runners; Docker and Podman keep
+images and layers under the daemon's own root, which it does not look at, so it
+is meant for hosts running the process backend.
+
+The warning levels apply to the controller's and the agent's own host-health
+checks. `zoomies doctor` on a host cannot read the Settings page, so it keeps
+the built-in 10% and 10 GiB. The warnings are Linux-only; the reserve works on
+macOS, Linux and Windows. GiB means 1,073,741,824 bytes. Changes need an agent
+restart.
 
 ### `assistant`
 
@@ -2988,21 +3018,3 @@ and open a draft pull request. This needs Contents write and Pull requests write
 without Workflows write. The preview shows current and proposed contents and
 rejects changes made after review. Merge the proposal, then press **Recheck**.
 See [Agent guidance](kennel-club.md#agent-guidance) for the repair limits.
-
-### Agent disk reserve
-
-```yaml
-agent:
-  disk:
-    warn_free_percent: 10
-    warn_free_gib: 10
-    stop_free_gib: 0
-```
-
-Warnings keep the previous defaults. The optional admission reserve is measured
-on the filesystem holding `agent.work_dir`, before accepting a runner and again
-after waiting for a startup slot. Below it, creates are refused; running jobs and
-cleanup continue. Admission resumes at or above the threshold. A failed disk
-measurement pauses admission when a reserve is enabled. Zero disables it.
-Doctor's disk warnings remain Linux-only; admission works on macOS, Linux and
-Windows. GiB means 1,073,741,824 bytes. Changes require an agent restart.

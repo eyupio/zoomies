@@ -67,3 +67,58 @@ func TestDiskPauseIsAdvertisedAndClears(t *testing.T) {
 		}
 	}
 }
+
+// Delivery is at-least-once, so a create whose result was lost comes round
+// again, possibly after the disk has fallen below the reserve. The runner is
+// already there and costs no more disk; refusing it would report a live job's
+// runner as failed.
+func TestARedeliveredCreateBelowTheReserveIsAcknowledgedNotRefused(t *testing.T) {
+	var free atomic.Int64
+	free.Store(160 << 30)
+	h := newHarness(t, 4, func(o *Options) {
+		o.StopFreeGiB = 150
+		o.diskSpace = func(string) (int64, int64, bool) { return 1000 << 30, free.Load(), true }
+	})
+	h.tr.tasks <- []Task{createTask("first", "running")}
+	first := h.nextResult()
+	if !first.OK {
+		t.Fatal(first.Error)
+	}
+	free.Store(10 << 30)
+	h.tr.tasks <- []Task{createTask("again", "running")}
+	again := h.nextResult()
+	if !again.OK || again.Handle != first.Handle {
+		t.Fatalf("redelivery below the reserve was not acknowledged: %+v", again)
+	}
+	if created, _, _ := h.be.counts(); created != 1 {
+		t.Fatalf("created %d runners, want only the first", created)
+	}
+}
+
+// A pause advertises every backend as unavailable, but the host's size comes
+// from those same probes. If the pause replaced the daemon's CPU and memory
+// with the agent's own cgroup limits, a containerised agent would report a
+// smaller machine while paused and the controller would size jobs from it.
+func TestThePauseDoesNotChangeTheSizeTheHostReports(t *testing.T) {
+	var free atomic.Int64
+	a, tr, be, _ := newAgent(t, 2, func(o *Options) {
+		o.StopFreeGiB = 80
+		o.diskSpace = func(string) (int64, int64, bool) { return 1000 << 30, free.Load(), true }
+	})
+	be.cpus, be.memoryMB = 32, 65536
+	var sizes [2][2]int64
+	for i, bytes := range []int64{200 << 30, 50 << 30} {
+		free.Store(bytes)
+		if err := a.heartbeat(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		beat := <-tr.beats
+		sizes[i] = [2]int64{int64(beat.CPUs), beat.MemoryMB}
+		if paused := !beat.Backends[0].Available; paused != (i == 1) {
+			t.Fatalf("heartbeat %d: backend available = %v", i, !paused)
+		}
+	}
+	if sizes[0] != sizes[1] || sizes[0][0] != 32 {
+		t.Fatalf("size changed with the pause: %v", sizes)
+	}
+}
