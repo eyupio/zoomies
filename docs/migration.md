@@ -116,7 +116,7 @@ that is one inserted line on the same terms.
        - uses: actions/checkout@v4
 ```
 
-Four things it leaves alone, and says so:
+Five things it leaves alone, and says so:
 
 | It sees | It does | Because |
 | --- | --- | --- |
@@ -124,6 +124,7 @@ Four things it leaves alone, and says so:
 | `runs-on: [self-hosted, linux]` | Skips it | Somebody already pointed this job somewhere deliberate. |
 | `runs-on: acme-bigbox` | Skips it | Not a label any hosted-runner vendor publishes, so it is a runner group or a fleet of your own. |
 | A rented label you did not map | Skips it | You chose to leave those jobs where they are. |
+| A `runs-on` axis, or `include` entry, inside a `strategy.matrix` | Skips it | It is a list of values that the job's own `runs-on` picks from with an expression, and one label in its place would not be a matrix. Change the values in it by hand. |
 
 Each skip is listed in the review step and again in the pull request body, so
 whoever reviews the change can see which jobs are still running on GitHub after
@@ -251,6 +252,7 @@ three App permissions the rest of Zoomies has no use for:
 | Contents | read and write | To create a branch and commit the file. |
 | Pull requests | read and write | To open the pull request. |
 | Workflows | write | GitHub requires it specifically to change files under `.github/workflows`. |
+| Issues | read | Asked for with the other three: GitHub delivers the `issue_comment` event, which carries a `/eli` request, only to an App with Issues access. |
 
 An App that Zoomies creates does **not** ask for them by default. Connecting
 GitHub, in the browser or in the installer, asks "Also let Zoomies open

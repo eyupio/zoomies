@@ -754,3 +754,33 @@ file/command previews before each approval, and finishes with counts of
 applied and declined changes. `--dry-run` reports the eligible changes without
 writing anything. Advice-only and optional findings are available through
 `zoomies doctor --verbose` rather than repeated during every tuning review.
+
+## Disk health and runner admission
+
+The doctor's `disk.space` result checks a filesystem baseline: at least 10%
+and 10 GiB free. It does not know the fleet's pool requirements or the working
+room promised to runners already on the host. Passing it does not promise that
+another runner can start.
+
+The controller checks admission using the scheduler's own disk ledger. Above
+the host's reserve (at least 2 GiB), it keeps the working room of live runners
+and asks whether the next runner fits. With no `resources.disk_gb`, a runner
+needs 10 GiB. An explicit disk requirement on a Docker-in-Docker pool is
+charged twice, once for each container.
+
+When a connected, uncordoned host has spare slots but cannot fit a runner of
+an enabled pool it otherwise supports, `host.low_disk` names that host and
+the affected pools. The host card, including its collapsed row, shows **Disk
+blocked** in red and appears under **Need attention**. Open the host for its
+free, reserved, allocatable and committed disk, each affected pool's
+requirement, and next steps. The existing problems notification and activity
+feed announce the host fault even if another host can still serve the pool.
+Dismissal or snoozing quiets the notification; it does not hide the host's
+placement state.
+
+Inspect what consumes the work filesystem before reclaiming unused images or
+build caches. Include Zoomies pool caches in that inspection. Nothing here
+deletes data, changes limits or cordons a host. Running jobs continue. The
+problem and red state clear on the next update once enough room is available;
+no restart or uncordon is needed. A full host, an unmeasured disk and a pool
+that cannot use this machine are not reported as disk faults.

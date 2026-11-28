@@ -226,7 +226,7 @@ test('a queue longer than the read sends is counted in full', async ({ page }) =
   const waiting = rail(page, 'Waiting');
   await expect(waiting).toHaveAttribute('aria-busy', 'false');
   await expect(waiting.getByRole('heading', { level: 2 })).toHaveText('Waiting 640');
-  await expect(waiting.getByRole('link', { name: 'and 635 more' })).toHaveAttribute(
+  await expect(waiting.getByRole('link', { name: 'and 637 more' })).toHaveAttribute(
     'href',
     /^\/queue/,
   );

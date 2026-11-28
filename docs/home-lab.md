@@ -25,7 +25,9 @@ machine once you know where it fits.
 | A Proxmox VE server | Runner hosts made and removed as pools need them | Zoomies can [rent virtual machines from Proxmox](proxmox.md) through its provider contract |
 | A spare Windows PC | Windows jobs, as processes on the machine | One PowerShell command from **Hosts → Add a host** joins it. A manual trial is reported; [written qualification is still pending](index.md#what-is-qualified) |
 
-macOS is not on the list: there is no macOS runner image.
+macOS is not on the list: there is no macOS runner image. If a Mac is one of the
+machines you have, [Codemany](alternatives/codemany.md) can run macOS jobs on it
+while Zoomies runs the Linux ones; `runs-on` decides which a job gets.
 
 ## Where the controller goes
 
@@ -45,7 +47,7 @@ jobs start.
   [compose file](compose.md#the-proxy-in-front) is set up for, restores
   webhooks without opening a port.
 
-- **Hosted for you, with [Zoomies Cloud](https://cloud.zoomies.sh/).** Keep the
+- **Hosted for you, with [Zoomies Cloud](cloud.md).** Keep the
   builds on your home machines and let us look after the controller, including
   its updates and backups. Useful when you want a home-lab fleet without
   another service to maintain. Cloud is paid controller hosting; you still
@@ -100,15 +102,15 @@ the network.
 
 The self-hosted Zoomies controller is free, and GitHub charges nothing for
 self-hosted runner minutes today; you pay for the electricity and your time.
-If you choose Zoomies Cloud, include its controller subscription too; see
-[current Cloud pricing](https://cloud.zoomies.sh/pricing). A machine you already own
+If you choose [Zoomies Cloud](cloud.md), include its controller subscription
+too; see [current Cloud pricing](https://cloud.zoomies.sh/pricing). A machine you already own
 starts ahead of anything you would rent, [what self-hosted runners
 cost](costs.md) works through the sums against GitHub's hosted runner prices.
 
 ## Getting started
 
 1. Run the controller: [quick start](quickstart.md) on a small VM or a home
-   machine, or use a hosted controller with [Zoomies Cloud](https://cloud.zoomies.sh/).
+   machine, or use a hosted controller with [Zoomies Cloud](cloud.md).
 2. Connect GitHub, and create a pool with a host selector for the machines it
    should use.
 3. Join each home machine through **Hosts → Add a host → Private connection ·

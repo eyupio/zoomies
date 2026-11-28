@@ -59,9 +59,11 @@ with live summaries and browser-local expansion preferences. History remains
 this fleet's activity, with its own labelled range, even when other runners are
 included in job counts. A fragment link opens its destination before scrolling.
 The full events feed expands in place, retaining the controller's reason strings.
-On a Mission Control phone, Jobs, Queue and Workflows keep the search in view
-and fold the rest of their filters behind a summary, so the records come before
-the controls; Filters and Fleet context expand without clearing the URL filters.
+On a phone, Jobs, Queue and Workflows keep the search in view and fold the rest
+of their filters behind a summary, whatever the visual style, so the records
+come before the controls. Workflows folds its facet menus on a wide page too,
+leaving the search and the date range in view. Filters and Fleet context expand
+without clearing the URL filters.
 
 A grid with no saved phone-layout choice starts as Cards in Mission Control
 and Rows in Classic. A saved per-grid view wins over a saved global view, and
@@ -1792,9 +1794,10 @@ refreshes `design/theme-review/gallery/`; see the README beside those files.
 
 ### Eli's contextual assistant
 
-Every user can open Eli from the circular dog button on any page. Drag the
-identity in the panel header to move it, or focus it and use arrow keys (Shift
-for larger steps). The panel stays within the viewport when moved or resized;
+Every user can open Eli from the Ask Eli button in the top bar. The command
+centre, which has no top bar, keeps the circular dog button on a desktop and
+puts the same button in its own bar on a phone. Drag the identity in the panel
+header to move it, or focus it and use arrow keys (Shift for larger steps). The panel stays within the viewport when moved or resized;
 left and right placement reset its position. Thinking is the avatar's own dog icon
 and two paw prints on a short track, and nothing else moves: each of its six
 routines (zoomies, fetch, sniffing, pouncing, a happy wiggle and chasing circles)
@@ -1820,8 +1823,8 @@ provider. Installation provider management retains its administrator gate.
 
 `web/src/lib/assistant/AskEli.svelte` is the shared contextual action. It wears
 the avatar's own tint (`--z-accent` on `--z-accent-subtle`, ringed by
-`--z-accent-border`), so the button on a page and the dog in the corner are
-plainly the same way to reach Eli, and it wiggles once when a page first shows
+`--z-accent-border`), so the button on a page and the Ask Eli button in the top
+bar are plainly the same way to reach Eli, and it wiggles once when a page first shows
 it and again under the pointer so a person who has never noticed it does; a list
 of them arrives on three staggered beats rather than in unison, and reduced
 motion stops all of it. Supply an

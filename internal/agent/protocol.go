@@ -39,6 +39,9 @@ const FeatureElasticMemory = "elastic-memory"
 // safe but would read on the controller as a fill that failed on every host.
 const FeatureToolCacheFill = "tool-cache-fill"
 
+// FeatureCacheMaintenance advertises idle cleanup and storage measurements.
+const FeatureCacheMaintenance = "cache-maintenance"
+
 // FeatureHostCheck is advertised by an agent that understands TaskCheckHost,
 // and only where its own monitor can run the OS checks: a native Linux agent.
 // An agent in a container only re-reads a report another unit writes, and
@@ -72,6 +75,13 @@ const FeatureMergeWorker = "merge-worker"
 // the flag before it queues one and an older agent is never sent a task it would
 // refuse.
 const FeatureSelfUpdate = "self-update"
+
+// ClaimToken is sent as the join token by an agent that was shipped inside a
+// machine with no credential, which is a machine the provider cannot push
+// anything into. It is not a credential: it asks the controller to identify the
+// machine by the name in the request and by the address the provider reports
+// for it, and to answer with a real single-use token only if the two agree.
+const ClaimToken = "claim"
 
 // JoinRequest redeems a short-lived join token and enrols a new host.
 type JoinRequest struct {
@@ -214,6 +224,14 @@ type HeartbeatRequest struct {
 	// service and from an agent too old to send it, which the controller reads
 	// alike; an older controller ignores it, so ProtocolVersion does not move.
 	Caches []backend.CacheStats `json:"caches,omitempty"`
+	// RegistryMirror is what this host's registry mirror has done, holds and has
+	// wrong with it: figures cumulative for this agent process, so a reader takes
+	// differences and reads a fall as a restart, the bytes held now, and a problem
+	// in one of a fixed set of words. Present whenever the mirror is on, even
+	// before a sidecar has used it; absent when it is off and from an agent too old
+	// to send it, which the controller reads alike. An older controller ignores
+	// it, so ProtocolVersion does not move.
+	RegistryMirror *backend.RegistryMirrorReport `json:"registry_mirror,omitempty"`
 }
 
 // UpdateStuck is what an agent found when the update helper on its host was not
@@ -294,6 +312,10 @@ const (
 
 // HeartbeatResponse tells the agent whether the controller still recognises it.
 type HeartbeatResponse struct {
+	// CachePolicies refreshes idle-time limits even when no runner is placed.
+	// Nil from an older controller disables maintenance rather than authorising
+	// deletion under settings the controller no longer confirms.
+	CachePolicies []backend.CachePolicy `json:"cache_policies,omitempty"`
 	// MutationsPaused preserves observed workloads during fenced recovery.
 	MutationsPaused bool `json:"mutations_paused,omitempty"`
 	OK              bool `json:"ok"`
@@ -437,7 +459,8 @@ type RunnerReport struct {
 	// soon after, and these lines are the only evidence of what it said that
 	// outlives it; the controller keeps them on the job.
 	OutputTail []string `json:"output_tail,omitempty"`
-	// GitHubRunnerID is filled in once the runner has registered.
+	// GitHubRunnerID is no longer read: the controller asks GitHub which
+	// registration a runner has. It stays so the report's shape does not move.
 	GitHubRunnerID int64     `json:"github_runner_id,omitempty"`
 	ObservedAt     time.Time `json:"observed_at"`
 }

@@ -285,7 +285,7 @@ func (c *appClient) RepairSource(ctx context.Context, repo string, p RepairPull,
 	if tree.Truncated || len(tree.Tree) > 10000 {
 		return nil, fmt.Errorf("repository inventory exceeds Eli's repair limit")
 	}
-	source := &RepairSource{client: c, repo: repo, commit: p.HeadSHA, files: map[string]repairTreeEntry{}, Snapshot: prrepair.Snapshot{Title: p.Title, Body: prrepair.Redact(p.Body[:min(len(p.Body), 8000)]), Branch: p.Branch, HeadSHA: p.HeadSHA}}
+	source := &RepairSource{client: c, repo: repo, commit: p.HeadSHA, files: map[string]repairTreeEntry{}, Snapshot: prrepair.Snapshot{Title: prrepair.Scrub(p.Title), Body: prrepair.Scrub(p.Body[:min(len(p.Body), 8000)]), Branch: p.Branch, HeadSHA: p.HeadSHA}}
 	for _, f := range tree.Tree {
 		source.files[f.Path] = f
 		if f.Type == "blob" && (f.Mode == "100644" || f.Mode == "100755") && prrepair.AllowedPath(f.Path, workflows) {
@@ -307,7 +307,7 @@ func (c *appClient) RepairSource(ctx context.Context, repo string, p RepairPull,
 	for _, f := range changed {
 		if len(source.Snapshot.Diff) < 32<<10 {
 			patch := f.Filename + "\n" + f.Patch + "\n"
-			source.Snapshot.Diff += prrepair.Redact(patch[:min(len(patch), (32<<10)-len(source.Snapshot.Diff))])
+			source.Snapshot.Diff += prrepair.Scrub(patch[:min(len(patch), (32<<10)-len(source.Snapshot.Diff))])
 		}
 		if f.Status == "removed" || !prrepair.AllowedPath(f.Filename, workflows) {
 			continue
@@ -425,7 +425,7 @@ func (c *appClient) RepairFailures(ctx context.Context, repo string, p RepairPul
 				// instead of trying the next failing job.
 				continue
 			}
-			out = append(out, prrepair.Redact(j.Name+": "+strings.Join(lines, "\n")))
+			out = append(out, prrepair.Scrub(j.Name+": "+strings.Join(lines, "\n")))
 			if len(out) >= 5 {
 				return out, nil
 			}

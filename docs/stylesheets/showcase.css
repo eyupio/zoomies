@@ -356,6 +356,17 @@ kbd {
   letter-spacing: 0;
   text-transform: none;
 }
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
 .blue-dot {
   display: none;
 }
@@ -737,6 +748,7 @@ kbd {
   max-width: 380px;
   font-size: 15px;
   margin-top: 23px;
+  text-wrap: pretty;
 }
 .homelab-copy > p.muted {
   font-size: 12px;
@@ -893,11 +905,13 @@ kbd {
   line-height: 1.17;
   margin-block: 37px 17px;
   letter-spacing: -0.8px;
+  text-wrap: balance;
 }
 .guide-card p {
   font-size: 12px;
   line-height: 1.85;
   max-width: 300px;
+  text-wrap: pretty;
 }
 .guide-card-bottom {
   display: flex;
@@ -1853,6 +1867,7 @@ blockquote {
   font-size: 30px;
   letter-spacing: -0.8px;
   max-width: 450px;
+  text-wrap: balance;
 }
 .compare-row p {
   font-size: 14px;

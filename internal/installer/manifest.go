@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/charmbracelet/huh"
+	"charm.land/huh/v2"
 
 	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/github"
@@ -410,6 +410,7 @@ func (i *Installer) notePermissions(p *Plan) {
 	// permission list that quietly grew is worse than one that says why.
 	i.ui.note("              contents:write, pull_requests:write, workflows:write -- for the")
 	i.ui.note("              migration wizard, which rewrites runs-on lines by pull request")
+	i.ui.note("              issues:read (GitHub sends issue_comment only to an App with it)")
 }
 
 // askMigrationPermissions asks whether the App should also carry the three write
@@ -425,7 +426,8 @@ func (i *Installer) askMigrationPermissions(ctx context.Context, p *Plan) error 
 	want := p.GitHub.Migration
 	if err := i.confirm(ctx, "Also let Zoomies open migration pull requests?",
 		"The migration wizard rewrites runs-on in your workflows and opens one pull request per repository. "+
-			"That needs three more permissions on the App: contents, pull_requests and workflows, all write. "+
+			"That needs three more permissions on the App: contents, pull_requests and workflows, all write, "+
+			"plus issues read, which GitHub requires before it sends the comments that ask Eli for a fix. "+
 			"Nothing else in Zoomies writes to a repository, so leave this off unless you will migrate. "+
 			"You can add them later, but GitHub holds the change until the account's owner accepts it.",
 		&want); err != nil {

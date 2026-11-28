@@ -46,8 +46,8 @@ func (c *Controller) PRDelayForJob(ctx context.Context, jobID string, pull int) 
 	if err != nil {
 		return nil, err
 	}
-	owner, repo, kind := github.SplitTarget(focus.Repo)
-	if kind != store.TargetRepo || !(inst.TargetType == store.TargetRepo && inst.Target == focus.Repo || inst.TargetType == store.TargetOrg && inst.Target == owner) || repo == "" {
+	_, repo, kind := github.SplitTarget(focus.Repo)
+	if kind != store.TargetRepo || !installationCovers(inst, focus.Repo) || repo == "" {
 		return nil, fmt.Errorf("%w: the selected job's installation does not cover its repository", ErrPRDelayEvidence)
 	}
 	if c.githubHeld(inst.ID, c.Now()) {

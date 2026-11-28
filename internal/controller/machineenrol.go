@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -105,6 +106,14 @@ func (c *Controller) stepBootstrapping(ctx context.Context, env *machineEnv, pr 
 		return nil
 	}
 
+	if cl, ok := pr.p.(provider.Claimer); ok && cl.Claims(machineRef(m)) {
+		// Nothing can be pushed into this machine. Its agent asks for its
+		// credential, and claimJoinToken answers; the enrolment timeout bounds
+		// the wait exactly as it does for a machine that was pushed to.
+		c.transitionMachine(ctx, env, m, store.MachineEnrolling,
+			"waiting for the agent inside the machine to claim its credential")
+		return nil
+	}
 	boot, ok := pr.p.(provider.Bootstrapper)
 	if !ok {
 		// The payload travelled with the create, so there is nothing to push.
@@ -199,6 +208,84 @@ func (c *Controller) machineJoinToken(ctx context.Context, env *machineEnv, row 
 	}
 	m.JoinTokenID = tok.ID
 	return plaintext, nil
+}
+
+// claimJoinToken answers an agent that was shipped in a machine with no
+// credential and asks for one by name: it is how a machine the provider cannot
+// push anything into (a Proxmox container) enrols.
+//
+// What proves the caller is that machine is the provider, not the caller. The
+// name is only a claim, so the controller asks the provider where the machine
+// of that name actually is and answers only a request that came from that
+// address. Anything else on the network that learns the name, which is
+// readable from the hypervisor's console by anyone with audit rights, is
+// refused, and what is handed out is the same single-use, minutes-long,
+// name-scoped token a pushed payload carries: a stolen one enrols nothing under
+// any other name.
+//
+// Every refusal is one sentence that says nothing about which machines exist,
+// because the caller is anonymous; the log has the reason.
+func (c *Controller) claimJoinToken(ctx context.Context, name, ip string) (string, error) {
+	refused := func(why string, args ...any) (string, error) {
+		c.log.Warn("refused a machine's claim for its credential", "name", name, "from", ip, "why", fmt.Sprintf(why, args...))
+		return "", auth.Invalid("this claim was refused: no machine of that name is waiting to enrol, or it did not come from " +
+			"the address its provider reports for it. The controller has to see the machine's own address, so a controller " +
+			"behind NAT or a proxy that hides it cannot take claims, and the name has to be the one the controller gave the machine")
+	}
+	m, err := c.st.GetMachineByName(ctx, name)
+	if errors.Is(err, store.ErrNotFound) {
+		return refused("no live machine has this name")
+	} else if err != nil {
+		return "", err
+	}
+	// A container boots in seconds, so its agent can ask before the machine loop
+	// has noticed the start finished. The provider's answer below is the proof,
+	// not the state.
+	switch m.State {
+	case store.MachineStarting, store.MachineBootstrapping, store.MachineEnrolling:
+	default:
+		return refused("machine %s is %s", m.ID, m.State)
+	}
+	row, err := c.st.GetProvider(ctx, m.ProviderID)
+	if err != nil {
+		return "", err
+	}
+	pr, err := c.providerFor(ctx, row)
+	if err != nil {
+		return "", err
+	}
+	if cl, ok := pr.p.(provider.Claimer); !ok || !cl.Claims(machineRef(m)) {
+		return refused("machine %s does not enrol by claim", m.ID)
+	}
+	got, err := pr.p.Inspect(ctx, machineRef(m))
+	if err != nil {
+		return "", fmt.Errorf("asking provider %s where machine %s is: %w", row.Name, m.ID, err)
+	}
+	// The address says who is at this identifier, not that it is this machine:
+	// a guest destroyed out of band and its identifier reused answers at an
+	// address of its own. The check a sweep runs before it deletes runs here
+	// before a credential is minted. It refuses and acts on nothing, because an
+	// anonymous request does not get to quarantine a machine.
+	if why := c.ownershipComplaint(m, got); why != "" {
+		return refused("%s", why)
+	}
+	want, from := net.ParseIP(got.Address), net.ParseIP(ip)
+	switch {
+	case want == nil:
+		return refused("provider %s reports no address for machine %s yet", row.Name, m.ID)
+	case !want.Equal(from):
+		return refused("provider %s reports machine %s at %s", row.Name, m.ID, got.Address)
+	}
+	// Minting a credential is a mutation, and the fence withholds those from a
+	// pass that pushes one into a machine just the same.
+	if held := c.mutationsHeld(); held != "" {
+		return refused("%s", held)
+	}
+	token, err := c.machineJoinToken(ctx, &machineEnv{cfg: c.cfg()}, row, m)
+	if errors.Is(err, errMachineWaiting) {
+		return refused("machine %s has already spent its credential", m.ID)
+	}
+	return token, err
 }
 
 // machineTokenSpent reports whether the credential this machine was given has

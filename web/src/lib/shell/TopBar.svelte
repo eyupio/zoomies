@@ -26,6 +26,7 @@
     KeyRound,
     LogIn,
     LogOut,
+    MessageCircle,
     Monitor,
     Moon,
     Palette,
@@ -42,6 +43,8 @@
   import { theme } from '../state/theme.svelte';
   import ProblemsBell from '../problems/ProblemsBell.svelte';
   import DropdownMenu from '../components/DropdownMenu.svelte';
+  import IconButton from '../components/IconButton.svelte';
+  import { eli } from '../assistant/eli.svelte';
   import Logo from '../components/Logo.svelte';
   import type { MenuItem } from '../components/DropdownMenu.svelte';
   import { SECTIONS, isCurrentSection, ownsItsBreadcrumb } from './sections';
@@ -55,6 +58,11 @@
   let { onpalette, onshortcuts }: Props = $props();
 
   const connection = $derived(fleet.connection);
+  // The repair pages already carry the assistant's own actions beside each
+  // finding, and a global one there competes with the decision they are for.
+  const repairPage = $derived(
+    router.pathname === '/repairs' || router.pathname.startsWith('/repairs/'),
+  );
 
   const connectionText = $derived(
     connection === 'live'
@@ -269,6 +277,25 @@
       <span>Search or jump to</span>
       <kbd>{modKey} K</kbd>
     </button>
+
+    <!--
+      Eli lives in the bar rather than in a floating paw: a button fixed over
+      the page covers the row action or the phone's first tile underneath it,
+      and the bar is where the palette already is. A visitor has no assistant
+      to open, and the widget is not mounted for one.
+    -->
+    {#if session.can('viewer') && !repairPage}
+      <IconButton
+        icon={MessageCircle}
+        label="Ask Eli"
+        help="Ask about the fleet or the page you are on."
+        size="sm"
+        placement="bottom"
+        expanded={eli.open}
+        controls="eli-widget"
+        onclick={() => eli.show()}
+      />
+    {/if}
 
     <DropdownMenu
       items={menuItems}
@@ -488,6 +515,12 @@
     .topbar {
       gap: var(--z-space-3);
       padding: 0 var(--z-space-3);
+    }
+    /* The Reconnecting word is wider than the live dot, and the bar also
+       carries the bell, the palette, Eli and the account there. A narrower gap
+       keeps a 360px window off its sideways scroll. */
+    .right {
+      gap: var(--z-space-1);
     }
     .home {
       display: inline-flex;

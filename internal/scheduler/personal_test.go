@@ -197,3 +197,30 @@ func TestAPersonalPoolReadsARepositoryNameWithoutRegardToCase(t *testing.T) {
 		t.Fatalf("a runner on the job's own repository was not counted: %+v", pp.Actions)
 	}
 }
+
+// A pool's known memory need is put on the hosts while its runner is placed,
+// and taken off again afterwards. A personal account's pool with no repository
+// left to register a runner on gives up before placing one; when it gave up
+// with the need still on the hosts, every pool decided after it in the pass was
+// held to another pool's jobs: hosts read as too small that were not.
+func TestAPersonalPoolWithNowhereToRegisterLeavesNoRequirementOnTheHosts(t *testing.T) {
+	s, p := historyFleet(t, HistoryOn, 5000)
+	pools := []*store.Pool{p}
+	tk := &tick{
+		now:           s.Now,
+		hosts:         newHostSet(s.Hosts, pools, s.Runners, s.Now),
+		history:       s.JobHistory,
+		historySizing: HistoryOn,
+		byRepository:  map[string]bool{p.ID: true},
+	}
+	tk.hosts.maxMultiple = historyMaxMultiple(s.HistoryMaxMultiple)
+	if need, _ := tk.poolNeed(p, s.Jobs); !need.Known() {
+		t.Fatal("the fixture's jobs have no known need, so this would prove nothing")
+	}
+	if tk.grant(p, &PoolPlan{}, s.Runners[p.ID], s.Jobs) {
+		t.Fatal("a runner was granted with no repository to register it on")
+	}
+	if tk.hosts.need != nil {
+		t.Fatalf("the pool's requirement %v was left on the hosts for the pools after it", *tk.hosts.need)
+	}
+}

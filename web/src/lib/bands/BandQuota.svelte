@@ -46,7 +46,7 @@
     </ul>
     <div class="foot">
       <span class="legend" aria-hidden="true"
-        >Edged in white below a tenth, which is when the band counts it as low.</span
+        >A white edge marks quota below a tenth, which this band counts as low.</span
       >
       {#if data.more > 0}<span class="more"
           >and {data.more} more {data.more === 1 ? 'connection' : 'connections'}</span

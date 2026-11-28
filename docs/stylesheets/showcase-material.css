@@ -565,6 +565,10 @@
 .comparison-detail {
   padding-block: 0 30px;
 }
+.comparison-detail > p {
+  max-width: 580px;
+  text-wrap: pretty;
+}
 .pack-map {
   min-width: 0;
   overflow: hidden;

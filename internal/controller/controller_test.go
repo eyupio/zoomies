@@ -417,3 +417,48 @@ func TestVerifyingTheDemoInstallationAnswersFromTheFixture(t *testing.T) {
 		t.Errorf("the demo fixture reports missing permissions %v; the page it is seeded for would show a fault that is not there", missing)
 	}
 }
+
+// The client cache is keyed on an installation's updated_at, so that editing
+// its key or its account type builds a new client. Recording the outcome of a
+// credential probe moved updated_at too, so the probe that ran every few minutes
+// for every installation threw away the client it had just used, and the next
+// call built another: a fresh token exchange with GitHub for nothing, on the one
+// path that exists to find out whether GitHub is answering.
+func TestProbingAnInstallationDoesNotThrowAwayItsCachedClient(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	// The first probe learns what kind of account the installation is on, which
+	// is an edit the cache is meant to notice, so it leaves the cache empty; the
+	// second fills it. What follows is the steady state, which is the case that
+	// matters.
+	for range 2 {
+		if _, err := h.c.ProbeInstallation(h.ctx, inst.ID); err != nil {
+			t.Fatalf("ProbeInstallation: %v", err)
+		}
+	}
+	before := h.factory.built.Load()
+
+	for range 3 {
+		if _, err := h.c.ProbeInstallation(h.ctx, inst.ID); err != nil {
+			t.Fatalf("ProbeInstallation: %v", err)
+		}
+	}
+	if built := h.factory.built.Load() - before; built != 0 {
+		t.Errorf("three more probes built %d clients, want none: each probe's record of its own outcome invalidated the cache", built)
+	}
+
+	// An edit that matters still does: the key is what the cache is for.
+	edited, err := h.st.GetInstallation(h.ctx, inst.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.st.UpdateInstallation(h.ctx, edited); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.c.ProbeInstallation(h.ctx, inst.ID); err != nil {
+		t.Fatalf("ProbeInstallation after an edit: %v", err)
+	}
+	if built := h.factory.built.Load() - before; built != 1 {
+		t.Errorf("an edit built %d clients, want exactly 1: an edit must still build a new client, and only one", built)
+	}
+}

@@ -595,7 +595,7 @@ test('the Hosts page counts the hosts that need attention, and the tile, the fil
     await expect(card).toHaveCount(1);
     await expect(page.getByRole('status').filter({ hasText: 'Showing' })).toHaveText(
       new RegExp(
-        `^Showing ${before + 1} of \\d+ hosts: OS settings below the recommendation, or a reboot pending\\.$`,
+        `^Showing ${before + 1} of \\d+ hosts: disk blocking placement, OS settings below the recommendation, or a reboot pending\\.$`,
       ),
     );
 

@@ -98,7 +98,7 @@ func TestAPersonalAccountsPersistentPoolSaysWhyItCannotRegister(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetInstallation: %v", err)
 	}
-	_, _, err = h.c.mintCredentials(h.ctx, fresh, pool, "persistent", "acme/widgets")
+	_, _, err = h.c.mintCredentials(h.ctx, fresh, pool, nil, "persistent", "acme/widgets")
 	if err == nil || !strings.Contains(err.Error(), "ephemeral") {
 		t.Fatalf("mint error = %v, want one that names the ephemeral setting", err)
 	}

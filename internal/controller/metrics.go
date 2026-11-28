@@ -586,6 +586,31 @@ var (
 	descCacheStoredBytes = prometheus.NewDesc("zoomies_cache_stored_bytes",
 		"Bytes of finished entries a host's cache services hold for a pool, as the agent last reported them.",
 		[]string{"pool", "host"}, nil)
+	// What a host's registry mirror has done, written the same way and for the
+	// same reason as the cache's: the agent keeps the totals and a restart starts
+	// them again, so each carries the host. Only a host whose agent says its mirror
+	// is on has any.
+	descMirrorLookups = prometheus.NewDesc("zoomies_registry_mirror_lookups_total",
+		"Manifest and blob requests the host's registry mirror answered, by host and result: hit (served from the host's disk) or miss (fetched from Docker Hub). A HEAD request for a tag is neither. Totals for the agent process; a restart starts them again.",
+		[]string{"host", "result"}, nil)
+	descMirrorServedBytes = prometheus.NewDesc("zoomies_registry_mirror_served_bytes_total",
+		"Bytes the host's registry mirror sent to the docker-in-docker sidecars that asked. Totals for the agent process.",
+		[]string{"host"}, nil)
+	descMirrorFetchedBytes = prometheus.NewDesc("zoomies_registry_mirror_fetched_bytes_total",
+		"Bytes the host's registry mirror fetched from Docker Hub, which are the bytes it saved the host from fetching again when set against the bytes served. Totals for the agent process.",
+		[]string{"host"}, nil)
+	descMirrorUpstreamErrors = prometheus.NewDesc("zoomies_registry_mirror_upstream_errors_total",
+		"Requests the host's registry mirror could not satisfy because Docker Hub failed it: a rate limit, a server error, an unreachable registry, a transfer that stalled, or a manifest or blob that did not hash to its digest. A sidecar pulls from Docker Hub itself when this happens. Totals for the agent process.",
+		[]string{"host"}, nil)
+	descMirrorEvictions = prometheus.NewDesc("zoomies_registry_mirror_evictions_total",
+		"Objects removed to keep the host's registry mirror under agent.registry_mirror.max_bytes. Evictions keeping pace with misses say the mirror is too small for what the sidecars pull. Totals for the agent process.",
+		[]string{"host"}, nil)
+	descMirrorStoredBytes = prometheus.NewDesc("zoomies_registry_mirror_stored_bytes",
+		"Bytes the host's registry mirror holds on disk, as the agent last reported them.",
+		[]string{"host"}, nil)
+	descMirrorUpstreamFailing = prometheus.NewDesc("zoomies_registry_mirror_upstream_failing_seconds",
+		"How long Docker Hub has failed the host's registry mirror without a break, as the agent last reported it; 0 while the last thing it asked came back. The agent says so as a problem after five minutes.",
+		[]string{"host"}, nil)
 )
 
 // fleetCollector reads the fleet's shape from the database on each scrape.
@@ -628,6 +653,13 @@ func (f *fleetCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- descCachePuts
 	ch <- descCacheEvictions
 	ch <- descCacheStoredBytes
+	ch <- descMirrorLookups
+	ch <- descMirrorServedBytes
+	ch <- descMirrorFetchedBytes
+	ch <- descMirrorUpstreamErrors
+	ch <- descMirrorEvictions
+	ch <- descMirrorStoredBytes
+	ch <- descMirrorUpstreamFailing
 }
 
 func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
@@ -821,6 +853,7 @@ func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
 	f.collectHostHealth(hosts, now, gauge)
 	f.collectUpdates(ctx, gauge)
 	f.collectCaches(hosts, pools, gauge, counter)
+	f.collectRegistryMirrors(hosts, gauge, counter)
 
 	gauge(descHosts, float64(healthy), "healthy")
 	gauge(descHosts, float64(unhealthy), "unhealthy")

@@ -273,6 +273,10 @@ func (s *Service) finalise(sc scope, key, version string, size int64) (*entry, b
 	return e, true
 }
 
+// maxEntries is how many entries a ceiling can be shared out between: each one
+// weighs at least that share of it, whatever it holds.
+const maxEntries = 1 << 16
+
 // evictLocked brings the finished entries back under the ceiling, least
 // recently used first, never the entry that was just written. The ceiling is
 // shared by every service of a Budget, and the bytes of uploads in flight count
@@ -280,14 +284,20 @@ func (s *Service) finalise(sc scope, key, version string, size int64) (*entry, b
 // let a pool run well over its limit while a few large saves were open.
 func (s *Service) evictLocked(keep string) {
 	limit := s.limit()
-	if limit <= 0 {
+	if limit < 0 {
 		return
 	}
+	// An entry weighs at least a share of the ceiling, so one of no bytes is not
+	// free to keep and a job cannot file them without end.
+	floor := max(limit/maxEntries, 1)
 	_, total := s.pendingTotalsLocked()
 	var all []*entry
 	for _, m := range s.group() {
+		// Room handed to a write is not bytes held: counted here, an upload of
+		// unknown length would evict the whole pool when another save finished.
+		total -= m.inflight
 		for _, e := range m.entries {
-			total += e.Size
+			total += max(e.Size, floor)
 			all = append(all, e)
 		}
 	}
@@ -313,7 +323,7 @@ func (s *Service) evictLocked(keep string) {
 		delete(o.entries, e.ID)
 		o.count.evictions.Add(1)
 		o.count.evictedBytes.Add(uint64(max(e.Size, 0)))
-		total -= e.Size
+		total -= max(e.Size, floor)
 	}
 	s.log.Info("evicted cache entries to stay under the cache service's size limit", "limit_bytes", limit)
 }

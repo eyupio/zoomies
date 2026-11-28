@@ -414,6 +414,20 @@ func (f *FakeGitHub) CompleteJob(jobID int64, conclusion string) {
 	}
 }
 
+// CompleteJobKeepingStatus finishes a job the way GitHub's record of one is
+// sometimes left: with a conclusion and a completion time, but its status
+// still in_progress.
+func (f *FakeGitHub) CompleteJobKeepingStatus(jobID int64, conclusion string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if j := f.findJobLocked(jobID); j != nil {
+		now := time.Now().UTC()
+		j.runStatus = string(store.JobCompleted)
+		j.Conclusion = conclusion
+		j.CompletedAt = &now
+	}
+}
+
 // SetWorkflowRunState changes the run record independently of its jobs. That
 // distinction lets controller tests prove that one cancelled stage does not
 // fan cancellation out to the rest of the workflow.
@@ -851,6 +865,10 @@ func (f *FakeGitHub) generateJITConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "Validation Failed: name and labels are required")
 		return
 	}
+	if len(req.Labels) > MaxJITLabels {
+		writeError(w, http.StatusUnprocessableEntity, "Validation Failed: labels must contain at most 100 items")
+		return
+	}
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -869,6 +887,10 @@ func (f *FakeGitHub) generateJITConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	runner := f.addRunnerLocked(req.Name, req.Labels, true)
+	// A JIT runner advertises exactly the labels it was minted with: GitHub
+	// adds no self-hosted, OS or architecture label to one, unlike a runner
+	// config.sh registers. addRunnerLocked models the latter.
+	runner.Labels = slices.Clone(req.Labels)
 	runner.Repo = scope
 	blob, _ := json.Marshal(map[string]any{
 		"name":        req.Name,

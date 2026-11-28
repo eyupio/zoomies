@@ -135,7 +135,8 @@
    * --------------------------------------------------------------------- */
 
   const operational = $derived(visualStyle.choice === 'mission-control');
-  const compact = $derived(operational && viewport.phone);
+  // Classic has the same small screen: the viewport decides, not the style.
+  const compact = $derived(viewport.phone);
   let contextExpanded = $state(false);
   // The rows are what the page is for, on every screen: the tiles, outcomes and activity
   // history are one fold under them.
@@ -568,7 +569,10 @@
       },
       cell: stateCell,
     },
-    ...(filters.failed || filters.attention ? [failedAtColumn] : []),
+    // Every view whose rows are all failures says how each one failed. "Our
+    // failures" is such a view: without the column an operator who came to see
+    // where the fleet broke jobs was shown that it had, and not how.
+    ...(filters.failed || filters.attention || filters.faulted ? [failedAtColumn] : []),
     {
       id: 'repo',
       header: 'Repository',
@@ -862,6 +866,7 @@
     <div class="content">
       <JobFilters
         {compact}
+        stateFacet={view === ''}
         statusChips={view === ''}
         said={viewSaid(view, setView)}
         value={filters}

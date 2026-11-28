@@ -171,9 +171,19 @@ func fetch(ctx context.Context, src Source, sha string) (Commit, error) {
 // Loose objects are read-only, as Git writes them, and a read-only file cannot be
 // deleted on Windows; clearing the bit first is what makes the same call work on
 // every host the controller supports.
+//
+// A symbolic link is left out of that. chmod follows it, and a repository this
+// package built holds none, so any link here was put there by whatever ran
+// against the directory afterwards (the merge worker, in a container with it
+// mounted writable). Following it would change the mode of a file or directory
+// of the host's choosing, as the user that owns the host's own files. RemoveAll
+// deletes the link itself and never what it points at.
 func Remove(dir string) error {
 	_ = filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
+			return nil
+		}
+		if entry.Type()&fs.ModeSymlink != 0 {
 			return nil
 		}
 		if entry.IsDir() {

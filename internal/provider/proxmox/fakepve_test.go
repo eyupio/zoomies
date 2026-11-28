@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -50,6 +51,12 @@ type fakeVM struct {
 	// guest the cluster has not sized.
 	cpus   int
 	memory int64
+	// lxc makes the guest a container, which is listed as type lxc and answers
+	// only on /lxc. form is what its create was sent, for a test to assert on,
+	// and address is what its interfaces report once it runs.
+	lxc     bool
+	form    url.Values
+	address string
 }
 
 type fakeTask struct {
@@ -81,9 +88,11 @@ type fakePVE struct {
 	// refusal, as a token without SDN.Use on the local network zone is.
 	noBridgesVisible bool
 	perms            Permissions
-	errors           []injected
-	stalls           []injected
-	seq              int
+	// vztmpl is the container templates each node holds, keyed node/storage.
+	vztmpl map[string][]string
+	errors []injected
+	stalls []injected
+	seq    int
 
 	agentSilent    bool
 	ambiguousClone bool
@@ -135,7 +144,8 @@ func newFakePVE(t *testing.T, routes map[string]http.HandlerFunc) *fakePVE {
 			},
 			"/storage/local-lvm": {"Datastore.AllocateSpace": true},
 		},
-		stop: make(chan struct{}),
+		vztmpl: map[string][]string{"pve-1/local": {"local:vztmpl/zoomies-runner.tar.zst"}},
+		stop:   make(chan struct{}),
 	}
 	f.vms[9000] = &fakeVM{vmid: 9000, node: "pve-1", name: "ubuntu-24.04-template", status: "stopped", template: true, agent: "enabled=1", disk: "local-lvm:base-9000-disk-0,size=32G", cpus: 4, memory: 8 << 30}
 	f.vms[100] = &fakeVM{vmid: 100, node: "pve-1", name: "someone-elses-vm", status: "running", description: "the finance database", cpus: 16, memory: 64 << 30}
@@ -173,6 +183,10 @@ func newFakePVE(t *testing.T, routes map[string]http.HandlerFunc) *fakePVE {
 		}
 		if in, ok := f.errorFor(r); ok {
 			writeFailure(w, in.status, in.message)
+			return
+		}
+		if f.wrongKind(r) {
+			missingGuest(w, r)
 			return
 		}
 		mux.ServeHTTP(w, r)
@@ -340,6 +354,21 @@ func (f *fakePVE) errorFor(r *http.Request) (injected, bool) {
 	return injected{}, false
 }
 
+// wrongKind is a call for a QEMU guest at a container's identifier, or the other
+// way round: Proxmox numbers both kinds from one sequence, and answers the one
+// that is not there as a missing configuration file.
+func (f *fakePVE) wrongKind(r *http.Request) bool {
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, v+"/nodes/"), "/")
+	if len(parts) < 3 || (parts[1] != "qemu" && parts[1] != "lxc") {
+		return false
+	}
+	id, _ := strconv.Atoi(parts[2])
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	vm, ok := f.vms[id]
+	return ok && vm.lxc != (parts[1] == "lxc")
+}
+
 func (f *fakePVE) stalled(r *http.Request) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -433,7 +462,7 @@ func (f *fakePVE) routes() map[string]http.HandlerFunc {
 			for _, vm := range f.vms {
 				row := map[string]any{
 					"vmid": vm.vmid, "node": vm.node, "name": vm.name, "status": vm.status,
-					"type": "qemu", "tags": vm.tags,
+					"type": map[bool]string{false: "qemu", true: "lxc"}[vm.lxc], "tags": vm.tags,
 					// template is 1 or absent, never false.
 					"template": boolToInt(vm.template),
 				}
@@ -487,7 +516,7 @@ func (f *fakePVE) routes() map[string]http.HandlerFunc {
 			}
 			writeData(w, upid)
 		},
-		"POST " + v + "/nodes/{node}/qemu/{vmid}/config": func(w http.ResponseWriter, r *http.Request) {
+		"PUT " + v + "/nodes/{node}/qemu/{vmid}/config": func(w http.ResponseWriter, r *http.Request) {
 			f.mu.Lock()
 			defer f.mu.Unlock()
 			vm, ok := f.vms[pathInt(r, "vmid")]
@@ -589,6 +618,112 @@ func (f *fakePVE) routes() map[string]http.HandlerFunc {
 			f.tasks[upid] = &fakeTask{node: node, exit: "OK"}
 			writeData(w, upid)
 		},
+		"POST " + v + "/nodes/{node}/lxc": func(w http.ResponseWriter, r *http.Request) {
+			node := r.PathValue("node")
+			vmid, _ := strconv.Atoi(r.PostFormValue("vmid"))
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if f.quota {
+				writeFailure(w, http.StatusInternalServerError, "unable to create CT: storage 'local-lvm' is full (no space left on device)")
+				return
+			}
+			if _, taken := f.vms[vmid]; taken {
+				writeFailure(w, http.StatusInternalServerError, fmt.Sprintf("CT %d already exists", vmid))
+				return
+			}
+			f.vms[vmid] = &fakeVM{vmid: vmid, node: node, name: r.PostFormValue("hostname"), status: "stopped",
+				tags: r.PostFormValue("tags"), description: r.PostFormValue("description"),
+				lxc: true, form: r.PostForm, address: fmt.Sprintf("10.0.0.%d", 100+vmid%100)}
+			upid := f.newUPID(node, "vzcreate", strconv.Itoa(vmid))
+			f.tasks[upid] = &fakeTask{node: node, exit: "OK"}
+			writeData(w, upid)
+		},
+		"GET " + v + "/nodes/{node}/lxc/{vmid}/config": func(w http.ResponseWriter, r *http.Request) {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			vm, ok := f.vms[pathInt(r, "vmid")]
+			if !ok {
+				missingGuest(w, r)
+				return
+			}
+			// A container has a hostname where a VM has a name.
+			writeData(w, map[string]any{
+				"hostname": vm.name, "description": vm.description, "tags": vm.tags,
+				"unprivileged": 1, "features": "nesting=1", "cores": 2, "memory": 4096,
+			})
+		},
+		"GET " + v + "/nodes/{node}/lxc/{vmid}/status/current": func(w http.ResponseWriter, r *http.Request) {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			vm, ok := f.vms[pathInt(r, "vmid")]
+			if !ok {
+				missingGuest(w, r)
+				return
+			}
+			out := map[string]any{"vmid": vm.vmid, "name": vm.name, "status": vm.status, "tags": vm.tags}
+			if vm.lock != "" {
+				out["lock"] = vm.lock
+			}
+			writeData(w, out)
+		},
+		"POST " + v + "/nodes/{node}/lxc/{vmid}/status/{action}": func(w http.ResponseWriter, r *http.Request) {
+			node, action := r.PathValue("node"), r.PathValue("action")
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			vm, ok := f.vms[pathInt(r, "vmid")]
+			if !ok {
+				missingGuest(w, r)
+				return
+			}
+			if vm.lock != "" {
+				writeFailure(w, http.StatusInternalServerError, fmt.Sprintf("CT %d is locked (%s)", vm.vmid, vm.lock))
+				return
+			}
+			vm.status = map[bool]string{true: "running", false: "stopped"}[action == "start"]
+			upid := f.newUPID(node, "vz"+action, strconv.Itoa(vm.vmid))
+			f.tasks[upid] = &fakeTask{node: node, exit: "OK"}
+			writeData(w, upid)
+		},
+		"DELETE " + v + "/nodes/{node}/lxc/{vmid}": func(w http.ResponseWriter, r *http.Request) {
+			node := r.PathValue("node")
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			vmid := pathInt(r, "vmid")
+			if _, ok := f.vms[vmid]; !ok {
+				missingGuest(w, r)
+				return
+			}
+			delete(f.vms, vmid)
+			upid := f.newUPID(node, "vzdestroy", strconv.Itoa(vmid))
+			f.tasks[upid] = &fakeTask{node: node, exit: "OK"}
+			writeData(w, upid)
+		},
+		"GET " + v + "/nodes/{node}/lxc/{vmid}/interfaces": func(w http.ResponseWriter, r *http.Request) {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			vm, ok := f.vms[pathInt(r, "vmid")]
+			if !ok {
+				missingGuest(w, r)
+				return
+			}
+			if vm.status != "running" {
+				writeFailure(w, http.StatusInternalServerError, fmt.Sprintf("CT %d not running", vm.vmid))
+				return
+			}
+			writeData(w, []map[string]any{
+				{"name": "lo", "hwaddr": "00:00:00:00:00:00", "inet": "127.0.0.1/8"},
+				{"name": "eth0", "hwaddr": "BC:24:11:00:00:01", "inet": vm.address + "/24"},
+			})
+		},
+		"GET " + v + "/nodes/{node}/storage/{storage}/content": func(w http.ResponseWriter, r *http.Request) {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			out := []map[string]any{}
+			for _, volid := range f.vztmpl[r.PathValue("node")+"/"+r.PathValue("storage")] {
+				out = append(out, map[string]any{"volid": volid, "content": "vztmpl"})
+			}
+			writeData(w, out)
+		},
 		"GET " + v + "/nodes/{node}/tasks/{upid}/status": func(w http.ResponseWriter, r *http.Request) {
 			upid := r.PathValue("upid")
 			f.mu.Lock()
@@ -662,9 +797,12 @@ func writeData(w http.ResponseWriter, v any) {
 // Answering 404 here, as this fake once did, hid the fault that a missing guest
 // was classed as a refused read, so no machine could ever be created.
 func missingGuest(w http.ResponseWriter, r *http.Request) {
-	node := r.PathValue("node")
+	node, dir := r.PathValue("node"), "qemu-server"
+	if strings.Contains(r.URL.Path, "/lxc/") {
+		dir = "lxc"
+	}
 	writeFailure(w, http.StatusInternalServerError,
-		fmt.Sprintf("Configuration file 'nodes/%s/qemu-server/%s.conf' does not exist", node, r.PathValue("vmid")))
+		fmt.Sprintf("Configuration file 'nodes/%s/%s/%s.conf' does not exist", node, dir, r.PathValue("vmid")))
 }
 
 func writeFailure(w http.ResponseWriter, status int, message string) {

@@ -41,8 +41,8 @@ const finished = (id: string, endedMs: number, extra: Partial<Job> = {}): Job =>
 });
 const ids = (list: readonly Job[]) => list.map((j) => j.id);
 
-test('the rail shows five waiting, three problems and five finished, over ten minutes', () => {
-  assert.equal(WAITING_SHOWN, 5);
+test('the rail shows three waiting, three problems and five finished, over ten minutes', () => {
+  assert.equal(WAITING_SHOWN, 3);
   assert.equal(PROBLEMS_SHOWN, 3);
   assert.equal(FINISHED_SHOWN, 5);
   assert.equal(FINISHED_WINDOW_MS, 10 * 60 * 1000);

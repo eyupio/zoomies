@@ -39,10 +39,14 @@ func trackedFiles(t *testing.T) []string {
 // the live Eli handoff, which progress.md and the agents working from it link
 // to at this path.
 var rootDocuments = map[string]bool{
-	"AGENTS.md":                          true,
-	"CLAUDE.md":                          true,
-	"CODE_OF_CONDUCT.md":                 true,
-	"CONTRIBUTING.md":                    true,
+	"AGENTS.md":          true,
+	"CLAUDE.md":          true,
+	"CODE_OF_CONDUCT.md": true,
+	"CONTRIBUTING.md":    true,
+	// The durable product and design records, read from the root by the
+	// design tooling. They are context, not planning notes.
+	"DESIGN.md":                          true,
+	"PRODUCT.md":                         true,
 	"GLOSSARY.md":                        true,
 	"README.md":                          true,
 	"RELEASING.md":                       true,

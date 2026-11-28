@@ -212,6 +212,14 @@ type Info struct {
 	// not say, which includes every backend that is not a container runtime.
 	CPUs     int   `json:"cpus,omitempty"`
 	MemoryMB int64 `json:"memory_mb,omitempty"`
+	// OS and Arch are the platform the runtime runs containers on, as it
+	// reported them (its OSType, and its architecture as amd64 or arm64). They
+	// are what a container runner really is, which need not be the agent's own
+	// platform: Docker Desktop on a Mac runs Linux containers. Empty where the
+	// daemon did not say, which includes every backend that is not a
+	// container runtime.
+	OS   string `json:"os,omitempty"`
+	Arch string `json:"arch,omitempty"`
 	// Limits is whether the daemon can apply a CPU quota, a memory limit and
 	// a pids limit. A daemon that cannot apply a quota refuses the container
 	// outright rather than ignoring the request, so the controller reads this
@@ -575,6 +583,22 @@ func NewRegistry(bs ...Backend) *Registry {
 			r.backends[b.Kind()] = b
 		}
 	}
+	var peers []*DockerBackend
+	kinds := r.Kinds()
+	sort.Slice(kinds, func(i, j int) bool { return kinds[i] < kinds[j] })
+	seen := map[*DockerBackend]bool{}
+	for _, kind := range kinds {
+		if c, ok := r.backends[kind].(interface{ cacheBackend() *DockerBackend }); ok {
+			b := c.cacheBackend()
+			if !seen[b] {
+				peers = append(peers, b)
+				seen[b] = true
+			}
+		}
+	}
+	for _, b := range peers {
+		b.cachePeers = peers
+	}
 	return r
 }
 
@@ -617,6 +641,26 @@ func (r *Registry) CacheStats() []CacheStats {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].PoolID < out[j].PoolID })
 	return out
+}
+
+// RegistryMirrorReport reports what this host's registry mirror has done, holds
+// and has wrong with it, or nil when no backend has one on, which a heartbeat
+// leaves out. A host has one mirror: only the Docker backend runs sidecars, so
+// only its mirror is ever on, and the first one that reports is the one sent.
+func (r *Registry) RegistryMirrorReport() *RegistryMirrorReport {
+	if r == nil {
+		return nil
+	}
+	kinds := r.Kinds()
+	sort.Slice(kinds, func(i, j int) bool { return kinds[i] < kinds[j] })
+	for _, k := range kinds {
+		if rp, ok := r.backends[k].(RegistryMirrorReporter); ok {
+			if rep := rp.RegistryMirrorReport(); rep != nil {
+				return rep
+			}
+		}
+	}
+	return nil
 }
 
 // Kinds returns the registered backend kinds.

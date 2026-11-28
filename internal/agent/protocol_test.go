@@ -8,6 +8,7 @@ import (
 
 	"github.com/eyupio/zoomies/internal/backend"
 	"github.com/eyupio/zoomies/internal/cacheservice"
+	"github.com/eyupio/zoomies/internal/registrymirror"
 )
 
 func updateTask(id, updateID, tag string) Task {
@@ -112,6 +113,51 @@ func TestAnUpdateReportRoundTripsOnAHeartbeat(t *testing.T) {
 	}
 	if strings.Contains(string(raw), `"to"`) {
 		t.Errorf("an empty To is on the wire: %s", raw)
+	}
+}
+
+// The registry mirror block is additive in the same way: nothing on the wire
+// from a host that runs none, no block from an agent that predates it, and the
+// figures as they were sent from one that has it. ProtocolVersion does not move,
+// so a controller that does not know the key drops it.
+func TestARegistryMirrorReportRoundTripsOnAHeartbeatAndAnOldOneStillDecodes(t *testing.T) {
+	raw, err := json.Marshal(HeartbeatRequest{ProtocolVersion: ProtocolVersion, Version: "1.3.5"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), `"registry_mirror"`) {
+		t.Errorf("a heartbeat with nothing to report carries the key: %s", raw)
+	}
+
+	var old HeartbeatRequest
+	if err := json.Unmarshal([]byte(`{"protocol_version":1,"capacity":2,"version":"1.3.4","runners":[]}`), &old); err != nil {
+		t.Fatalf("an older heartbeat no longer decodes: %v", err)
+	}
+	if old.RegistryMirror != nil {
+		t.Errorf("an agent that predates the block decoded to %+v", old.RegistryMirror)
+	}
+
+	in := HeartbeatRequest{ProtocolVersion: ProtocolVersion, RegistryMirror: &backend.RegistryMirrorReport{
+		Stats: registrymirror.Stats{
+			Requests: 7, Hits: 5, Misses: 2, UpstreamErrors: 1, UpstreamFailingSeconds: 40, Evictions: 3, BytesServed: 700, BytesFetched: 200, BytesStored: 1 << 20,
+		},
+		Problem: backend.MirrorProblemUpstream, HostImageCustom: true,
+	}}
+	raw, err = json.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The figures sit beside the problem, in the block, as the cache's sit beside
+	// its pool: one flat object an older reader can skip as a whole.
+	if !strings.Contains(string(raw), `"registry_mirror":{"requests":7,`) || !strings.Contains(string(raw), `"problem":"upstream"`) || !strings.Contains(string(raw), `"host_image_custom":true`) {
+		t.Errorf("the block is not one flat object under its own key: %s", raw)
+	}
+	var out HeartbeatRequest
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.RegistryMirror == nil || *out.RegistryMirror != *in.RegistryMirror {
+		t.Errorf("registry mirror = %+v, want %+v", out.RegistryMirror, in.RegistryMirror)
 	}
 }
 

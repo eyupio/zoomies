@@ -134,6 +134,23 @@ type Bootstrapper interface {
 	Bootstrap(ctx context.Context, ref MachineRef, p Bootstrap) (OperationRef, error)
 }
 
+// Claimer is implemented by a provider with machines it cannot run a command
+// inside, so nothing can be pushed into them and no credential can travel with
+// the create without being readable from the provider's own console. Such a
+// machine ships with an unenrolled agent that asks the controller for its
+// credential on first boot, and the controller answers only a caller whose
+// network address is the one the provider reports for that machine (Inspect's
+// Machine.Address), so the provider is the proof of identity and the machine
+// is trusted with nothing it could not prove.
+//
+// Claims says whether one machine enrols this way. It reads the reference
+// alone and may be false for some machines of a provider and true for others:
+// a provider that builds both virtual machines, which it pushes into, and
+// containers, which have nothing to push through, answers per machine.
+type Claimer interface {
+	Claims(ref MachineRef) bool
+}
+
 // Discoverer fills the guided form: the nodes, storages, networks and templates
 // this credential can actually see. Optional because a provider with no such
 // concepts should not have to fake one.

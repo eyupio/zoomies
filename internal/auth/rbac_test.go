@@ -443,6 +443,21 @@ func TestATokenCannotMintMoreThanItsMakerHolds(t *testing.T) {
 	}
 }
 
+// A blank scope is dropped when a token is stored, so a list of nothing but
+// blanks mints a token with no scopes at all, which means the whole role. The
+// refusal of an unscoped token has to be made on the list that is stored, not
+// on the one that was sent.
+func TestAScopedTokenCannotMintWithScopesThatComeToNothing(t *testing.T) {
+	by := &Identity{Kind: KindToken, Role: store.RoleAdmin, Scopes: []string{"pools:read", "tokens:own"}}
+	for _, scopes := range [][]string{{""}, {" "}, {"", "  "}, nil} {
+		if err := MintWithin(by, store.RoleAdmin, scopes); err == nil {
+			t.Errorf("a scoped token minted an unscoped one with scopes %q", scopes)
+		} else if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("scopes %q: a refusal has to be something the API answers 422 to, got %v", scopes, err)
+		}
+	}
+}
+
 // The fence and the backups moved above the fleet's administrator. A backup
 // is the whole database under the key this host holds, and lifting the fence
 // decides whether a restored instance acts on the world again; on an instance
@@ -517,5 +532,34 @@ func TestTheAutoUpdateIdentityIsASystemActorOfItsOwn(t *testing.T) {
 	}
 	if !id.Can(ActionUpdatesApply) {
 		t.Error("the auto-update identity may not apply an update")
+	}
+}
+
+// An account signs in with its whole role, so a token narrowed to managing
+// users that could make or take over an operator or administrator account
+// would turn its one scope into everything the role reaches.
+func TestAScopedCallerCannotManageAnAccountThatWouldOutreachItsScopes(t *testing.T) {
+	scoped := &Identity{Kind: KindToken, Role: store.RoleAdmin, Scopes: []string{"users:write"}}
+	whole := &Identity{Kind: KindUser, Role: store.RoleAdmin}
+	for _, tc := range []struct {
+		name    string
+		by      *Identity
+		role    store.Role
+		refused bool
+	}{
+		{"a scoped token and an administrator account", scoped, store.RoleAdmin, true},
+		{"a scoped token and an operator account", scoped, store.RoleOperator, true},
+		{"a scoped token and a viewer account", scoped, store.RoleViewer, false},
+		{"an unscoped administrator and an administrator account", whole, store.RoleAdmin, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ManageWithin(tc.by, tc.role)
+			if (err != nil) != tc.refused {
+				t.Fatalf("ManageWithin = %v, want refused = %v", err, tc.refused)
+			}
+			if err != nil && !strings.Contains(err.Error(), "users:write") {
+				t.Errorf("the refusal does not name the scopes the caller is limited to: %v", err)
+			}
+		})
 	}
 }

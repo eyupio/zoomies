@@ -19,6 +19,9 @@ target_keywords:
 # Domains compared in the AI Overview citation check.
 competitors:
   - cirun.io
+  # Publishes Markdown copies of its pages and an llms.txt for agents, so it is
+  # likely to be cited for the same queries. Added 17 November 2026.
+  - codemany.com
   - runs-on.com
   - blacksmith.sh
   - buildjet.com

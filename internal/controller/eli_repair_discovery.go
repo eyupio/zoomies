@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/store"
@@ -59,7 +58,7 @@ func (c *Controller) AdmitEliRepositoryWatches(ctx context.Context, in EliReposi
 	if err != nil {
 		return nil, err
 	}
-	discoveryCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	discoveryCtx, cancel := context.WithTimeout(ctx, eliWatchDiscoveryTimeout)
 	defer cancel()
 	raw, err := c.ClientFor(discoveryCtx, in.InstallationID)
 	if err != nil {

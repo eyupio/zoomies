@@ -99,12 +99,12 @@ func (s *Service) putBlob(w http.ResponseWriter, r *http.Request, id string) {
 	switch q.Get("comp") {
 	case "":
 		// A small archive: one PUT is the whole thing.
-		n, err := s.stage(w, r, p, s.pendingData(id), nil)
+		n, grant, err := s.stage(w, r, p, s.pendingData(id), nil)
 		if err != nil {
 			s.failUpload(w, p.ID, err)
 			return
 		}
-		if !s.record(p, func() { p.data, p.Size = n, n }) {
+		if !s.record(p, grant, func() { p.data, p.Size = n, n }) {
 			http.NotFound(w, r)
 			return
 		}
@@ -134,12 +134,12 @@ func (s *Service) putBlob(w http.ResponseWriter, r *http.Request, id string) {
 			s.failUpload(w, p.ID, err)
 			return
 		}
-		n, err := s.stage(w, r, p, filepath.Join(s.pendingBlocks(id), name), &name)
+		n, grant, err := s.stage(w, r, p, filepath.Join(s.pendingBlocks(id), name), &name)
 		if err != nil {
 			s.failUpload(w, p.ID, err)
 			return
 		}
-		if !s.record(p, func() {
+		if !s.record(p, grant, func() {
 			if p.blocks == nil {
 				p.blocks = map[string]int64{}
 			}
@@ -162,7 +162,7 @@ func (s *Service) putBlob(w http.ResponseWriter, r *http.Request, id string) {
 			s.failUpload(w, p.ID, err)
 			return
 		}
-		if !s.record(p, func() { p.data, p.Size, p.blocks = n, n, nil }) {
+		if !s.record(p, 0, func() { p.data, p.Size, p.blocks = n, n, nil }) {
 			http.NotFound(w, r)
 			return
 		}
@@ -180,7 +180,13 @@ func (s *Service) putBlob(w http.ResponseWriter, r *http.Request, id string) {
 // and more than the pool's open uploads have room for. replaces names the block
 // this write overwrites (nil for the whole archive), whose bytes are about to be
 // freed and so do not count against the room.
-func (s *Service) stage(w http.ResponseWriter, r *http.Request, p *pending, path string, replaces *string) (int64, error) {
+//
+// The room is handed out, not only looked at: the limit this write is given is
+// added to inflight before the lock is released, so a write that starts while
+// this one is still arriving sees that much less. It is returned as the grant,
+// and record gives it back in the same critical section that counts the bytes,
+// so there is never a moment when bytes are on disk and counted nowhere.
+func (s *Service) stage(w http.ResponseWriter, r *http.Request, p *pending, path string, replaces *string) (n, grant int64, err error) {
 	s.mu.Lock()
 	var freed int64
 	if replaces != nil {
@@ -190,23 +196,46 @@ func (s *Service) stage(w http.ResponseWriter, r *http.Request, p *pending, path
 	}
 	_, staged := s.pendingTotalsLocked()
 	room := s.maxPendingBytes() - (staged - freed)
-	s.mu.Unlock()
 	limit := min(s.entryLimit(), room)
-	if limit <= 0 {
-		return 0, errors.New("the service's open uploads have no room left")
+	if limit <= 0 || r.ContentLength > limit {
+		s.mu.Unlock()
+		return 0, 0, errors.New("the service's open uploads have no room left")
 	}
+	// A body that says its length takes that much: handed the whole room, one
+	// block left none for the blocks the toolkit uploads beside it.
+	if r.ContentLength >= 0 {
+		limit = r.ContentLength
+	}
+	s.inflight += limit
+	s.mu.Unlock()
+
+	handed := false
+	defer func() {
+		if !handed {
+			s.mu.Lock()
+			s.inflight -= limit
+			s.mu.Unlock()
+		}
+	}()
 	body := http.MaxBytesReader(w, r.Body, limit)
 	defer body.Close()
-	return writeFileAtomic(path, body)
+	n, err = writeFileAtomic(path, body)
+	if err != nil {
+		return 0, 0, err
+	}
+	handed = true
+	return n, limit, nil
 }
 
 // record applies a finished write to the reservation, but only if the
-// reservation is still open. One that expired, or was abandoned, while its
-// bytes were arriving has had its folder removed; what was just written is
-// removed again and the caller answers as for an unknown upload.
-func (s *Service) record(p *pending, apply func()) bool {
+// reservation is still open, and gives back the room the write was granted. One
+// that expired, or was abandoned, while its bytes were arriving has had its
+// folder removed; what was just written is removed again and the caller answers
+// as for an unknown upload.
+func (s *Service) record(p *pending, grant int64, apply func()) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.inflight -= grant
 	if cur, ok := s.pending[p.ID]; !ok || cur != p {
 		_ = os.RemoveAll(s.pendingPath(p.ID))
 		return false

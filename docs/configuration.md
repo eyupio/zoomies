@@ -240,6 +240,9 @@ agent:
   bootstrap_cpu_grace: 2m       # ZOOMIES_AGENT_BOOTSTRAP_CPU_GRACE -- 0 applies pressure throttling immediately; maximum 10m
   finished_retention: 0s        # ZOOMIES_AGENT_FINISHED_RETENTION -- 0 removes a finished workload after its report is acknowledged
   docker_build_cache_mb: 0      # ZOOMIES_AGENT_DOCKER_BUILD_CACHE_MB -- target for unused builder cache; 0 prunes nothing
+  registry_mirror:
+    enabled: false              # ZOOMIES_AGENT_REGISTRY_MIRROR_ENABLED: keep the public Docker Hub images dind sidecars pull on this host
+    max_bytes: 0                # ZOOMIES_AGENT_REGISTRY_MIRROR_MAX_BYTES: 0 is 10 GiB, otherwise at least 1073741824
   # Process backend only:
   runner_sha256: ""             # ZOOMIES_AGENT_RUNNER_SHA256 -- digest of the runner archive, when github.runner_version is pinned
   allow_unverified_runner_download: false   # ZOOMIES_AGENT_ALLOW_UNVERIFIED_RUNNER_DOWNLOAD -- warned about
@@ -431,7 +434,9 @@ settings page reports rather than refusing the edit.
 | `agent.labels` | `ZOOMIES_AGENT_LABELS` | next restart | Host labels: Key=value labels describing this host, which a pool can require of the hosts it runs on. |
 | `agent.name` | `ZOOMIES_AGENT_NAME` | next restart | Host name: What this host is called in the fleet. Empty names it after the machine it is on. At most 128 characters, with no backtick or control character: the controller refuses a join that breaks that, before the join token is redeemed. |
 | `agent.network` | `ZOOMIES_AGENT_NETWORK` | next restart | Container network: An existing container network to attach runners to. Empty uses the daemon's default bridge. |
-| `agent.registry_auth` | `ZOOMIES_REGISTRY_AUTH` | next restart | Registry credentials: A base64 X-Registry-Auth value the container backends send when they pull. Without it a pool on a private registry cannot use pinned-only pulls at all. |
+| `agent.registry_mirror.enabled` | `ZOOMIES_AGENT_REGISTRY_MIRROR_ENABLED` | next restart | Registry mirror: Keep the Docker Hub images this host's docker-in-docker sidecars pull, so the next job's pull is served from the host's disk. Public images only; a sidecar that uses a custom image is left alone. Off by default. |
+| `agent.registry_mirror.max_bytes` | `ZOOMIES_AGENT_REGISTRY_MIRROR_MAX_BYTES` | next restart | Registry mirror size: The most the registry mirror keeps on a host's disk, in bytes, least recently used first. 0 is the default of 10 GiB; otherwise at least 1 GiB (1073741824). |
+| `agent.registry_auth` | `ZOOMIES_REGISTRY_AUTH` | next restart | Registry credentials: A base64 X-Registry-Auth value, or the auths map of a docker config.json for one credential per registry, that the container backends send when they pull. Without it a pool on a private registry cannot use pinned-only pulls at all. |
 | `agent.runner_download_url` | `ZOOMIES_AGENT_RUNNER_DOWNLOAD_URL` | next restart | Runner download mirror: Where the process backend fetches runner archives from, for hosts that mirror releases internally. The path below it is the same. |
 | `agent.runner_sha256` | `ZOOMIES_AGENT_RUNNER_SHA256` | next restart | Runner archive digest: The expected digest of the actions/runner archive the process backend downloads. Zoomies ships the digest for the release it pins; supply one when you pin another. |
 | `agent.work_dir` | `ZOOMIES_WORK_DIR` | next restart | Working directory: Where runner working directories and the agent's own credentials live. |
@@ -793,7 +798,7 @@ the validator says so with `limits.loopback`.
 | --- | --- | --- | --- |
 | `server.allow_indexing` | `ZOOMIES_ALLOW_INDEXING` | next restart | Allow search engine indexing: Invite search engines into the UI. Off by default: a controller is somebody's infrastructure rather than somebody's website. |
 | `server.allowed_origins` | `ZOOMIES_ALLOWED_ORIGINS` | next restart | Allowed browser origins: Extra browser origins allowed to make state-changing requests. Empty means same-origin only, which is what the built-in UI needs. |
-| `server.bind` | `ZOOMIES_BIND` | next restart | Listen address: The address the controller listens on. 127.0.0.1:8080 is this machine only; 0.0.0.0:8080 is every interface. |
+| `server.bind` | `ZOOMIES_BIND` | next restart | Address the controller listens on. On a native install, `127.0.0.1:8080` limits access to the host. With Docker port publishing or a proxy in another container, keep listening on the container network (`0.0.0.0:8080` by default). See [Compose listener and published address](compose.md#listener-and-published-address). |
 | `server.external_url` | `ZOOMIES_EXTERNAL_URL` | next restart | External URL: How GitHub and browsers reach this controller. It forms the webhook URL, so webhooks need it. |
 | `server.idle_timeout` | `ZOOMIES_IDLE_TIMEOUT` | next restart | Idle timeout: How long an idle keep-alive connection is held open. |
 | `server.read_timeout` | `ZOOMIES_READ_TIMEOUT` | next restart | Read timeout: How long a client may take to send its request. |
@@ -1545,6 +1550,24 @@ image: the JSON `{"username":"...","password":"..."}` that `docker login`
 writes, base64url-encoded. Empty means anonymous pulls, which is right for
 public images.
 
+Include `serveraddress` (for example `ghcr.io`). The credential is then sent only
+when an image comes from that registry, and every other pull, such as the
+default docker-in-docker sidecar from Docker Hub, is anonymous. Without it the
+credential goes with every pull, which a second registry may refuse, and the
+token is sent to registries it was not made for.
+
+To use a different credential for each registry, give the `auths` map of a
+`~/.docker/config.json` instead, base64-encoded:
+
+```json
+{"auths": {"ghcr.io": {"auth": "<base64 of user:token>"},
+           "registry.example.com:5000": {"username": "bot", "password": "..."}}}
+```
+
+Each pull then gets the credential for its own registry, and an image on a
+registry the map does not list pulls anonymously. An entry may use `auth`,
+`username` with `password`, or `identitytoken`.
+
 Set it when a pool's image lives in a private registry. Without it such a pool
 cannot use `pull_policy: pinned-only` at all; the pull it needs is the one the
 registry refuses, and the runner never starts.
@@ -1967,13 +1990,66 @@ from a source you trust.
 
 The image is pulled under the host's pull policy, not the pool's, which governs
 the runner image only, so `pinned-only` does not check the sidecar image.
-Pulls use the one credential in `agent.registry_auth`, so a private sidecar
-image has to be on a registry that credential covers. The images a job pulls
-inside the sidecar do not: the nested daemon never sees `agent.registry_auth`,
+Pulls use the credential in `agent.registry_auth` for the image's own registry,
+so a private sidecar image has to be on a registry that setting covers. A credential that names
+its registry in `serveraddress` is sent only to that registry, so the default
+`docker:27-dind` still pulls anonymously from Docker Hub beside a private runner
+image on ghcr.io. The images a job pulls
+inside the sidecar do not use it: the nested daemon never sees `agent.registry_auth`,
 so a private job image needs a `docker login` in the workflow, or credentials in
 the sidecar image's own `/root/.docker/config.json`. Prewarming prepares the
 host's image only; a pool's own image is pulled when its first runner starts. An agent
 older than the pool field ignores it and runs the host's image.
+
+### `agent.registry_mirror.enabled` and `agent.registry_mirror.max_bytes`: keep what the sidecars pull
+
+```yaml
+agent:
+  registry_mirror:
+    enabled: true
+    max_bytes: 21474836480   # 20 GiB; 0 is the default of 10 GiB
+```
+
+A docker-in-docker sidecar's storage starts empty, so every job pulls again the
+images it names, and Docker Hub limits anonymous pulls by the address they come
+from. With the mirror on, the agent keeps what the sidecars on this host pull
+from Docker Hub, on this host's disk, and serves the next pull from there.
+
+* **Public images only.** The mirror asks Docker Hub anonymously and never holds
+  a credential, so an image that needs one is never fetched and nothing private
+  is ever kept. A private image is pulled as it is today.
+* **It listens on the host's own address on the network the sidecars use** (the
+  default bridge's gateway unless `agent.network` or a pool names another) and on
+  nothing else, so a machine on the host's network cannot reach it, on a port
+  chosen each time it starts. Any job on the host can read what it holds, which
+  is public and content addressed.
+* **Only the default sidecar image uses it.** The sidecar's command gains
+  `--registry-mirror`, and when the agent has a proxy configured the mirror's
+  address is added to `NO_PROXY` and `no_proxy`. A pool whose sidecar runs a
+  custom image, from `agent.dind_image` or the pool's own `dind_image`, is left as
+  it is, because that image is where an operator keeps a `daemon.json` of their
+  own, and a mirror named twice stops the daemon starting.
+* **It can only slow a pull down, never fail a job.** If the mirror cannot start,
+  or stops, or cannot reach Docker Hub, the sidecar pulls from Docker Hub as it
+  does without the mirror, and the agent says why in its log once for each
+  reason. The Problems panel says so too, as `host.registry_mirror_degraded`, but
+  only where a pool would have used the mirror there; and `pool.registry_mirror_unused`
+  says when the mirror is on and a pool's own sidecar image means it is not used
+  for it.
+* **It does not touch the host's own Docker daemon**, and so pools that use the
+  host's socket do not use it. Whether it reaches `docker buildx` builders has not
+  been tested.
+* **`max_bytes` is a bound, not a target.** The mirror keeps the images used most
+  recently and evicts the least recently used first, never one being read, and
+  does not keep a single layer larger than a quarter of the bound. Zero is
+  10 GiB; any other value is at least 1 GiB (1073741824), and a smaller one is
+  refused when it is saved.
+
+The mirror is off by default and was built without being run on a real fleet, so
+it makes no promise about speed yet. Changing either setting takes effect when
+the agent restarts. It is not offered when the agent itself runs in a container,
+or when the host has no shared folder to keep it in, and the agent says so in its
+log.
 
 ### `agent.extra_ca_file`: behind a proxy that re-signs TLS
 
@@ -2377,7 +2453,7 @@ the CLI or the API. These are their fields:
 | `priority` | Higher-priority pools are given creation capacity first when the fleet cannot satisfy every pool at once. Pools at the same priority share it fairly. Under `scheduler.max_creates_per_tick`, a lower-priority pool whose oldest queued job has waited a full `scheduler.interval` is first given one create, so a busy top tier cannot starve it; the higher pool's scaling reason then says it was deferred for fairness across priorities. |
 | `idle_timeout` | How long an idle runner waits before being drained. |
 | `ephemeral` | One job per runner. Leave it on. |
-| `no_default_labels` | Off. On, runners register with only the pool's `labels` (no `self-hosted`, operating system or architecture) as `config.sh --no-default-labels` does, and a job asking for one of those no longer matches the pool unless it lists it. Only a non-ephemeral pool may set it: GitHub adds those labels to every just-in-time runner itself. See [Leaving out the default labels](hosts-and-pools.md#leaving-out-the-default-labels). |
+| `no_default_labels` | Off. On, runners register with only the pool's `labels` (no `self-hosted`, operating system or architecture) as `config.sh --no-default-labels` does, and a job asking for one of those no longer matches the pool unless it lists it. Only a non-ephemeral pool may set it: an ephemeral pool's just-in-time runners are always minted with those labels, since GitHub adds none to a just-in-time runner itself. See [Leaving out the default labels](hosts-and-pools.md#leaving-out-the-default-labels). |
 | `docker_mode` | `none`, `dind`, or `host-socket`. Anything but `none` switches a pool on the stock runner image to its Docker variant, under the same tag, see [below](#jobs-that-build-container-images) and [security.md](security.md). |
 | `resources` | `cpus`, `memory_mb`, `disk_gb`, `pids_limit` per runner. Leaving `cpus` and `memory_mb` out is how a pool says “the host decides”: each runner is then given one slot's share of whichever machine it lands on, charged against that host and applied as a real cgroup limit. Set them for the same size on every host. `disk_gb` is advisory, enforced only where the backend can, and independent of that choice. Left unset, each runner is charged 10 GB of working room against the host's free disk; a typed figure is charged instead. |
 | `cpu_burst` | The elastic CPU policy: `mode` is `off`, `observe` (decide and publish metrics, move nothing) or `automatic` (lend the host's spare CPU to a busy runner above its guarantee), and `max_cpus` is the most one runner may be lent up to, with `0` meaning the host's allocatable CPU. Needs automatic sizing on `docker` or `podman`; a new pool that qualifies starts on `observe`, an existing one stays `off`. See [Elastic CPU zoomies](elastic-cpu.md). |
@@ -2458,15 +2534,20 @@ absolute path puts the cache on a disk you chose; anything else is treated as a
 volume-name prefix. Zoomies appends the scope's own identity to whichever you
 give, so two pools never collide, and refuses a source containing `..`.
 
-`size_limit` is enforced, not advisory. As a runner starts, whole cache entries
-are removed, least recently modified first, until the cache is back under the
-limit. Deleting from a cache is only safe while nothing is reading it, so a
-runner that starts to find another runner still using the same cache leaves it
-alone and the next start tries again, on a pool with `max_runners` above one,
-that is most starts, and the eviction happens at the one that finds it idle.
-This bounds how far the cache drifts over the limit from one job to the next.
-It is not a filesystem quota: a single job can still fill the disk before the
-next runner starts, and if that matters, give the cache its own filesystem.
+`size_limit` is one budget per pool on each host: package entries, every
+retained tool image generation and the local Actions cache service share it.
+The agent checks on its reconciliation tick (normally every 30 seconds), even
+when no new runner can be placed. At an idle point it evicts whole package and
+tool entries, oldest first, then gives the service the room left over. Limit
+changes arrive on heartbeats and apply without restarting the agent or service.
+
+A running or starting container, an in-flight tool fill, an unavailable
+inventory or an unreadable directory defers package/tool eviction. This is not
+a filesystem quota: a live job can still fill the disk, and a continuously
+busy pool can remain over its limit until it becomes idle. Host cards show
+measured cache bytes and explain deferrals, including an over-limit cache. If
+a strict quota is needed, give the cache its own filesystem. Zero leaves
+packages and tools unlimited; the Actions service defaults to 10 GiB.
 
 Only a directory can be measured, so a non-zero `size_limit` requires `source`
 to be an absolute host path. On a named volume the bytes are the daemon's, on a
@@ -2559,8 +2640,8 @@ attached to, and on nothing else, on a port of its own for each pool (and each
 repository, for a repository-scoped cache), so it is shared with exactly the
 runners the pool cache is. It keeps its entries in the host's
 [shared folder](#the-shared-folder), under `cache/service`, within the cache's
-`size_limit` or 10 GiB where there is none, evicting the least recently used
-first. An agent restart starts a new service on a new port, and runners that
+remaining `size_limit` after packages and tools, or 10 GiB where no limit is
+set, evicting the least recently used first. An agent restart starts a new service on a new port, and runners that
 were already running keep the old address, so their cache calls miss until they
 finish; a miss is a slower build and never a failed one.
 

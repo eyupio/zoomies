@@ -272,10 +272,8 @@ type PoolPlan struct {
 	// supply is the runners already there for a queued job to take: idle, or
 	// still starting. A busy runner is not, and a draining one never will be.
 	supply int
-	// repositories is, for a pool on a personal account, the repository each
-	// runner still to be created is registered on, in the order the jobs
-	// waiting for them were queued.
-	repositories []string
+	// pending is demand that an idle or starting runner could not cover.
+	pending []placementDemand
 	// Unserved is how many of the queued jobs that drove Desired have no runner
 	// idle, starting or created for them this pass: the pool is at its maximum,
 	// or no host has room. A pool held back by a start failure or a rate limit
@@ -591,7 +589,7 @@ func (t *tick) decidePool(p *store.Pool, runners []*store.Runner, queued []*stor
 
 	eligible := 0
 	byRepository := t.byRepository[p.ID]
-	var eligibleJobs []*store.Job
+	var eligibleJobs []placementDemand
 	quotaRepositories := map[string]bool{}
 	admitted := map[string]int{}
 	for _, j := range queued {
@@ -612,9 +610,7 @@ func (t *tick) decidePool(p *store.Pool, runners []*store.Runner, queued []*stor
 		}
 		eligible++
 		admitted[j.Repo]++
-		if byRepository {
-			eligibleJobs = append(eligibleJobs, j)
-		}
+		eligibleJobs = append(eligibleJobs, placementFor(p, j))
 	}
 	for repo := range quotaRepositories {
 		plan.QuotaDeferredRepositories = append(plan.QuotaDeferredRepositories, repo)
@@ -625,22 +621,29 @@ func (t *tick) decidePool(p *store.Pool, runners []*store.Runner, queued []*stor
 	// idle one will pick up within the second. A draining runner is counted on
 	// both sides: it still holds a slot on its host until it is gone, which is
 	// what keeps the pool under its maximum, but it will never take a job, so
-	// it must not stand in for the runner a queued job is waiting on.
-	plan.Desired = clamp(max(p.MinRunners, busy+draining+eligible), p.MinRunners, p.MaxRunners)
+	// it must not stand in for the runner a queued job is waiting on, nor for
+	// one of the minimum: counted there, each pass during a drain found the
+	// same surplus again and drained the warm runners after it.
+	want := clamp(max(p.MinRunners, busy+eligible), p.MinRunners, p.MaxRunners)
+	plan.Desired = min(want+draining, p.MaxRunners)
 	plan.eligible = eligible
 	if byRepository {
 		// A personal account's runners are not interchangeable, so the pool's
 		// totals cannot say how many are wanted: see personal.go.
 		var stopped int
-		remaining, stopped = t.decideByRepository(p, &plan, remaining, queued, eligibleJobs, live)
+		remaining, stopped = t.decideByRepository(p, &plan, remaining, queued, eligibleJobs, live, draining)
 		live -= stopped
+	} else {
+		remaining = t.matchPlatformSupply(p, &plan, remaining, eligibleJobs, live, draining)
 	}
 	plan.Failing, plan.FailingFault = t.holdAfterStartFailures(p, runners)
 	plan.Held = t.holdWhileRateLimited(p)
 
-	switch {
-	case plan.Desired < live:
-		t.scaleDown(p, &plan, remaining, live)
+	// Surplus is counted among the runners that are staying: one already on its
+	// way out is not a reason to stop another. Desired is read again because the
+	// repository and platform decisions above may have raised it past want.
+	if surplus := live - draining - max(plan.Desired-draining, want); surplus > 0 {
+		t.scaleDown(p, &plan, remaining, live, surplus)
 	}
 	return plan
 }
@@ -996,44 +999,63 @@ func creates(actions []Action) int {
 }
 
 func (t *tick) grant(p *store.Pool, plan *PoolPlan, runners []*store.Runner, queued []*store.Job) bool {
+	if t.byRepository[p.ID] && len(plan.pending) == 0 {
+		return false
+	}
 	var need Requirement
-	var heldOff map[string]string
 	if t.historySizing == HistoryOn || t.historySizing == HistoryShadow {
 		need, plan.HistoryUnfit = t.poolNeed(p, queued)
+	}
+	enforce := t.historySizing == HistoryOn && need.Known()
+	avoid := recentBusyHosts(runners, t.now)
+	var placed []placement
+	var heldOff map[string]string
+	var demand placementDemand
+	var blocked blockage
+	demandIndex := -1
+	// A job with no compatible capacity must not hold up other jobs in the pool.
+	var tried [64]bool
+	for i := 0; i < max(1, len(plan.pending)); i++ {
+		var next placementDemand
+		if i < len(plan.pending) {
+			next = plan.pending[i]
+		}
+		if tried[next.platform] {
+			continue
+		}
+		tried[next.platform] = true
+		t.hosts.platform = next.platform
 		if need.Known() {
 			heldOff = t.hosts.heldOff(p, need)
 		}
-	}
-	enforce := t.historySizing == HistoryOn && need.Known()
-	if enforce {
-		t.hosts.need = &need
-	}
-	if t.byRepository[p.ID] && len(plan.repositories) == 0 {
-		// Nothing waiting names a repository to register on, and a runner
-		// registered nowhere in particular can take no job.
-		return false
-	}
-	placed := t.hosts.placeAvoiding(p, 1, recentBusyHosts(runners, t.now))
-	t.hosts.need = nil
-	if len(placed) == 0 && enforce && len(heldOff) > 0 {
-		// Some host would have taken a runner at the pool's own size, and
-		// every one of them is short of what the jobs waiting are known to
-		// need. That is a wait for a larger host to free up, not a fleet with
-		// nowhere to go: poolNeed only asks for what some host has.
-		held := t.hosts.sortedPhrases(heldOff)
-		plan.History = held
-		plan.Reason = cannotScale(p.Name, plan.Current+creates(plan.Actions), plan.Desired, held)
-		plan.Blocked = held
-		plan.BlockedFix = "wait for work on a larger host to finish, or add a host with that much room; the requirement is the jobs' own recent peaks, and scheduler.history_sizing=shadow places them as before"
-		plan.BlockedAtCapacity = true
-		return false
+		if enforce {
+			t.hosts.need = &need
+		}
+		placed = t.hosts.placeAvoiding(p, 1, avoid)
+		t.hosts.need = nil
+		if len(placed) != 0 {
+			demand, demandIndex = next, i
+		} else if blocked.what == "" {
+			blocked = t.hosts.why(p)
+			if enforce && len(heldOff) > 0 {
+				plan.History = t.hosts.sortedPhrases(heldOff)
+				blocked = blockage{
+					what:       plan.History,
+					fix:        "wait for work on a larger host to finish, or add a host with that much room; the requirement is the jobs' own recent peaks, and scheduler.history_sizing=shadow places them as before",
+					atCapacity: true,
+				}
+			}
+		}
+		t.hosts.platform = 0
+		if len(placed) != 0 {
+			break
+		}
 	}
 	if len(placed) == 0 {
-		b := t.hosts.why(p)
-		plan.Reason = cannotScale(p.Name, plan.Current+creates(plan.Actions), plan.Desired, sentence(b.what, b.fix))
-		plan.Blocked, plan.BlockedFix = b.what, b.fix
-		plan.BlockedAtCapacity, plan.BlockedAlternatives = b.atCapacity, b.alternatives
-		plan.BlockedNoEligibleHost = b.noEligibleHost
+		plan.Reason = cannotScale(p.Name, plan.Current+creates(plan.Actions), plan.Desired, sentence(blocked.what, blocked.fix))
+		plan.Blocked, plan.BlockedFix = blocked.what, blocked.fix
+		plan.BlockedAtCapacity, plan.BlockedAlternatives = blocked.atCapacity, blocked.alternatives
+		plan.BlockedNoEligibleHost = blocked.noEligibleHost
 		return false
 	}
 	busy := 0
@@ -1095,8 +1117,11 @@ func (t *tick) grant(p *store.Pool, plan *PoolPlan, runners []*store.Runner, que
 		}
 	}
 	action := Action{Kind: ActionCreate, PoolID: p.ID, PoolName: p.Name, HostID: placed[0].hostID, Reason: reason, Size: placed[0].size, SizedFromHistory: placed[0].raised}
-	if len(plan.repositories) > 0 {
-		action.Repo, plan.repositories = plan.repositories[0], plan.repositories[1:]
+	if demandIndex >= 0 && demandIndex < len(plan.pending) {
+		plan.pending = slices.Delete(plan.pending, demandIndex, demandIndex+1)
+	}
+	if t.byRepository[p.ID] {
+		action.Repo = demand.job.Repo
 		action.Reason += " (registered on " + action.Repo + ")"
 		reason = action.Reason
 	}
@@ -1218,12 +1243,7 @@ func (t *tick) disable(p *store.Pool, plan *PoolPlan, remaining []*store.Runner,
 // A starting row whose job is already in progress is excluded. The job event
 // normally advances that row to busy, but stillRunning is the durable guard
 // for the short window where the row has not caught up yet.
-func (t *tick) scaleDown(p *store.Pool, plan *PoolPlan, remaining []*store.Runner, live int) {
-	surplus := live - max(plan.Desired, p.MinRunners)
-	if surplus <= 0 {
-		return
-	}
-
+func (t *tick) scaleDown(p *store.Pool, plan *PoolPlan, remaining []*store.Runner, live, surplus int) {
 	starting := t.unneededStarting(remaining)
 	stopStarting := min(surplus, len(starting))
 	for _, r := range starting[:stopStarting] {
@@ -1328,6 +1348,7 @@ type hostSet struct {
 	readiness       map[string]map[string]time.Duration
 	preferReadiness bool
 	hosts           []*store.Host
+	platform        jobPlatform
 	free            map[string]int
 	observedCPU     map[string]float64
 	warming         map[string]int
@@ -1541,7 +1562,7 @@ func (hs *hostSet) pickReduced(p *store.Pool, avoid map[string]bool) (*store.Hos
 	}
 	var best, bestAvoided *option
 	for _, h := range hs.hosts {
-		if hs.free[h.ID] <= 0 || !HostCanRun(h, p, hs.now) ||
+		if hs.free[h.ID] <= 0 || !HostCanRun(h, p, hs.now) || !hs.platform.matches(p, h) ||
 			(hostUnderCPUPressure(h, hs.now) && hs.warming[h.ID] > 0) ||
 			(hs.need != nil && hs.shortOf(h, p, *hs.need) != "") {
 			continue
@@ -1621,7 +1642,7 @@ func (hs *hostSet) eligible(h *store.Host, p *store.Pool) bool {
 // eligibleAsSized is eligible without a job history's requirement: whether h
 // would take a runner of p at the pool's own size.
 func (hs *hostSet) eligibleAsSized(h *store.Host, p *store.Pool) bool {
-	return hs.free[h.ID] > 0 && hs.hasRoom(h, p) && HostCanRun(h, p, hs.now) &&
+	return hs.free[h.ID] > 0 && hs.hasRoom(h, p) && HostCanRun(h, p, hs.now) && hs.platform.matches(p, h) &&
 		!(hostUnderCPUPressure(h, hs.now) && hs.warming[h.ID] > 0)
 }
 
@@ -1784,7 +1805,8 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 		}
 	}
 	var unhealthy, cordoned, incompatible, backend, platform, selector, profile, tooSmall, full int
-	var shortCPU, shortMemory, lowDisk, held, warming, throttled, committed int
+	var shortCPU, shortMemory, lowDisk, held, warming, throttled, committed, jobPlatformMismatch int
+	var lowDiskHosts []string
 	// candidates are the hosts that could run this pool whatever they are doing
 	// at the moment. Of those, waiting counts the ones that only need a job to
 	// finish (out of slots, or short of memory or CPU that runners of ours
@@ -1819,6 +1841,8 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 			platform++
 		case !HostSelects(h, p):
 			selector++
+		case !hs.platform.matches(p, h):
+			jobPlatformMismatch++
 		case ExcludedBySize(h, p) != nil:
 			// What the host's runner profile and the pool's size say about each
 			// other, which no amount of waiting changes -- so it is asked before
@@ -1853,6 +1877,7 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 			// host with a few GB free is short of disk, and freeing space on
 			// it does make room, unlike a machine that is too small.
 			lowDisk++
+			lowDiskHosts = append(lowDiskHosts, naming.ForSentence(h.Name))
 		case !HostFits(h, p):
 			// The machine itself is too small for one runner of this pool, so
 			// nothing finishing on it will ever make room. That is a different
@@ -1874,8 +1899,9 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 			// already run in.
 			left, alloc, want := hs.leftFor(h, p), hs.alloc[h.ID], MinimumReserve(p, h)
 			switch {
-			case alloc.DiskKnown && (alloc.DiskMB <= 0 || left.DiskMB < want.DiskMB):
+			case !diskFits(left, want, alloc):
 				lowDisk++
+				lowDiskHosts = append(lowDiskHosts, naming.ForSentence(h.Name))
 			case alloc.MemoryKnown && left.MemoryMB < want.MemoryMB:
 				shortMemory++
 				if hs.ours[h.ID] {
@@ -1921,11 +1947,12 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 	add(backend, "without the "+string(p.Backend)+" backend")
 	add(platform, "not "+p.Platform.Describe())
 	add(selector, "not matching the pool's host selector")
+	add(jobPlatformMismatch, "cannot supply job labels "+hs.platform.labels())
 	add(profile, "excluded by their runner profile")
 	add(tooSmall, "too small for this pool's limits")
 	add(shortMemory, "short of memory")
 	add(shortCPU, "short of CPU")
-	add(lowDisk, "low on disk")
+	add(lowDisk, "low on disk ("+strings.Join(lowDiskHosts, ", ")+")")
 	add(held, "holding new starts while host pressure clears")
 	add(warming, "starting one runner at a time while CPU is busy")
 	add(throttled, "throttled after sustained pressure")
@@ -1992,7 +2019,11 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 		// for the same machines from the other direction. Counted in neither,
 		// the pool is simply skipped and the next pass decides again, a minute
 		// older and usually clear.
-		noEligibleHost: full+throttled+committed+held+warming == 0,
+		//
+		// Nor is a host turned away for the platform a job asked for: the
+		// machine a provider would rent is judged against the pool alone, so
+		// arm64 jobs on an amd64 fleet rented amd64 machines they cannot use.
+		noEligibleHost: full+throttled+committed+held+warming+jobPlatformMismatch == 0,
 	}
 	if detail != "" {
 		// The agent's own words about the backend it could not use. They name
@@ -2052,6 +2083,8 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 		b.fix = "upgrade the agent on those hosts to this controller's release; their existing runners keep working and are drained as normal"
 	case unhealthy == len(hs.hosts):
 		b.fix = "check that the zoomies agent is running on those hosts and can reach this controller"
+	case jobPlatformMismatch > 0 && candidates == 0:
+		b.fix = "add a host that can run jobs requesting " + hs.platform.labels()
 	case platform > 0 && platform+unhealthy+cordoned == len(hs.hosts):
 		// Naming the platform is the difference between an operator adding a
 		// host and adding the *right* one: a pool that wants Ubuntu 24.04

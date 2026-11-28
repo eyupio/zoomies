@@ -31,6 +31,42 @@
 #
 set -euo pipefail
 
+# The credentials leave the environment here, before anything else runs.
+#
+# run.sh forks every step of every workflow, as the same user as this script, and
+# a step can read any ancestor's environment from /proc/<pid>/environ. Unsetting a
+# variable changes the shell's own table and not that file: the kernel keeps
+# serving the environment the process was started with, and this script is the
+# container's first process. A step that read it got the organisation's runner
+# registration token, good for an hour and enough to register a self-hosted runner
+# of its own, which GitHub then hands other repositories' jobs and their secrets.
+# The workflow is the untrusted party here: that is the whole reason these runners
+# are ephemeral.
+#
+# So the script starts itself again without them. The first time through it holds
+# the values in a here-document, which bash makes a pipe or an unlinked file and
+# which no other process can open, passes that on as file descriptor 9, and
+# replaces itself with an environment that never had them. The second time through
+# reads them from the descriptor, once, and closes it before anything is started.
+# Whether descriptor 9 is open is what tells the two apart, so no variable an
+# operator could set decides it. The values are single lines (a base64
+# configuration, a token, an address).
+jitconfig="" runner_token="" runner_url=""
+if { : <&9; } 2>/dev/null; then
+  IFS= read -r jitconfig <&9 || true
+  IFS= read -r runner_token <&9 || true
+  IFS= read -r runner_url <&9 || true
+  exec 9<&-
+elif [ -n "${ZOOMIES_JITCONFIG:-}${ZOOMIES_RUNNER_TOKEN:-}${ZOOMIES_RUNNER_URL:-}${ACTIONS_RUNNER_INPUT_JITCONFIG:-}" ]; then
+  exec 9<<CREDENTIALS
+${ZOOMIES_JITCONFIG:-}
+${ZOOMIES_RUNNER_TOKEN:-}
+${ZOOMIES_RUNNER_URL:-}
+CREDENTIALS
+  exec env -u ZOOMIES_JITCONFIG -u ACTIONS_RUNNER_INPUT_JITCONFIG -u ZOOMIES_RUNNER_TOKEN -u ZOOMIES_RUNNER_URL \
+    "$BASH" "$0" "$@"
+fi
+
 # The kept cache changes the lookup directory, not the tools the image carries.
 # Link baked versions into this runner's disposable view before setup actions
 # inspect it. Nothing writes to the shared cache or copies a toolchain per job.
@@ -208,23 +244,11 @@ if [ -n "${DOCKER_HOST:-}" ] || [ -S /var/run/docker.sock ]; then
   fi
 fi
 
-# The credentials stop here. They are read into shell variables and the
-# exported ones are removed, so that what starts below inherits neither.
-#
-# run.sh forks every step of every workflow, and a child process inherits the
-# environment its parent was started with. Left exported, a job whose first
-# line was `env` printed the organisation's runner registration token -- good
-# for an hour, and enough to register a self-hosted runner of the reader's own
-# in the organisation, which GitHub then hands other repositories' jobs and
-# their secrets. The workflow is the untrusted party here: that is the whole
-# reason these runners are ephemeral.
-#
-# A shell variable that was never exported is not in a child's environment, so
-# copying them across and unsetting is the whole of it. config.sh and the
-# cleanup trap below read the copies.
-jitconfig="${ZOOMIES_JITCONFIG:-}"
-runner_token="${ZOOMIES_RUNNER_TOKEN:-}"
-runner_url="${ZOOMIES_RUNNER_URL:-}"
+# The credentials were read at the top of this script, into shell variables that
+# were never exported, so what starts below inherits none of them: not through its
+# environment, and not through the entrypoint's own, which was started without
+# them. config.sh and the cleanup trap below read the variables. The unset is for a
+# run that came by another way and still has them set.
 unset ZOOMIES_JITCONFIG ACTIONS_RUNNER_INPUT_JITCONFIG ZOOMIES_RUNNER_TOKEN ZOOMIES_RUNNER_URL
 
 # JobServerQueue traces the same secret-masked lines it sends to GitHub's live

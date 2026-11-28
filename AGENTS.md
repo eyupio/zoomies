@@ -69,6 +69,7 @@ review.
 | `internal/api` | Transport only. A handler reads a request, asks the controller / auth / store, and renders the shape `api/openapi.yaml` promises. It has no opinions about the fleet. The resource views themselves (`HostView`, `PoolView`, …) are `internal/controller/views.go` types the handlers alias, because the event stream renders the same JSON and is fed from the controller. |
 | `internal/provider` | The infrastructure-provider contract, a fake that obeys it, and `RunContractTests`, the conformance suite every provider passes. It may import `internal/store`'s domain types and `config.Finding` and **nothing else**; two tests enforce that, and that it names nothing provider-specific. Renting a machine is not placing a runner: this is separate from `internal/backend` on purpose. |
 | `internal/cacheservice` | **Stdlib only.** The host-local Actions cache protocol (`actions/cache`) and nothing about the fleet: no store, no config, no controller, no clock of its own. The agent decides where and when it runs. `purity_test.go` enforces the imports. Every failure it cannot answer is a miss, never a failed build. |
+| `internal/registrymirror` | **Stdlib only.** The read side of the container registry protocol as a pull-through mirror for one registry's public images, and nothing about the fleet: no store, no config, no controller. Upstream is always anonymous, so a private image cannot be kept, and every failure it cannot answer is something `dockerd` falls back from. `purity_test.go` enforces the imports. Not wired into the agent yet (ZF-246, slice 2). It is not `internal/registry`, which only reads what a tag points at. |
 | `internal/provider/proxmox` | The first provider. The Proxmox VE API is hand-rolled `net/http` for the same reason the Docker one is. |
 | `internal/controller` | Wiring: the reconcile loop, the machine loop, webhook ingest, the agent task queue, the log relay, and every payload the event stream carries (`views.go`, `derived.go`). The machine loop is **not** part of `Reconcile`: a clone takes minutes and `reconcileMu` is held for a whole scheduling pass. |
 | `internal/config` | `zoomies.yaml` + `ZOOMIES_*` overrides, and the validator. |
@@ -193,6 +194,7 @@ internal/auth       identity, RBAC, tokens, audit, OIDC
 internal/api        REST, SSE, metrics, and the embedded UI
 internal/provider   the infrastructure-provider contract, its fake, and Proxmox
 internal/cacheservice the Actions cache protocol, served from a host's own disk
+internal/registrymirror a read-only pull-through mirror for a registry's public images, kept on a host's own disk
 internal/registry   what a container registry says a tag points at, for the digest-pinning generators
 internal/controller the reconcile loop, the machine loop and the agent task queue
 internal/agent      the runner-executing half

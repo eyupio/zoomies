@@ -11,7 +11,7 @@ import type { Job, JobState, Runner } from '../api/types';
 import { toMillis } from '../format';
 import { elapsedMs } from './time';
 
-export const WAITING_SHOWN = 5;
+export const WAITING_SHOWN = 3;
 export const PROBLEMS_SHOWN = 3;
 export const FINISHED_SHOWN = 5;
 export const FINISHED_WINDOW_MS = 10 * 60 * 1000;

@@ -915,6 +915,16 @@ func (c *Config) validateAgent(add func(Finding)) {
 				Fix:   "use 5120 for a 5 GiB cache target, or 0 to disable automatic builder cache cleanup.",
 			})
 		}
+		// Checked whether or not the mirror is on, so a bad number is refused when
+		// it is saved and not on the day somebody turns the mirror on.
+		if n := c.Agent.RegistryMirror.MaxBytes; n != 0 && n < MinRegistryMirrorBytes {
+			add(Finding{
+				Code: "agent.registry_mirror.max_bytes", Severity: SeverityError, Setting: "agent.registry_mirror.max_bytes",
+				Title:  "the registry mirror's size must be 0 or at least 1 GiB",
+				Detail: fmt.Sprintf("%d bytes is too small to hold a single large image layer, so the mirror would evict what it had just fetched and keep nothing worth having.", n),
+				Fix:    "use 0 for the default of 10 GiB, or a size in bytes of at least 1073741824 (1 GiB), such as 21474836480 for 20 GiB.",
+			})
+		}
 		if c.Agent.BootstrapCPUGrace < 0 || c.Agent.BootstrapCPUGrace > 10*time.Minute {
 			add(Finding{
 				Code: "agent.bootstrap_cpu_grace", Severity: SeverityError, Setting: "agent.bootstrap_cpu_grace",

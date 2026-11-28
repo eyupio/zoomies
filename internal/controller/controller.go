@@ -194,6 +194,10 @@ type Controller struct {
 	// still carrying, so another observation does not start one twice.
 	conflictMu     sync.Mutex
 	conflictClaims map[string]time.Time
+	// conflictPublishFailures counts failed publications by incident, under
+	// conflictMu, so that a resolution GitHub keeps refusing is held for a
+	// person and not retried at every observation.
+	conflictPublishFailures map[string]publishFailures
 	// hostChecks is the last request to each host to check itself; see host_check.go.
 	hostChecks hostChecks
 	relay      *logRelay
@@ -387,6 +391,13 @@ type Controller struct {
 	// forgets it until the next heartbeat repeats it.
 	cacheMu    sync.Mutex
 	cacheHosts map[string][]backend.CacheStats
+	// mirrorHosts is what each host's agent last said about its registry mirror:
+	// that it is on, what it has done, and what is wrong with it. Memory only, as
+	// the cache figures are, because it is what the agent says now and the next
+	// heartbeat repeats it; it is what host.registry_mirror_degraded and
+	// pool.registry_mirror_unused are raised from.
+	mirrorMu    sync.Mutex
+	mirrorHosts map[string]backend.RegistryMirrorReport
 	// pairs is what each docker-in-docker pool's runners have recently used of
 	// the two halves of their slot -- see pairWindow. Memory only, on purpose:
 	// it is evidence for advice, and forgetting it on a restart costs the advice
@@ -593,6 +604,7 @@ func New(opts Options) (*Controller, error) {
 		backups:                 backupState{ship: make(chan struct{}, 1)},
 		hostHealthy:             map[string]bool{},
 		conflictClaims:          map[string]time.Time{},
+		conflictPublishFailures: map[string]publishFailures{},
 		removing:                map[string]struct{}{},
 		// Generous next to what GitHub sends and mean next to what a probe
 		// wants: a real delivery never reaches this limiter, and a prober gets

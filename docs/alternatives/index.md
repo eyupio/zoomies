@@ -4,7 +4,8 @@ icon: material/compare-horizontal
 title: "ARC alternatives: runner controllers compared"
 description: >-
   Self-hosted GitHub Actions runner controllers compared: ARC, GARM, runscaler,
-  gharp, the AWS Terraform module, Cirun and Zoomies, and which need Kubernetes.
+  gharp, Codemany, the AWS Terraform module, Cirun and Zoomies, and which need
+  Kubernetes.
 ---
 
 # GitHub Actions runner controllers compared
@@ -35,6 +36,7 @@ a feature one page does not mention is not a claim that it is missing.
 | [ARC](../actions-runner-controller.md) | Yes | No, metrics only | Apache-2.0 | A Kubernetes or OpenShift cluster |
 | [GARM](garm.md) | No | Yes | Apache-2.0 | Providers you configure |
 | [runscaler](runscaler.md) | No | None documented | MIT | Docker, or macOS VMs through Tart |
+| [Codemany](codemany.md) | No | A desktop app, a read-only local dashboard and a hosted console | Proprietary, per machine | Apple silicon Macs, and Linux machines with systemd |
 | [gharp](gharp.md) | No | A dashboard | Apache-2.0 | Docker on one host |
 | [AWS Terraform module](terraform-aws-github-runner.md) | No | Your AWS tooling | MIT | EC2 in your account |
 | [TestFlows Hetzner runners](testflows-hetzner-runners.md) | No | An embedded dashboard | Apache-2.0 | Hetzner Cloud servers |
@@ -48,9 +50,11 @@ Where a project's documentation is silent the cell says so, and does not guess.
 | | Model and licence | Runs on | Pick it when |
 | --- | --- | --- | --- |
 | **Zoomies** | Self-hosted; [AGPL-3.0](https://github.com/eyupio/zoomies/blob/main/LICENSE) | Linux hosts you own or rent, anywhere an agent can dial out from | You have machines, not a cluster, and want one place to see and run the fleet |
+| [**Zoomies Cloud**](../cloud.md) | Hosted controller; paid | The same Linux hosts you own or rent | You want the fleet and web UI without running the controller yourself |
 | [ARC](../actions-runner-controller.md) | Kubernetes operator; Apache-2.0 | A Kubernetes or OpenShift cluster | You already operate Kubernetes |
 | [GARM](garm.md) | Self-hosted; Apache-2.0 | Providers you configure | You want a provider catalogue, or GitHub Enterprise Server or Gitea |
 | [runscaler](runscaler.md) | Self-hosted; MIT | Docker, or macOS VMs through Tart | You need macOS runners, or want the smallest setup on one host |
+| [Codemany](codemany.md) | Paid desktop app; proprietary | Apple silicon Macs, and Linux machines with systemd | You need macOS runners on Macs you own, and would rather install an app than run a controller |
 | [gharp](gharp.md) | Self-hosted; Apache-2.0 | Docker on one host | You want one container and a dashboard for a few repositories |
 | [AWS Terraform module](terraform-aws-github-runner.md) | Terraform module; MIT | EC2, in your AWS account | Your infrastructure is AWS and Terraform |
 | [TestFlows Hetzner runners](testflows-hetzner-runners.md) | Self-hosted; Apache-2.0 | Hetzner Cloud servers | You want cheap, standby cloud runners on Hetzner |
@@ -70,10 +74,13 @@ Where a project's documentation is silent the cell says so, and does not guess.
    the case Zoomies is built for. [Runners in your home lab](../home-lab.md)
    and [runners without Kubernetes](../runners-without-kubernetes.md) plan it.
 4. **Do you need macOS runners?** [runscaler](runscaler.md) boots them on
-   Apple Silicon, and the [hosted services](../hosted-runner-services.md) offer
+   Apple Silicon, [Codemany](codemany.md) runs them on Macs you own for a flat
+   monthly price, and the [hosted services](../hosted-runner-services.md) offer
    them too. Zoomies has no macOS runner image.
-5. **Would you rather pay to not run it?** A hosted service trades money for
-   not looking after hosts. [Costs](../costs.md) has the sums.
+5. **Would you rather pay to not run it?** A hosted runner service runs your
+   jobs on its machines. [Zoomies Cloud](../cloud.md) is the narrower option:
+   it hosts only the controller, and your jobs still run on your machines.
+   [Costs](../costs.md) has the sums.
 
 If it is still unclear, the [FAQ](../faq.md) answers what people ask before they
 self-host runners, and the [quick start](../quickstart.md) takes a fresh host to a

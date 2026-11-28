@@ -272,7 +272,7 @@ export interface paths {
         put?: never;
         /**
          * Receive a Zoomies-only snapshot from the managed workflow
-         * @description Called by the managed GitHub Actions workflow, never by a person. The only credential is the run's GitHub Actions OIDC token, minted with this controller's upload address as its audience. The token must come from the repository's managed workflow file, on its trusted branch, from a push or manual run, for the commit that is still the branch head; each token is accepted once. Every file is then matched to the regular blob at that path in the commit before the snapshot is stored. The body is the snapshot JSON, at most 32 MiB. Answers 404 when server.external_url is not an https address.
+         * @description Called by the managed GitHub Actions workflow, never by a person. The only credential is the run's GitHub Actions OIDC token, minted with this controller's upload address as its audience. The token must come from the repository's managed workflow file, on its trusted branch, from a push or manual run, for the commit that is still the branch head; each token is accepted once. Every file is then matched to the regular blob at that path in the commit before the snapshot is stored. The body is the snapshot JSON, at most 32 MiB. The repository the token names, and the branch and workflow it came from, are checked before the body is read, so a token for a repository this controller does not serve is refused (404 or 403) without its body. Answers 404 when server.external_url is not an https address.
          */
         post: operations["uploadAIContext"];
         delete?: never;
@@ -8696,7 +8696,7 @@ export interface components {
             scope: "pool" | "repository";
             /**
              * Format: int64
-             * @description Maximum bytes, enforced between one runner and the next by evicting whole cache entries, least recently modified first. Only a cache in a host directory can be measured, so a non-zero limit requires `source` to be an absolute host path. Zero is unlimited.
+             * @description Maximum apparent bytes shared by this pool's package cache, retained tool generations and local Actions cache service on each host. Idle maintenance evicts whole package and tool entries, oldest first, independently of new placements. The service receives the remaining budget live. Active jobs, open transfers and filesystem errors may defer enforcement; this is not a filesystem quota. A non-zero limit requires an absolute host source. Zero leaves package and tool data unlimited; the service defaults to 10 GiB.
              */
             size_limit?: number;
             /** @description Optional absolute host directory or safe named-volume prefix. */
@@ -10063,6 +10063,20 @@ export interface components {
             /** @enum {string} */
             reason_code?: "cordoned" | "incompatible" | "silent" | "unclassified" | "bad_size_label" | "unknown_architecture" | "no_backend";
         };
+        /** @description What a host's agent says about its registry mirror, which keeps the public Docker Hub images the host's docker-in-docker sidecars pull. Only what changes rarely is here: the mirror's figures move with every pull and are the metrics', never part of a host's view or of any event. */
+        HostRegistryMirror: {
+            /**
+             * @description What is wrong with the mirror, when something is: the agent runs in a container (`container`), the host has no shared folder to keep it in (`shared_folder`), its own folder could not be written (`folder`), the host's address on a sidecar network was not found (`gateway`), it could not listen or stopped listening (`listener`), or Docker Hub has failed it for at least five minutes without a break (`upstream`). `other` is a problem the agent reported that this controller has no word for; the agent's own text is never passed on. Absent when nothing is wrong.
+             * @enum {string}
+             */
+            problem?: "container" | "shared_folder" | "folder" | "gateway" | "listener" | "upstream" | "other";
+            /** @description What is wrong, as the controller's own sentence. Absent when nothing is. */
+            detail?: string;
+            /** @description What to do about it, as the controller's own sentence. Absent when nothing is wrong. */
+            fix?: string;
+            /** @description This host's own sidecar image (`agent.dind_image`) is not the default, so a pool that follows the host's image is not given the mirror. A pool that names an image of its own is decided by that image. Absent when the host's image is the default. */
+            host_image_custom?: boolean;
+        };
         PoolAuto: {
             /** @description The architecture and class the pool is kept for, `amd64/medium`. */
             key: string;
@@ -11164,6 +11178,16 @@ export interface components {
             /** @description When unavailable */
             detail?: string;
             supports_dind?: boolean;
+            /**
+             * @description The operating system the runtime runs containers as (its OSType). A container runner registers with this platform's label when its pool leaves the operating system open. Empty from an agent too old to report it and from a backend that is not a container runtime.
+             * @example linux
+             */
+            os?: string;
+            /**
+             * @description The architecture the runtime runs containers as, amd64 or arm64. A container runner registers with this architecture's label when its pool leaves the architecture open. Empty where the runtime did not say.
+             * @example amd64
+             */
+            arch?: string;
             /** @description Where the host daemon's socket lives */
             host_socket_path?: string;
             /** @description What the daemon said it can enforce. A runner is given a default limit only on a field the daemon can apply, and host.limits_unenforceable names the fields it cannot; `known` is false from an agent too old to have asked, which defaults nothing. */
@@ -11498,7 +11522,27 @@ export interface components {
             /** @description Identity that explicitly retired the destination record. */
             retired_by?: string;
         };
+        /** @description Apparent bytes in a pool's current cache namespace on this host. An unset measurement time means sizes are unknown. Older namespaces and daemon volumes are excluded. */
+        CacheStorage: {
+            pool_id: string;
+            /** Format: int64 */
+            package_bytes: number;
+            /** Format: int64 */
+            tools_bytes: number;
+            /** Format: int64 */
+            service_bytes: number;
+            /** Format: int64 */
+            total_bytes: number;
+            /** Format: int64 */
+            size_limit: number;
+            /** Format: date-time */
+            measured_at: string;
+            /** @description Why cleanup was deferred or the measurement is incomplete. */
+            deferred?: string;
+        };
         Host: {
+            /** @description Latest agent cache measurements by pool, also carried by host.updated events. Absent from older agents. Check measured_at and deferred before using a size. */
+            cache_storage?: components["schemas"]["CacheStorage"][];
             retired?: boolean;
             /** @enum {string} */
             recovery_state?: "awaiting_recovery" | "verified" | "retired";
@@ -11570,6 +11614,8 @@ export interface components {
             size_class?: components["schemas"]["HostSizeClass"];
             /** @description Which automatic pool this host counts towards, or why it counts towards none. Absent while `scheduler.auto_pools` is `off`. */
             auto_pool?: components["schemas"]["HostAutoPool"];
+            /** @description What the host's agent says about its registry mirror. Present while the mirror is on, which is `agent.registry_mirror.enabled` on that host; absent when it is off and from an agent that predates it. */
+            registry_mirror?: components["schemas"]["HostRegistryMirror"];
             /** @description How many of the live runners here were created with no CPU quota -- a pool with none and default limits off, a process pool, a daemon that cannot apply one, or a runner from before allocations were recorded. Omitted when zero. They are the runners a CPU hold can mean something about, since a throttle cannot slow them. */
             unlimited_runners?: number;
             id?: string;
@@ -13307,7 +13353,10 @@ export interface components {
         };
         AgentJoinRequest: {
             protocol_version: number;
-            /** Format: password */
+            /**
+             * Format: password
+             * @description The single-use token the host was given. The word `claim` is not a credential: it is sent by an agent shipped inside a machine its provider cannot push anything into, and asks the controller to identify the machine named in `name` by the address its provider reports for it, answering only a request that comes from that address. Every refused claim is the same 422 whatever the reason, so the route cannot be used to find out which machines exist.
+             */
             join_token: string;
             /** @description What the host asks to be called. Refused with 422, before the join token is redeemed, when it is empty, over 128 characters or holds a control character or a backtick. A host re-joining under the name its row already carries is exempt, so one enrolled before the rule keeps working. */
             name: string;
@@ -15278,7 +15327,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description GitHub's Actions signing keys could not be fetched, so the token was not checked; the controller needs outbound https to token.actions.githubusercontent.com */
+            /** @description GitHub's Actions signing keys could not be fetched, so the token was not checked (the controller needs outbound https to token.actions.githubusercontent.com), or the controller is already receiving as many snapshots as it takes at once; Retry-After says when to run the workflow again */
             503: {
                 headers: {
                     [name: string]: unknown;

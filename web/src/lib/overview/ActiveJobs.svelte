@@ -18,6 +18,7 @@
   import { CircleSlash, ExternalLink, Workflow } from '@lucide/svelte';
   import { listJobs } from '$lib/api/client';
   import { events } from '$lib/api/sse';
+  import { FrameLayer } from '$lib/frame-layer';
   import type { Job } from '$lib/api/types';
   import { fleet } from '$lib/state/fleet.svelte';
   import { prefs } from '$lib/state/prefs.svelte';
@@ -65,7 +66,16 @@
     return others || managedJob(job);
   }
 
+  /** Frames that arrive while a read is out, so a late answer does not undo them. */
+  const layer = new FrameLayer<Job>();
+
+  /** The same test the fetch applies, so a frame and a read agree on what belongs. */
+  const running = (job: Job): boolean =>
+    job.state === 'in_progress' && !job.cancel_requested_at && belongs(job);
+
   async function load(all: boolean, signal?: AbortSignal): Promise<void> {
+    const mark = layer.begin();
+    let settled = false;
     try {
       const page = await listJobs(
         {
@@ -85,12 +95,20 @@
         },
         signal,
       );
-      jobs = order((page.items ?? []).filter((row) => Boolean(row.id)));
+      settled = true;
+      jobs = order(
+        layer.settle(
+          mark,
+          (page.items ?? []).filter((row) => Boolean(row.id)),
+          running,
+        ),
+      );
       error = null;
     } catch (cause) {
       if (signal?.aborted) return;
       error = cause;
     } finally {
+      if (!settled) layer.end(mark);
       if (!signal?.aborted) loading = false;
     }
   }
@@ -114,10 +132,11 @@
   $effect(() =>
     events.subscribe('job.updated', (job) => {
       if (!job.id) return;
+      layer.note(job);
       const next = jobs.filter((row) => row.id !== job.id);
       // The same test the fetch applies, so a cancellation arriving over the
       // stream takes the job off the panel rather than waiting for a reload.
-      if (job.state === 'in_progress' && !job.cancel_requested_at && belongs(job)) next.push(job);
+      if (running(job)) next.push(job);
       jobs = order(next);
     }),
   );

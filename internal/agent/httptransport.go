@@ -237,6 +237,12 @@ func NewHTTPTransport(opts HTTPOptions) (*HTTPTransport, error) {
 				// fresh one.
 				HTTP2: ping,
 			},
+			// The controller's REST API never answers with a redirect, so one
+			// from it is a misconfiguration or an attempt to reroute the agent
+			// to somewhere the operator did not name. The tailcat transport
+			// already refuses these; the ordinary client matches it, so a
+			// redirect is a visible failure rather than a silent detour.
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		}
 	}
 

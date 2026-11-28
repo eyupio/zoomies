@@ -1085,6 +1085,7 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 		Update:            update,
 		UpdateUnsupported: string(a.updateUnsupported(features, infos)),
 		Caches:            a.opts.Backends.CacheStats(),
+		RegistryMirror:    a.opts.Backends.RegistryMirrorReport(),
 	})
 	if err != nil {
 		a.expireBoosts(ctx)
@@ -1107,6 +1108,11 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 	// The beat carried every runner the agent tracks, so the controller now
 	// knows how each finished one ended, and its workload may go.
 	a.mutationsPaused.Store(resp.MutationsPaused)
+	if !resp.MutationsPaused && !resp.Incompatible {
+		a.opts.Backends.SetCachePolicies(resp.CachePolicies)
+	} else {
+		a.opts.Backends.SetCachePolicies(nil)
+	}
 	a.markReported(runners)
 
 	if !a.ready.Swap(true) {

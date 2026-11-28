@@ -539,7 +539,7 @@ func TestTheProbeCarriesTheMachineTheDaemonIsOn(t *testing.T) {
 		"GET " + v + "/_ping":   func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("OK")) },
 		"GET " + v + "/version": func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, VersionInfo{Version: "27.1.1"}) },
 		"GET " + v + "/info": func(w http.ResponseWriter, r *http.Request) {
-			writeJSON(w, 200, SystemInfo{ServerVersion: "27.1.1", NCPU: 64, MemTotal: 274_877_906_944})
+			writeJSON(w, 200, SystemInfo{ServerVersion: "27.1.1", NCPU: 64, MemTotal: 274_877_906_944, OSType: "linux", Architecture: "aarch64"})
 		},
 	})
 
@@ -549,6 +549,9 @@ func TestTheProbeCarriesTheMachineTheDaemonIsOn(t *testing.T) {
 		t.Fatalf("cpus = %d, want the 64 the daemon reported", info.CPUs)
 	}
 	// 256 GiB in megabytes, because that is the unit the host row speaks in.
+	if info.OS != "linux" || info.Arch != "arm64" {
+		t.Fatalf("platform = %s/%s, want the linux/arm64 the daemon reported (aarch64 read as arm64)", info.OS, info.Arch)
+	}
 	if info.MemoryMB != 262_144 {
 		t.Fatalf("memory = %d MB, want 262144", info.MemoryMB)
 	}
@@ -567,8 +570,8 @@ func TestTheProbeSaysNothingAboutAMachineTheDaemonDidNotDescribe(t *testing.T) {
 
 	info := dockerBackendFor(t, f, DockerOptions{}).Probe(context.Background())
 
-	if info.CPUs != 0 || info.MemoryMB != 0 {
-		t.Fatalf("info = %d cpus, %d MB; nothing said must stay nothing", info.CPUs, info.MemoryMB)
+	if info.CPUs != 0 || info.MemoryMB != 0 || info.OS != "" || info.Arch != "" {
+		t.Fatalf("info = %d cpus, %d MB, %q/%q; nothing said must stay nothing", info.CPUs, info.MemoryMB, info.OS, info.Arch)
 	}
 }
 
@@ -747,6 +750,33 @@ func TestDockerListOnlyReturnsOurRunners(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].RunnerID != "run_1" || got[0].Status.Phase != PhaseRunning {
 		t.Fatalf("workloads = %+v", got)
+	}
+}
+
+// A stopped container's exit code comes from an inspect of its own, and that
+// inspect can fail while the list worked: a busy daemon, a deadline. Listed as
+// exited with no code, it read as exit 0, the agent recorded a clean end and
+// never looked again, so a runner killed for memory was filed as a finished job.
+func TestDockerListDoesNotCallAStoppedContainerExitedWhenItsInspectFails(t *testing.T) {
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"GET " + v + "/containers/json": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 200, []ContainerSummary{{
+				ID: "c1", State: "exited",
+				Labels: map[string]string{LabelRole: roleRunner, LabelName: "runner-1", LabelRunnerID: "run_1"},
+			}})
+		},
+		"GET " + v + "/containers/c1/json": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 500, map[string]string{"message": "the daemon is busy"})
+		},
+	})
+	b := dockerBackendFor(t, f, DockerOptions{})
+
+	got, err := b.List(context.Background())
+	if err != nil || len(got) != 1 {
+		t.Fatalf("list = %+v, %v", got, err)
+	}
+	if p := got[0].Status.Phase; p == PhaseExited || p == PhaseFailed {
+		t.Fatalf("phase = %q with exit code %d, from a container whose exit code nobody read", p, got[0].Status.ExitCode)
 	}
 }
 

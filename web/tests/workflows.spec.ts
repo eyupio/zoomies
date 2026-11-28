@@ -49,26 +49,29 @@ test('the page lists one row per run and opens on what is running', async ({ pag
   await expect(page).toHaveURL(/[?&]all=true/);
 });
 
-test('the filters are one row of same-height controls, with the switches on a line of their own', async ({
+test('the filters fold behind one summary on a wide page, and open into one row', async ({
   page,
 }) => {
-  // On a wide page the menus once stacked into a single column beside the
-  // search. Every control was right on its own, so only the line they sat on
-  // showed it: the menus must share the search's row, and the switches must
-  // start beneath it.
+  // The search and the date range stay in view; the facet menus and the
+  // switches sit behind Filters (n). Opening it puts the menus on one row and
+  // the switches on the next, which is the layout the old one-row test was
+  // protecting.
   await page.setViewportSize({ width: 1280, height: 900 });
   await goto(page, '/workflows', 'Workflows');
-  // The row is measured once it has settled, and in one reading. The page
-  // paints in the fallback font and swaps to Inter when it arrives, and the
-  // band above the bar draws its picture once its runs arrive; on a slow
-  // runner both land after the heading is up, and a search measured before
-  // them and a menu measured after sat a row apart without either being out
-  // of place.
   await page.evaluate(() => document.fonts.ready);
   await expect(page.getByTestId('band-workflows').getByTestId('band-in-flight')).toBeVisible();
+
+  const search = page.getByRole('searchbox', { name: 'Search jobs' });
+  const summary = page.locator('details.advanced > summary');
+  await expect(summary).toBeVisible();
+  await expect(facetTrigger(page, 'Repository')).toBeHidden();
+
+  await openFilters(page);
+  await expect(facetTrigger(page, 'Repository')).toBeVisible();
+
   const handles = await Promise.all(
     [
-      page.getByRole('searchbox', { name: 'Search jobs' }),
+      search,
       ...['Repository', 'Workflow', 'Pool', 'Label', 'Outcome'].map((label) =>
         facetTrigger(page, label),
       ),
@@ -84,24 +87,21 @@ test('the filters are one row of same-height controls, with the switches on a li
       }),
     handles,
   );
-  const [search, ...rest] = boxes;
+  const [searchBox, ...rest] = boxes;
   const unmatched = rest.pop();
   const menus = rest;
-  if (!search || !unmatched) throw new Error('the search and the switches are on the page');
+  if (!searchBox || !unmatched) throw new Error('the search and the switches are on the page');
 
   for (const menu of menus) {
     if (!menu) throw new Error('every menu is on the page');
-    expect(Math.abs(menu.y - search.y), 'a menu shares the search row').toBeLessThan(2);
+    expect(Math.abs(menu.y - menus[0]!.y), 'the menus share one row').toBeLessThan(2);
     expect(
-      Math.abs(menu.height - search.height),
+      Math.abs(menu.height - searchBox.height),
       'a menu is the height of the search',
     ).toBeLessThan(2);
-    expect(menu.x, 'a menu sits beside the search, not under it').toBeGreaterThan(
-      search.x + search.width,
-    );
   }
   expect(unmatched.y, 'the switches start on a line of their own').toBeGreaterThan(
-    search.y + search.height,
+    menus[0]!.y + menus[0]!.height,
   );
 });
 

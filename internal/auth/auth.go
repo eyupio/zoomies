@@ -292,9 +292,12 @@ type Service struct {
 	// guessing attempt into a denial of service on the thing that fixes it.
 	joins *RateLimiter
 	// registrations bounds MCP client registration, the one route that
-	// writes a row for anybody who asks; tokens bounds the token endpoint.
-	registrations *RateLimiter
-	tokens        *RateLimiter
+	// writes a row for anybody who asks; authorizations bounds the
+	// authorisation endpoint, which keeps a row per request that passes its
+	// checks; tokens bounds the token endpoint.
+	registrations  *RateLimiter
+	authorizations *RateLimiter
+	tokens         *RateLimiter
 	// metadata fetches client ID metadata documents.
 	metadata *metadataFetcher
 	audit    *Auditor
@@ -378,6 +381,7 @@ func New(st *store.Store, cfg *config.Config, bus *events.Bus, opts ...Option) *
 	// a few surfaces in an afternoon is well inside this; a script filling the
 	// clients table is not.
 	s.registrations = NewRateLimiter(mcpRegistrationsPerHour, time.Hour, s.clock)
+	s.authorizations = NewRateLimiter(mcpAuthorizationsPerMinute, time.Minute, s.clock)
 	s.tokens = NewRateLimiter(mcpTokenRequestsPerMinute, time.Minute, s.clock)
 	s.audit = NewAuditor(st, bus, s.logger)
 	return s
@@ -678,18 +682,35 @@ func (s *Service) SSOStartRetryAfter(ip string) time.Duration { return s.logins.
 // bound the memory used by requests spread across distinct identities.
 var passwordChecks = make(chan struct{}, 2)
 
-func (s *Service) Login(ctx context.Context, username, password, ip, ua string) (*store.User, string, error) {
+// takePasswordCheck admits one request to the work that holds that memory, or
+// turns it away at once rather than queueing it: a request that waits for a
+// slot is itself holding a connection, and the people who would fill the queue
+// are the ones this bound is for. The release func is for defer. what names the
+// request in the log line a refusal leaves.
+//
+// Every route that hashes or verifies the account password takes one, not only
+// sign-in: the others sit behind a session, but an account is cheap to hold and
+// a few of them asking at once would otherwise bypass the bound entirely.
+func (s *Service) takePasswordCheck(ctx context.Context, what, ip string) (release func(), err error) {
 	select {
 	case passwordChecks <- struct{}{}:
-		defer func() { <-passwordChecks }()
+		return func() { <-passwordChecks }, nil
 	case <-ctx.Done():
-		return nil, "", ctx.Err()
+		return nil, ctx.Err()
 	default:
-		// The other refusals below log; this one did not, and the audit row
-		// for a rate-limited attempt is now written once per window.
-		s.logger.Warn("login refused because password checks are saturated", "ip", ip)
-		return nil, "", ErrRateLimited
+		// The other refusals log; this one did not, and the audit row for a
+		// rate-limited attempt is now written once per window.
+		s.logger.Warn(what+" refused because password checks are saturated", "ip", ip)
+		return nil, ErrRateLimited
 	}
+}
+
+func (s *Service) Login(ctx context.Context, username, password, ip, ua string) (*store.User, string, error) {
+	release, err := s.takePasswordCheck(ctx, "login", ip)
+	if err != nil {
+		return nil, "", err
+	}
+	defer release()
 
 	account := normalizeForLimiter(username)
 	if !s.logins.Allow(ip) {
@@ -1090,6 +1111,13 @@ func (s *Service) ChangePassword(ctx context.Context, userID, oldPassword, newPa
 	if u.PasswordHash == "" && !u.MustChangePassword {
 		return ErrSSOOnly
 	}
+	// Held across both hashes below, the old password's check and the new
+	// one's, since a forced change hashes the new one and nothing else.
+	release, err := s.takePasswordCheck(ctx, "a password change", ip)
+	if err != nil {
+		return err
+	}
+	defer release()
 	if !u.MustChangePassword {
 		if !s.allowAttempt(ip, u.Username) {
 			return ErrRateLimited
@@ -1228,7 +1256,7 @@ func (s *Service) UpdateUser(ctx context.Context, u *store.User) error {
 	if !u.Role.Valid() {
 		return Invalid("%q is not a role; use %s", u.Role, store.RoleList())
 	}
-	if err := s.ensureAdminRemains(ctx, existing, u.Role, u.Disabled); err != nil {
+	if err := ensureAdminRemains(ctx, s.store, existing, u.Role, u.Disabled); err != nil {
 		return err
 	}
 	// The password hash is not part of a profile update; it moves only through
@@ -1282,7 +1310,7 @@ func (s *Service) SetUserDisabled(ctx context.Context, id string, disabled bool)
 	if u.Disabled == disabled {
 		return nil
 	}
-	if err := s.ensureAdminRemains(ctx, u, u.Role, disabled); err != nil {
+	if err := ensureAdminRemains(ctx, s.store, u, u.Role, disabled); err != nil {
 		return err
 	}
 	u.Disabled = disabled
@@ -1303,7 +1331,7 @@ func (s *Service) DeleteUser(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if err := s.ensureAdminRemains(ctx, u, store.RoleViewer, true); err != nil {
+	if err := ensureAdminRemains(ctx, s.store, u, store.RoleViewer, true); err != nil {
 		return err
 	}
 	// Before the row goes, because api_tokens has no foreign key to users:
@@ -1356,8 +1384,8 @@ func (s *Service) ResetPassword(ctx context.Context, userID, newPassword string)
 
 // ensureAdminRemains refuses a change that would take away the last enabled
 // admin. It is the invariant behind "you cannot lock yourself out".
-func (s *Service) ensureAdminRemains(ctx context.Context, existing *store.User, newRole store.Role, newDisabled bool) error {
-	if err := s.ensurePlatformRemains(ctx, existing, newRole, newDisabled); err != nil {
+func ensureAdminRemains(ctx context.Context, st *store.Store, existing *store.User, newRole store.Role, newDisabled bool) error {
+	if err := ensurePlatformRemains(ctx, st, existing, newRole, newDisabled); err != nil {
 		return err
 	}
 	// "At least admin" rather than exactly admin: a platform account
@@ -1367,7 +1395,7 @@ func (s *Service) ensureAdminRemains(ctx context.Context, existing *store.User, 
 	if !wasAdmin || stillAdmin {
 		return nil
 	}
-	n, err := s.store.CountAdmins(ctx)
+	n, err := st.CountAdmins(ctx)
 	if err != nil {
 		return fmt.Errorf("counting administrators: %w", err)
 	}
@@ -1382,13 +1410,13 @@ func (s *Service) ensureAdminRemains(ctx context.Context, existing *store.User, 
 // the only direction that matters here: the settings the process reads about
 // itself, the fence and the backups all need a platform, and an instance
 // with none is one only a shell can rescue.
-func (s *Service) ensurePlatformRemains(ctx context.Context, existing *store.User, newRole store.Role, newDisabled bool) error {
+func ensurePlatformRemains(ctx context.Context, st *store.Store, existing *store.User, newRole store.Role, newDisabled bool) error {
 	stillPlatform := newRole == store.RolePlatform && !newDisabled
 	wasPlatform := existing.Role == store.RolePlatform && !existing.Disabled
 	if !wasPlatform || stillPlatform {
 		return nil
 	}
-	n, err := s.store.CountPlatform(ctx)
+	n, err := st.CountPlatform(ctx)
 	if err != nil {
 		return fmt.Errorf("counting platform accounts: %w", err)
 	}

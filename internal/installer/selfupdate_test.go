@@ -12,10 +12,23 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/eyupio/zoomies/internal/releasekey"
 )
+
+// publishedTags is the tag each test server publishes, by server address. The
+// fixture's stand-in for running the downloaded binary answers with it, as a
+// genuine release does, so a test that wants a binary that reports another
+// release has to say so.
+var publishedTags sync.Map
+
+func publishedTag(srv *httptest.Server) string {
+	tag, _ := publishedTags.Load(srv.URL)
+	s, _ := tag.(string)
+	return s
+}
 
 // updateServer publishes one release whose asset is body, with a checksums file
 // that says it is sum (so a test can lie about it).
@@ -33,6 +46,7 @@ func updateServer(t *testing.T, tag, body, sum string) *httptest.Server {
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
+	publishedTags.Store(srv.URL, tag)
 	return srv
 }
 
@@ -62,6 +76,7 @@ func signedUpdateServer(t *testing.T, tag, body, sum, signed, private string) *h
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
+	publishedTags.Store(srv.URL, tag)
 	return srv
 }
 
@@ -77,7 +92,9 @@ func updateFixture(t *testing.T, srv *httptest.Server, current string) (SelfUpda
 		t.Fatal(err)
 	}
 	return SelfUpdateOptions{BinaryPath: bin, Current: current, BaseURL: srv.URL, goos: "linux", goarch: "amd64",
-		run: func(context.Context, string, ...string) (string, error) { return "", nil }}, bin
+		run: func(context.Context, string, ...string) (string, error) {
+			return strings.TrimPrefix(publishedTag(srv), "v") + " (abc1234)", nil
+		}}, bin
 }
 
 func TestUpgradeReplacesAnOlderBinaryWithTheVerifiedRelease(t *testing.T) {
@@ -89,6 +106,75 @@ func TestUpgradeReplacesAnOlderBinaryWithTheVerifiedRelease(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(bin); string(b) != "new build" {
 		t.Fatalf("binary = %q", b)
+	}
+}
+
+// The signature covers the checksums, and the checksums name hashes and assets,
+// not a version. A mirror, or replaced release assets, could serve an old
+// release's genuine checksums, signature and binary under a newer tag: all of it
+// verifies, and the downgrade guard sees a newer tag. What the binary says it is
+// is the one thing left that does not come from the same place.
+func TestUpgradeRefusesADownloadThatReportsAnotherRelease(t *testing.T) {
+	for _, reported := range []string{"1.3.6 (abc1234)", "v1.3.6", "", "garbage", "main-sha-abc1234 (abc1234)"} {
+		t.Run(reported, func(t *testing.T) {
+			srv := updateServer(t, "v1.9.0", "an older release", sumOf("an older release"))
+			opts, bin := updateFixture(t, srv, "v1.3.0")
+			opts.run = func(context.Context, string, ...string) (string, error) { return reported, nil }
+			_, err := SelfUpdate(context.Background(), opts)
+			if err == nil || !strings.Contains(err.Error(), "not the release that was asked for") {
+				t.Fatalf("err = %v; want a refusal that says the download is not the release asked for", err)
+			}
+			if b, _ := os.ReadFile(bin); string(b) != "old" {
+				t.Fatalf("the installed binary was replaced: %q", b)
+			}
+			if left, _ := filepath.Glob(filepath.Join(filepath.Dir(bin), ".zoomies-update-*")); len(left) != 0 {
+				t.Fatalf("the refused download was left behind: %v", left)
+			}
+		})
+	}
+}
+
+// What a release binary reports is stamped without the leading v, and a build
+// of the rolling channel reports whatever the build was called, so neither may
+// be refused.
+func TestUpgradeAcceptsADownloadThatReportsTheReleaseItWasAskedFor(t *testing.T) {
+	for _, tc := range []struct{ tag, reported string }{
+		{"v1.9.0", "1.9.0 (abc1234)"},
+		{"v1.9.0", "v1.9.0"},
+		{"v1.9.0", "1.9.0"},
+		{"dev", "main-sha-abc1234 (abc1234)"},
+	} {
+		t.Run(tc.tag+" reporting "+tc.reported, func(t *testing.T) {
+			srv := updateServer(t, tc.tag, "the release", sumOf("the release"))
+			opts, bin := updateFixture(t, srv, "v1.3.0")
+			opts.Version = tc.tag
+			opts.run = func(context.Context, string, ...string) (string, error) { return tc.reported, nil }
+			res, err := SelfUpdate(context.Background(), opts)
+			if err != nil || !res.Updated {
+				t.Fatalf("res=%+v err=%v; want the release installed", res, err)
+			}
+			if b, _ := os.ReadFile(bin); string(b) != "the release" {
+				t.Fatalf("binary = %q", b)
+			}
+		})
+	}
+}
+
+// The upgrade re-executes itself inside the binary it just installed, and the
+// run that waits for the service has to know the kept binary is the one the
+// self-update wrote, not one left from an earlier upgrade. The marker is the
+// kept file's digest, so a file replaced since does not match it.
+func TestTheKeptBinaryMarkerNamesTheFileTheUpgradeKept(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "zoomies")
+	if got := KeptPreviousMarker(bin); got != "" {
+		t.Fatalf("marker = %q with nothing kept; want none", got)
+	}
+	if err := os.WriteFile(bin+PreviousSuffix, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	want := KeptPreviousEnv + "=" + sumOf("old")
+	if got := KeptPreviousMarker(bin); got != want {
+		t.Fatalf("marker = %q; want %q", got, want)
 	}
 }
 
@@ -316,6 +402,7 @@ func TestInstallKeepsThePreviousBinaryBesideIt(t *testing.T) {
 	srv2 := updateServer(t, "v1.5.0", "newer build", sumOf("newer build"))
 	opts.BaseURL = srv2.URL
 	opts.Current = "v1.4.0"
+	opts.run = func(context.Context, string, ...string) (string, error) { return "1.5.0 (abc1234)", nil }
 	install()
 	if b, _ := os.ReadFile(bin); string(b) != "newer build" {
 		t.Fatalf("binary = %q", b)

@@ -52,7 +52,6 @@
   import ActivityStatus from '$lib/jobs/ActivityStatus.svelte';
   import { workflowActivity } from '$lib/jobs/activity-status';
   import { prefs } from '$lib/state/prefs.svelte';
-  import { visualStyle } from '$lib/state/ui-style.svelte';
   import { viewport } from '$lib/state/viewport.svelte';
   import { endOfDay, endOfMoment, startOfDay, startOfMoment } from '$lib/jobs/DateRange.svelte';
   import { jobFilterState } from '$lib/jobs/filter-state.svelte';
@@ -81,8 +80,9 @@
   const { patch, clearFilters, setView } = filterState;
   // The search stays in view and the rest of the filters fold behind a summary,
   // as on Jobs: on a phone the controls otherwise filled the screen and the
-  // runs themselves were entirely below the fold.
-  const compact = $derived(visualStyle.choice === 'mission-control' && viewport.phone);
+  // runs themselves were entirely below the fold. The viewport decides, not the
+  // visual style: Classic has the same small screen.
+  const compact = $derived(viewport.phone);
 
   /* -- facets and live rows -------------------------------------------------- */
 
@@ -653,13 +653,7 @@
   <RunJobs {run} onopen={open} />
 {/snippet}
 
-<PageHeader
-  title="Workflows"
-  subtitle={filters.all
-    ? 'Every workflow run GitHub has told Zoomies about, whatever ran it, and the jobs inside each.'
-    : 'The workflow runs this fleet claims, runs or is waiting to run, and the jobs inside each.'}
-  onrefresh={refreshPage}
-/>
+<PageHeader title="Workflows" onrefresh={refreshPage} />
 <PageBand page="workflows" line={bandLine}>
   <!-- The sentence counts the jobs in flight; the rows say whose they are. -->
   {#snippet aside()}
@@ -667,9 +661,22 @@
   {/snippet}
 </PageBand>
 
+{#snippet viewChips()}
+  {@const pressed = viewSelection(view)}
+  <FilterChips
+    label="Filter jobs by status"
+    options={jobViewChips(undefined, false)}
+    selected={pressed.selected}
+    none={pressed.none}
+    onchange={(next) => setView(pickView(view, next))}
+  />
+{/snippet}
+
 <div class="content">
   <JobFilters
     {compact}
+    foldFacets
+    stateFacet={view === ''}
     statusChips={view === ''}
     said={viewSaid(view, setView)}
     value={filters}
@@ -698,18 +705,9 @@
     {#snippet actions()}
       <LevelSwitch level="runs" />
     {/snippet}
-    {#snippet toolbar()}
-      {@const pressed = viewSelection(view)}
-      <FilterChips
-        label="Filter jobs by status"
-        options={jobViewChips(undefined, false)}
-        selected={pressed.selected}
-        none={pressed.none}
-        onchange={(next) => setView(pickView(view, next))}
-      />
-    {/snippet}
     <DataGrid
       gridId="workflows"
+      toolbar={viewChips}
       label="Workflow runs"
       {columns}
       fetcher={fetchCounted}

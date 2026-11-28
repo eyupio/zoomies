@@ -135,3 +135,43 @@ func TestKillsOfContainersThatAreGoneAreForgotten(t *testing.T) {
 		t.Fatalf("ledger = %+v", b.oomKills.kills)
 	}
 }
+
+// A job that runs `docker run -m 64m` and carries on when that container is
+// killed has not run out of the runner's memory. The kernel still counts the
+// kill in every folder above it, and reading that as the sidecar's own failed
+// a job that had succeeded, fed its memory history and could run it again.
+func TestAKillUnderALimitTheJobSetItselfIsNotTheSidecars(t *testing.T) {
+	e := newSidecarEngine(t,
+		ContainerState{Status: "exited", ExitCode: 0},
+		ContainerState{Status: "running", Running: true, Pid: 4242})
+	b := dockerBackendFor(t, e.fakeEngine, DockerOptions{})
+	b.procRoot, b.cgroupRoot = cgroupTree(t, "4242", "0::/docker/dind1", "docker/dind1", eventsWithKill)
+	local := filepath.Join(b.cgroupRoot, "docker/dind1", "memory.events.local")
+
+	// The sidecar's own limit was never reached: the kills were further down.
+	if err := os.WriteFile(local, []byte("low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b.noteOOMKills(context.Background(), "dind1")
+	if n := b.oomKillsSeen("dind1"); n != 0 {
+		t.Fatalf("kills remembered = %d for a limit the job set itself, want none", n)
+	}
+	got, err := b.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range got {
+		if !w.Sidecar && (w.Status.OOMKilled || w.Status.Phase == PhaseFailed) {
+			t.Fatalf("status = %+v, want a clean job left clean", w.Status)
+		}
+	}
+
+	// Once the sidecar's own limit is what ran out, the kill is its own.
+	if err := os.WriteFile(local, []byte("low 0\nhigh 0\nmax 9\noom 1\noom_kill 0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b.noteOOMKills(context.Background(), "dind1")
+	if n := b.oomKillsSeen("dind1"); n != 2 {
+		t.Fatalf("kills remembered = %d once the sidecar's own limit ran out, want 2", n)
+	}
+}

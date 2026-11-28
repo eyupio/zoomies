@@ -339,6 +339,39 @@ func TestEnsureUser(t *testing.T) {
 		}
 	})
 
+	// The account ZOOMIES_BOOTSTRAP_ADMIN makes has no password either, so the
+	// password check alone lets a sign-in as "admin" claim it, with the platform
+	// role and the automation's token. What tells it from an account made
+	// ahead of somebody's first sign-in is that automation already holds a
+	// credential for it.
+	t.Run("does not adopt an account that automation holds tokens for", func(t *testing.T) {
+		st := newStore(t)
+		boot := addUser(t, st, "admin", store.RolePlatform, func(u *store.User) { u.PasswordHash = "" })
+		if err := st.CreateAPIToken(ctx, &store.APIToken{
+			Name: "bootstrap", Role: store.RolePlatform, OwnerRole: store.RolePlatform, UserID: boot.ID, TokenHash: "h-boot",
+		}); err != nil {
+			t.Fatal(err)
+		}
+
+		_, err := p.EnsureUser(ctx, st, &Claims{Subject: "sub-11", Username: "admin", Role: store.RoleViewer}, true)
+		if err == nil || !strings.Contains(err.Error(), "API tokens") || !strings.Contains(err.Error(), "link_by_username") {
+			t.Fatalf("EnsureUser = %v; want a refusal that says why and names the setting", err)
+		}
+		stored, err := st.GetUser(ctx, boot.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stored.OIDCSubject != "" || stored.Role != store.RolePlatform {
+			t.Fatalf("the account was changed anyway: subject %q, role %q", stored.OIDCSubject, stored.Role)
+		}
+
+		linking := &OIDCProvider{cfg: config.OIDC{LinkByUsername: true}}
+		got, err := linking.EnsureUser(ctx, st, &Claims{Subject: "sub-11", Username: "admin"}, false)
+		if err != nil || got.ID != boot.ID || got.OIDCSubject != "sub-11" {
+			t.Fatalf("EnsureUser with link_by_username = %+v, %v; want the account linked when the operator asked for exactly that", got, err)
+		}
+	})
+
 	t.Run("refuses a second identity for one username", func(t *testing.T) {
 		st := newStore(t)
 		addUser(t, st, "alice", store.RoleViewer, func(u *store.User) { u.OIDCSubject = "sub-1" })
@@ -440,5 +473,31 @@ func TestAnUnreachableProviderIsADiscoveryFailureAndAMissingSettingIsNot(t *test
 	cfg.ClientSecret = ""
 	if _, err := NewOIDC(t.Context(), cfg, "https://zoomies.example.com"); err == nil || errors.Is(err, ErrOIDCDiscovery) {
 		t.Errorf("a missing client secret = %v; want a configuration error, not a discovery failure", err)
+	}
+}
+
+// The identity provider decides a linked account's role, but a group name
+// typed wrong must not be able to leave the instance with nobody who can
+// administer it: only a shell on the host could then put that right.
+func TestSingleSignOnKeepsTheRoleOfTheLastPlatformAccount(t *testing.T) {
+	s, st, _ := newService(t)
+	ctx := t.Context()
+	if _, err := s.CreateFirstAdmin(ctx, "root", "correct horse battery"); err != nil {
+		t.Fatal(err)
+	}
+	p := &OIDCProvider{cfg: config.OIDC{AdminGroups: []string{"zoomies-admins"}, LinkByUsername: true}}
+	claims, err := p.claimsFrom("subject-1", map[string]any{"preferred_username": "root", "groups": []any{"engineering"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := p.EnsureUser(ctx, st, claims, false)
+	if err != nil {
+		t.Fatalf("the sign-in was refused: %v", err)
+	}
+	if u.Role != store.RolePlatform {
+		t.Errorf("role = %s, want platform: the last platform account was demoted", u.Role)
+	}
+	if n, _ := st.CountPlatform(ctx); n != 1 {
+		t.Errorf("platform accounts = %d, want 1", n)
 	}
 }

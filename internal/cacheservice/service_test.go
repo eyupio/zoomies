@@ -6,11 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -627,6 +630,119 @@ func TestStagedBytesAreBoundedAcrossOpenUploads(t *testing.T) {
 	}
 }
 
+// The room an upload may use is worked out when it starts, and what it writes
+// is recorded when it ends. Between the two the bytes are on the disk and
+// counted nowhere, so uploads that overlap each saw the same full room and each
+// wrote up to the limit: N parallel blocks wrote N times the bound onto the
+// disk the host's containers share. The room has to be handed out, not just
+// looked at.
+func TestConcurrentUploadsCannotStagePastTheBound(t *testing.T) {
+	const bound = 1000
+	for _, tc := range []struct {
+		name        string
+		reservation bool // true: a reservation of its own for each upload
+	}{
+		{"many blocks of one reservation", false},
+		{"one block each of many reservations", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t, Options{MaxBytes: bound})
+			const uploads = 8
+			urls := make([]string, uploads)
+			shared, _ := h.reserve(mainToken, "shared")
+			for i := range urls {
+				urls[i] = shared
+				if tc.reservation {
+					urls[i], _ = h.reserve(mainToken, fmt.Sprintf("key-%d", i))
+				}
+				block := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("b%d", i)))
+				urls[i] += "?comp=block&blockid=" + block
+			}
+
+			// Each body sends one byte and then waits, so every upload is inside
+			// the service, past the point where it learns its room, before any
+			// of them has written the rest.
+			gate := make(chan struct{})
+			statuses := make([]int, uploads)
+			var wg sync.WaitGroup
+			for i := range urls {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					body := io.MultiReader(bytes.NewReader([]byte("x")), readerFunc(func(p []byte) (int, error) {
+						<-gate
+						n := copy(p, bytes.Repeat([]byte("x"), min(len(p), bound-1)))
+						return n, io.EOF
+					}))
+					r, _ := http.NewRequest(http.MethodPut, urls[i], body)
+					r.Header.Set("x-ms-blob-type", "BlockBlob")
+					resp, err := http.DefaultClient.Do(r)
+					if err != nil {
+						statuses[i] = -1
+						return
+					}
+					resp.Body.Close()
+					statuses[i] = resp.StatusCode
+				}()
+			}
+			time.Sleep(300 * time.Millisecond)
+			close(gate)
+			wg.Wait()
+
+			stored := 0
+			for _, st := range statuses {
+				if st == http.StatusCreated {
+					stored++
+				}
+			}
+			var onDisk int64
+			_ = filepath.WalkDir(h.svc.pendingDir(), func(path string, d fs.DirEntry, err error) error {
+				if err == nil && !d.IsDir() {
+					if info, err := d.Info(); err == nil {
+						onDisk += info.Size()
+					}
+				}
+				return nil
+			})
+			if onDisk > bound {
+				t.Errorf("%d bytes are staged on disk against a bound of %d (statuses %v)", onDisk, bound, statuses)
+			}
+			if stored > 1 {
+				t.Errorf("%d uploads of %d bytes were accepted against a bound of %d (statuses %v)", stored, bound, bound, statuses)
+			}
+		})
+	}
+}
+
+// Handing the room out must not take away what one upload alone may use: a
+// single upload of exactly the bound is accepted, and a block that replaces
+// another is given the room the old one is about to free.
+func TestHandingOutRoomStillLetsOneUploadUseAllOfIt(t *testing.T) {
+	t.Run("an upload of exactly the bound", func(t *testing.T) {
+		h := newHarness(t, Options{MaxBytes: 1000})
+		url, _ := h.reserve(mainToken, "whole")
+		if st := h.put(url, bytes.Repeat([]byte("x"), 1000)); st != http.StatusCreated {
+			t.Fatalf("an upload of exactly the bound answered %d", st)
+		}
+	})
+	t.Run("a block replacing a smaller one", func(t *testing.T) {
+		h := newHarness(t, Options{MaxBytes: 1000})
+		url, _ := h.reserve(mainToken, "blocks")
+		block := url + "?comp=block&blockid=" + base64.StdEncoding.EncodeToString([]byte("b0"))
+		if st := h.put(block, bytes.Repeat([]byte("x"), 600)); st != http.StatusCreated {
+			t.Fatalf("the first block answered %d", st)
+		}
+		if st := h.put(block, bytes.Repeat([]byte("y"), 900)); st != http.StatusCreated {
+			t.Fatalf("a block of 900 replacing one of 600, under a bound of 1000, answered %d", st)
+		}
+	})
+}
+
+// readerFunc is an io.Reader made from a function.
+type readerFunc func(p []byte) (int, error)
+
+func (f readerFunc) Read(p []byte) (int, error) { return f(p) }
+
 func TestBytesInFlightCountAgainstTheCeilingWhenEvicting(t *testing.T) {
 	// The ceiling is 25. An upload of 10 is open, so only 15 of finished entries
 	// fit beside it: finishing a 10 byte save must push the older entry out.
@@ -757,5 +873,103 @@ func TestABlockArrivingForAnExpiredReservationLeavesNoFolderBehind(t *testing.T)
 	}
 	if _, err := os.Stat(h.svc.pendingPath(id)); err == nil {
 		t.Fatal("the expired reservation's folder was recreated")
+	}
+}
+
+func TestABudgetCanShrinkToZeroAndGrowWithoutRestartingTheService(t *testing.T) {
+	b := NewBudget(100)
+	h := newHarness(t, Options{Budget: b})
+	h.save(mainToken, "old", "v", []byte("old data"))
+	b.SetMaxBytes(0)
+	if h.svc.Stats().StoredBytes != 0 {
+		t.Fatal("live budget did not evict existing entries")
+	}
+	if _, status := h.reserve(mainToken, "no-room"); status == http.StatusOK {
+		t.Fatal("zero remaining budget accepted a save")
+	}
+	b.SetMaxBytes(100)
+	if !h.save(mainToken, "new", "v", []byte("new data")) {
+		t.Fatal("larger live budget did not permit a save")
+	}
+}
+
+// An upload that says how long it is takes that much of the room and no more.
+// Handed the whole room, the first block of an archive left none for the blocks
+// the toolkit sends beside it, which failed the save; no other job could start
+// one; and a save that finished meanwhile counted the whole room as stored and
+// evicted every entry the pool had.
+func TestUploadsThatSayTheirLengthShareTheRoomAndEvictNothing(t *testing.T) {
+	// What the agent gives the service: a budget and nothing else.
+	h := newHarness(t, Options{Budget: NewBudget(1 << 20)})
+	h.save(mainToken, "old", "v", []byte("kept"))
+	big, _ := h.reserve(mainToken, "big")
+	beside, _ := h.reserve(mainToken, "beside")
+	if st := h.put(beside, []byte("beside")); st != http.StatusCreated {
+		t.Fatalf("the upload beside answered %d", st)
+	}
+
+	const blocks = 4
+	gate := make(chan struct{})
+	statuses := make(chan int, blocks)
+	for i := range blocks {
+		go func() {
+			// More than the client buffers, then a wait before the last byte, so
+			// every block is inside the service at once.
+			const first = 8 << 10
+			body := io.MultiReader(strings.NewReader(strings.Repeat("x", first)), readerFunc(func(p []byte) (int, error) {
+				<-gate
+				p[0] = 'x'
+				return 1, io.EOF
+			}))
+			id := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("b%d", i)))
+			r, _ := http.NewRequest(http.MethodPut, big+"?comp=block&blockid="+id, body)
+			r.ContentLength = first + 1
+			resp, err := http.DefaultClient.Do(r)
+			if err != nil {
+				statuses <- -1
+				return
+			}
+			resp.Body.Close()
+			statuses <- resp.StatusCode
+		}()
+	}
+	time.Sleep(300 * time.Millisecond)
+	if _, st := h.reserve(mainToken, "another"); st != http.StatusOK {
+		t.Errorf("a save could not start while another was uploading: %d", st)
+	}
+	h.call(mainToken, "FinalizeCacheEntryUpload", map[string]string{"key": "beside", "version": "v", "sizeBytes": "6"})
+	close(gate)
+	for range blocks {
+		if st := <-statuses; st != http.StatusCreated {
+			t.Errorf("a block uploaded beside the others answered %d", st)
+		}
+	}
+	if key, _ := h.restore(mainToken, "old", "v"); key == "" {
+		t.Error("a save that finished during an upload evicted an entry from a pool with room to spare")
+	}
+}
+
+// What a job chooses must not be free to keep. A key is held in memory and on
+// disk for as long as its entry is, and an entry of no bytes weighed nothing
+// against the ceiling, so a job could file entries of megabyte keys until the
+// agent's memory or the host's disk ran out.
+func TestEmptyEntriesAndLongKeysCannotGrowTheServiceWithoutBound(t *testing.T) {
+	h := newHarness(t, Options{MaxBytes: 5})
+	for i := range 8 {
+		if !h.save(mainToken, fmt.Sprintf("empty-%d", i), "v", nil) {
+			t.Fatalf("empty save %d was refused", i)
+		}
+	}
+	if n := h.svc.Stats().Entries; n > 5 {
+		t.Errorf("%d entries of no bytes are kept under a ceiling of 5 bytes", n)
+	}
+	long := strings.Repeat("k", maxKeyRunes+1)
+	for _, req := range []map[string]string{{"key": long, "version": "v"}, {"key": "k", "version": long}} {
+		if st, _ := h.call(mainToken, "CreateCacheEntry", req); st != http.StatusBadRequest {
+			t.Errorf("a key or version of %d characters answered %d", maxKeyRunes+1, st)
+		}
+	}
+	if st, _ := h.call(mainToken, "CreateCacheEntry", map[string]string{"key": long[1:], "version": "v"}); st != http.StatusOK {
+		t.Errorf("a key of exactly %d characters answered %d", maxKeyRunes, st)
 	}
 }

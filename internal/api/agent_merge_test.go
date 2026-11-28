@@ -27,7 +27,9 @@ func mergeCommit(t *testing.T, f *github.FakeGitHub, repo, commit string, parent
 	f.Archive(repo, commit, files)
 }
 
-func prepareMergeForTest(t *testing.T, h *harness) controller.MergePrepared {
+// prepareMergeForTest builds one merge attempt and queues its task to hostID,
+// which is what binds the attempt to that host, as the conflict loop does.
+func prepareMergeForTest(t *testing.T, h *harness, hostID string) controller.MergePrepared {
 	t.Helper()
 	f := github.NewFake()
 	t.Cleanup(f.Close)
@@ -43,6 +45,9 @@ func prepareMergeForTest(t *testing.T, h *harness) controller.MergePrepared {
 	if err != nil {
 		t.Fatalf("preparing the merge: %v", err)
 	}
+	if !h.ctrl.QueueMergeConflict(hostID, prepared) {
+		t.Fatal("the merge task was not taken by the host that should run it")
+	}
 	return prepared
 }
 
@@ -50,8 +55,8 @@ func prepareMergeForTest(t *testing.T, h *harness) controller.MergePrepared {
 // answer. A second pull or answer is refused rather than replacing the first.
 func TestAnAgentPullsAndAnswersAMergeOnce(t *testing.T) {
 	h := newHarness(t)
-	_, token := h.agentToken("vm-merge")
-	prepared := prepareMergeForTest(t, h)
+	hostID, token := h.agentToken("vm-merge")
+	prepared := prepareMergeForTest(t, h, hostID)
 	id := prepared.ID
 
 	pull := h.do(request{method: http.MethodGet, path: "/api/v1/agent/merge/" + id, token: token})
@@ -85,8 +90,8 @@ func TestAnAgentPullsAndAnswersAMergeOnce(t *testing.T) {
 
 func TestAMergeAnswerMustSayExactlyOneThing(t *testing.T) {
 	h := newHarness(t)
-	_, token := h.agentToken("vm-merge")
-	prepared := prepareMergeForTest(t, h)
+	hostID, token := h.agentToken("vm-merge")
+	prepared := prepareMergeForTest(t, h, hostID)
 	id := prepared.ID
 
 	empty := h.do(request{method: http.MethodPost, path: "/api/v1/agent/merge/" + id, token: token,
@@ -103,4 +108,33 @@ func TestAMergePullForAnUnknownAttemptIsNotFound(t *testing.T) {
 	_, token := h.agentToken("vm-merge")
 	resp := h.do(request{method: http.MethodGet, path: "/api/v1/agent/merge/not-an-attempt", token: token})
 	resp.mustStatus(t, http.StatusNotFound, "pulling an unknown merge attempt")
+}
+
+// An attempt is the one host's: the task that names it goes to that host alone,
+// and the repository it holds is a private repository's three commits. Every
+// agent can reach these routes with its own token, so the id is the only thing
+// that kept another agent out, and an id is a thing a log line or a stray
+// request can carry. A host that was not given the attempt is told it is not
+// there, which is also what it would be told for an id that never existed, and
+// its trying does not spend the real host's one pull or one answer.
+func TestAMergeAttemptCanOnlyBePulledAndAnsweredByTheHostItWasGivenTo(t *testing.T) {
+	h := newHarness(t)
+	owner, ownerToken := h.agentToken("vm-owner")
+	_, otherToken := h.agentToken("vm-other")
+	prepared := prepareMergeForTest(t, h, owner)
+	path := "/api/v1/agent/merge/" + prepared.ID
+
+	h.do(request{method: http.MethodGet, path: path, token: otherToken}).
+		mustStatus(t, http.StatusNotFound, "another host pulling an attempt it was not given")
+	h.do(request{method: http.MethodPost, path: path, token: otherToken,
+		body: gitmerge.WorkerResponse{Result: &gitmerge.Result{Tree: strings.Repeat("f", 40)}}}).
+		mustStatus(t, http.StatusNotFound, "another host answering an attempt it was not given")
+
+	// The attempt is untouched by either: its own host can still pull it, and
+	// its answer, not the other host's, is the one recorded.
+	h.do(request{method: http.MethodGet, path: path, token: ownerToken}).
+		mustStatus(t, http.StatusOK, "the host that was given the attempt pulling it")
+	h.do(request{method: http.MethodPost, path: path, token: ownerToken,
+		body: gitmerge.WorkerResponse{Result: &gitmerge.Result{Tree: strings.Repeat("d", 40)}}}).
+		mustStatus(t, http.StatusNoContent, "the host that was given the attempt answering it")
 }

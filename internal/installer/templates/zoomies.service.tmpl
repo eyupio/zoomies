@@ -28,7 +28,7 @@ Group={{.Group}}
 # A rootless socket needs no group; this line is here because one was chosen.
 SupplementaryGroups={{join .SupplementaryGroups " "}}
 {{- end}}
-ExecStart={{.ExecPath}} {{.Command}} --config {{.ConfigFile}}
+ExecStart={{execPath .ExecPath}} {{.Command}} --config {{execArg .ConfigFile}}
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=5s
@@ -49,7 +49,7 @@ StateDirectoryMode=0750
 ConfigurationDirectory=zoomies
 ConfigurationDirectoryMode=0750
 {{- end}}
-WorkingDirectory={{.StateDir}}
+WorkingDirectory={{setting .StateDir}}
 
 # --- Hardening ---
 NoNewPrivileges=yes
@@ -83,7 +83,7 @@ CapabilityBoundingSet=
 AmbientCapabilities=
 {{- end}}
 UMask=0027
-ReadWritePaths={{.StateDir}}
+ReadWritePaths={{pathList .StateDir}}
 
 [Install]
 WantedBy=multi-user.target

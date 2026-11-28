@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_from": "92bf6ef",
+  "generated_from": "1ead14f",
   "entries": [
     {
       "id": "agent.backend_missing",
@@ -249,6 +249,20 @@
       "fix": "The process backend is running as root, so every job is root on the host.",
       "verify": null,
       "setting": "agent.backend",
+      "docs_html": "https://zoomies.sh/problem-codes/#configuration-the-agent",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#configuration-the-agent"
+    },
+    {
+      "id": "agent.registry_mirror.max_bytes",
+      "kind": "problem",
+      "title": "agent.registry_mirror.max_bytes",
+      "category": "configuration",
+      "severity": "error",
+      "detection": "static",
+      "detects": "Must be 0 (the default of 10 GiB) or at least 1073741824 bytes (1 GiB); a smaller mirror would evict what it had just fetched.",
+      "fix": "Must be 0 (the default of 10 GiB) or at least 1073741824 bytes (1 GiB); a smaller mirror would evict what it had just fetched.",
+      "verify": null,
+      "setting": "agent.registry_mirror.max_bytes",
       "docs_html": "https://zoomies.sh/problem-codes/#configuration-the-agent",
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#configuration-the-agent"
     },
@@ -1304,6 +1318,20 @@
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#runtime-hosts-and-installations"
     },
     {
+      "id": "host.low_disk",
+      "kind": "problem",
+      "title": "host.low_disk",
+      "category": "reliability",
+      "severity": "error",
+      "detection": "runtime",
+      "detects": "A connected, uncordoned host has spare slots but cannot place a runner of one or more enabled, matching pools because of disk. The scheduler's own ledger names each affected pool, its next runner's disk charge, free space, the host reserve, allocatable space and commitments to live runners. Other pools may still fit. Inspect disk use, reclaim unused images and build caches, review Zoomies pool caches or enlarge the work filesystem. Lower resources.disk_gb only when the jobs need less room. Running jobs continue; nothing is deleted automatically. Full hosts, unknown disk and pools the machine could never serve are not reported. The doctor's disk.space check is only a filesystem baseline and can pass while placement is refused.",
+      "fix": "A connected, uncordoned host has spare slots but cannot place a runner of one or more enabled, matching pools because of disk. The scheduler's own ledger names each affected pool, its next runner's disk charge, free space, the host reserve, allocatable space and commitments to live runners. Other pools may still fit. Inspect disk use, reclaim unused images and build caches, review Zoomies pool caches or enlarge the work filesystem. Lower resources.disk_gb only when the jobs need less room. Running jobs continue; nothing is deleted automatically. Full hosts, unknown disk and pools the machine could never serve are not reported. The doctor's disk.space check is only a filesystem baseline and can pass while placement is refused.",
+      "verify": "The host's Disk blocked state and problem clear automatically when its next runner fits; no restart or uncordon is needed.",
+      "status_sentence": "A machine has spare slots but too little disk for new runners of one or more pools.",
+      "docs_html": "https://zoomies.sh/problem-codes/#runtime-hosts-and-installations",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#runtime-hosts-and-installations"
+    },
+    {
       "id": "host.memory_pool_exhausted",
       "kind": "problem",
       "title": "host.memory_pool_exhausted",
@@ -1354,6 +1382,20 @@
       "detects": "An update installed on a connected host takes effect only after it restarts, usually a newer kernel. It stays until the host has rebooted, whether or not anything is running on it. The entry says when there is no runner on the host, so it can be rebooted now. Otherwise it says to cordon the host and reboot it when `zoomies runners list --host \u003chost-id\u003e --state busy` shows nothing, because a runner kept warm for a pool waits for work and never finishes by itself, and a count of runners cannot tell it from one holding a job. Zoomies never reboots a host. It never reaches the public status page.",
       "fix": "An update installed on a connected host takes effect only after it restarts, usually a newer kernel. It stays until the host has rebooted, whether or not anything is running on it. The entry says when there is no runner on the host, so it can be rebooted now. Otherwise it says to cordon the host and reboot it when `zoomies runners list --host \u003chost-id\u003e --state busy` shows nothing, because a runner kept warm for a pool waits for work and never finishes by itself, and a count of runners cannot tell it from one holding a job. Zoomies never reboots a host. It never reaches the public status page.",
       "verify": "The host page stops showing a pending reboot after the host comes back, and the entry leaves the list.",
+      "docs_html": "https://zoomies.sh/problem-codes/#runtime-hosts-and-installations",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#runtime-hosts-and-installations"
+    },
+    {
+      "id": "host.registry_mirror_degraded",
+      "kind": "problem",
+      "title": "host.registry_mirror_degraded",
+      "category": "reliability",
+      "severity": "warning",
+      "detection": "runtime",
+      "detects": "A host's agent says its [registry mirror](configuration.md#agentregistry_mirrorenabled-and-agentregistry_mirrormax_bytes-keep-what-the-sidecars-pull) is on and something is wrong with it, and an enabled pool that would be given the mirror could run there. The detail says which of six things it is: the agent runs in a container, the host has no shared folder to keep the mirror in, the mirror's own folder could not be written, the host's address on the sidecars' network was not found, the mirror could not listen or stopped listening, or Docker Hub has failed it for five minutes without a break. Nothing fails: the sidecars on that host pull from Docker Hub as they did before, only slower and against its limit. It is not raised for a pool that runs a sidecar image of its own, which is not given the mirror, or when no pool could use it.",
+      "fix": "A host's agent says its [registry mirror](configuration.md#agentregistry_mirrorenabled-and-agentregistry_mirrormax_bytes-keep-what-the-sidecars-pull) is on and something is wrong with it, and an enabled pool that would be given the mirror could run there. The detail says which of six things it is: the agent runs in a container, the host has no shared folder to keep the mirror in, the mirror's own folder could not be written, the host's address on the sidecars' network was not found, the mirror could not listen or stopped listening, or Docker Hub has failed it for five minutes without a break. Nothing fails: the sidecars on that host pull from Docker Hub as they did before, only slower and against its limit. It is not raised for a pool that runs a sidecar image of its own, which is not given the mirror, or when no pool could use it.",
+      "verify": "Fix the cause the detail names. The next runner that starts a sidecar tries again, and the next heartbeat clears this once the mirror is serving. Turn `agent.registry_mirror.enabled` off on the host to stop it for good.",
+      "status_sentence": "A machine is not keeping the container images its jobs pull, so jobs there download them again and may start slower.",
       "docs_html": "https://zoomies.sh/problem-codes/#runtime-hosts-and-installations",
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#runtime-hosts-and-installations"
     },
@@ -2429,6 +2471,19 @@
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#runtime-hosts-and-installations"
     },
     {
+      "id": "pool.registry_mirror_unused",
+      "kind": "problem",
+      "title": "pool.registry_mirror_unused",
+      "category": "capacity",
+      "severity": "info",
+      "detection": "runtime",
+      "detects": "A registry mirror is on at a host that could run this pool, and none of those hosts would give the pool the mirror, because the pool's own `dind_image`, or `agent.dind_image` on the host, names a docker-in-docker sidecar image of the operator's own. That is where an operator keeps a `daemon.json`, and a mirror named in two places stops the daemon starting, so the sidecar is left as it was and pulls from Docker Hub. Nothing is wrong if the image is meant.",
+      "fix": "A registry mirror is on at a host that could run this pool, and none of those hosts would give the pool the mirror, because the pool's own `dind_image`, or `agent.dind_image` on the host, names a docker-in-docker sidecar image of the operator's own. That is where an operator keeps a `daemon.json`, and a mirror named in two places stops the daemon starting, so the sidecar is left as it was and pulls from Docker Hub. Nothing is wrong if the image is meant.",
+      "verify": "Nothing to do if the image is meant: bake a mirror into it, as [persistent-caches.md](persistent-caches.md) describes. Otherwise clear the image so the pool uses the default sidecar, which the mirror serves. The entry goes when either changes.",
+      "docs_html": "https://zoomies.sh/problem-codes/#runtime-pools-jobs-and-runners",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#runtime-pools-jobs-and-runners"
+    },
+    {
       "id": "pool.repository_scale_up_deferred",
       "kind": "problem",
       "title": "pool.repository_scale_up_deferred",
@@ -3045,6 +3100,20 @@
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#a-providers-preflight"
     },
     {
+      "id": "proxmox.setting_invalid",
+      "kind": "problem",
+      "title": "proxmox.setting_invalid",
+      "category": "configuration",
+      "severity": "error",
+      "detection": "static",
+      "detects": "A setting is not one of the answers it accepts: a machine type other than `qemu` or `lxc`, or a VLAN tag outside 1 to 4094.",
+      "fix": "Correct the setting the finding names.",
+      "verify": null,
+      "status_sentence": "A machine provider has a setting that is not one it can use.",
+      "docs_html": "https://zoomies.sh/problem-codes/#a-providers-preflight",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#a-providers-preflight"
+    },
+    {
       "id": "proxmox.storage_inactive",
       "kind": "problem",
       "title": "proxmox.storage_inactive",
@@ -3079,8 +3148,8 @@
       "category": "configuration",
       "severity": "error",
       "detection": "static",
-      "detects": "The storage exists and does not accept disk images, so a clone has nowhere to land.",
-      "fix": "Choose a storage whose content types include `images`.",
+      "detects": "The storage exists and does not accept what a machine's disk needs: disk images for a virtual machine, or `rootdir` for a container.",
+      "fix": "Choose a storage whose content types include the one the finding names.",
       "verify": null,
       "status_sentence": "Storage at a machine provider cannot hold machine images.",
       "docs_html": "https://zoomies.sh/problem-codes/#a-providers-preflight",
@@ -3093,8 +3162,8 @@
       "category": "configuration",
       "severity": "error",
       "detection": "static",
-      "detects": "No template VMID is configured, or nothing exists at it.",
-      "fix": "Prepare a template as the [runbook](proxmox.md#preparing-the-template) describes and give its VMID.",
+      "detects": "No template is configured, or nothing exists at it: a VMID for a virtual machine, or a container template archive on every node for a container.",
+      "fix": "Prepare a template as the [runbook](proxmox.md#preparing-the-template) describes, or for a container as [Containers](proxmox.md#preparing-the-container-template) does, and give its VMID or volume id.",
       "verify": null,
       "status_sentence": "A machine provider is missing the template new machines are made from.",
       "docs_html": "https://zoomies.sh/problem-codes/#a-providers-preflight",

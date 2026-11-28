@@ -46,6 +46,9 @@ type RestoreOptions struct {
 	ResetAgentTokens bool
 	// Now is the clock; nil uses the wall clock.
 	Now func() time.Time
+	// rename stands in for os.Rename on the last move, which puts the staged
+	// copy at database.path, so a test can make it fail; nil uses os.Rename.
+	rename func(oldpath, newpath string) error
 }
 
 // RestoreReport is what a restore did, in the order it did it, written for
@@ -84,9 +87,21 @@ func Check(ctx context.Context, cfg *config.Config, dir string) (*Manifest, stri
 		problem = merr.Error()
 		m = nil
 	}
-	// Checked in the order an operator would want to be stopped: is this
-	// file sound, can this binary read it, and is the key on this host the
-	// one that opens it?
+	// Checked in the order an operator would want to be stopped: is this the
+	// file that was taken, is it sound, can this binary read it, and is the
+	// key on this host the one that opens it?
+	//
+	// The manifest recorded what the file was when it was taken, so a copy that
+	// was truncated or swapped on the shelf is refused here whether or not the
+	// damaged file still opens, and with the reason an operator can act on
+	// rather than whatever the damage happens to look like to SQLite. A
+	// portable snapshot is compared by verifyDir below, which asks the same
+	// question first.
+	if m != nil && m.Transfer == nil {
+		if err := checkDigest(dbPath, m); err != nil {
+			return m, problem, err
+		}
+	}
 	if err := checkCopy(ctx, dbPath); err != nil {
 		return m, problem, err
 	}
@@ -108,6 +123,24 @@ func Check(ctx context.Context, cfg *config.Config, dir string) (*Manifest, stri
 		}
 	}
 	return m, problem, nil
+}
+
+// checkDigest compares the database with the digest the manifest recorded when
+// the backup was taken. A manifest with no digest (an older backup) has nothing
+// to compare, which is not a failure: the copy is still opened and checked.
+func checkDigest(dbPath string, m *Manifest) error {
+	if m.Database.SHA256 == "" {
+		return nil
+	}
+	sum, err := FileSHA256(dbPath)
+	if err != nil {
+		return fmt.Errorf("reading the backup's database to compare its digest: %w", err)
+	}
+	if sum != m.Database.SHA256 {
+		return errors.New("the backup's database is not the file its manifest recorded: its digest has changed, " +
+			"so it was altered or truncated after it was taken (restore a different backup, or run `zoomies backup verify` to see which copies are sound)")
+	}
+	return nil
 }
 
 // checkCopy opens the backup's database and asks it two questions: is it
@@ -208,6 +241,24 @@ func Restore(ctx context.Context, cfg *config.Config, dir string, opts RestoreOp
 	}
 
 	stamp := now().UTC().Format("20060102-150405")
+
+	// The copy is made, and synced, beside the live path before anything is
+	// moved. Moving the database aside first and copying after left nothing at
+	// the path whenever the copy failed, and a full disk is the likely reason
+	// (the file moved aside still holds its space): a controller started on that
+	// made a new, empty database, and the fleet came up with no pools, hosts or
+	// users. A copy that fails here has changed nothing.
+	staged := live + ".restoring-" + stamp
+	if err := copyFile(backupDB, staged); err != nil {
+		return nil, fmt.Errorf("copying the backup beside %s failed: %w. Nothing was moved, and the database at %s, if there was one, is as it was", live, err, live)
+	}
+	placed := false
+	defer func() {
+		if !placed {
+			_ = os.Remove(staged)
+		}
+	}()
+
 	switch _, err := os.Stat(live); {
 	case err == nil:
 		if !opts.Replace {
@@ -252,9 +303,22 @@ func Restore(ctx context.Context, cfg *config.Config, dir string, opts RestoreOp
 		return nil, fmt.Errorf("checking %s: %w", live, err)
 	}
 
-	if err := copyFile(backupDB, live); err != nil {
-		return nil, err
+	move := opts.rename
+	if move == nil {
+		move = os.Rename
 	}
+	if err := move(staged, live); err != nil {
+		moved := fmt.Errorf("moving the restored copy into place at %s: %w", live, err)
+		kept := live + ".before-restore-" + stamp
+		if report.MovedAside == "" && len(report.MovedLogs) == 0 {
+			return nil, moved
+		}
+		if backErr := putBackSetAside(live, kept, report.MovedAside != ""); backErr != nil {
+			return nil, fmt.Errorf("%w; and what was set aside could not be put back: %v. It is kept at %s", moved, backErr, kept)
+		}
+		return nil, fmt.Errorf("%w. What was there before has been put back, and nothing was changed", moved)
+	}
+	placed = true
 	if err := invalidate(ctx, live, dir, m, opts, report); err != nil {
 		return nil, restoreUnfinished(err, live, report)
 	}
@@ -403,10 +467,30 @@ func setAsideLiveDatabase(live, stamp string) (string, error) {
 	// SQLite would replay another database's log into this one.
 	for _, ext := range []string{"-wal", "-shm"} {
 		if err := os.Rename(live+ext, kept+ext); err != nil && !errors.Is(err, os.ErrNotExist) {
+			// The database has moved and its log has not: put it back, or the
+			// path is left empty and the log is left to be replayed into
+			// whatever is started there.
+			_ = putBackSetAside(live, kept, true)
 			return "", fmt.Errorf("moving %s aside: %w", live+ext, err)
 		}
 	}
 	return kept, nil
+}
+
+// putBackSetAside undoes setAsideLiveDatabase, or setAsideOrphanedLogs when
+// database is false: each file goes back under the name it was moved from.
+func putBackSetAside(live, kept string, database bool) error {
+	if database {
+		if err := os.Rename(kept, live); err != nil {
+			return fmt.Errorf("moving %s back: %w", kept, err)
+		}
+	}
+	for _, ext := range []string{"-wal", "-shm"} {
+		if err := os.Rename(kept+ext, live+ext); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("moving %s back: %w", kept+ext, err)
+		}
+	}
+	return nil
 }
 
 // sameFile reports whether two paths are the same file on disk. A path that is
@@ -445,6 +529,14 @@ func copyFile(src, dest string) error {
 		return fmt.Errorf("writing %s: %w", dest, err)
 	}
 	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		_ = os.Remove(dest)
+		return fmt.Errorf("writing %s: %w", dest, err)
+	}
+	// Synced before it is closed, because a restore renames this file over the
+	// live database: a rename that outlives the bytes it points at would leave
+	// a database that is the right size and half zeroes after a power cut.
+	if err := out.Sync(); err != nil {
 		out.Close()
 		_ = os.Remove(dest)
 		return fmt.Errorf("writing %s: %w", dest, err)

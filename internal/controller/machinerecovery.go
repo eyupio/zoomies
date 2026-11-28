@@ -76,28 +76,28 @@ func (c *Controller) recoverMachine(ctx context.Context, env *machineEnv, m *sto
 		// VM was billed. An unheard outcome stays the ambiguity path's: that
 		// one quarantines rather than fails, and asks a person to look.
 		if !m.OpOutcomeUnknown && overdue(m.CreateStartedAt, nil, now, cfg.CreateTimeout) {
-			c.failMachine(ctx, env, m, store.MachineErrorProvider, fmt.Sprintf(
+			c.failMachineTimedOut(ctx, env, m, store.MachineErrorProvider, fmt.Sprintf(
 				"the provider has not finished creating this machine inside %s. The resource may exist and is "+
 					"still being paid for: check the provider's console",
 				roundDuration(cfg.CreateTimeout)))
 		}
 	case store.MachineStarting:
 		if !m.OpOutcomeUnknown && overdue(m.CreatedOKAt, nil, now, cfg.CreateTimeout) {
-			c.failMachine(ctx, env, m, store.MachineErrorProvider, fmt.Sprintf(
+			c.failMachineTimedOut(ctx, env, m, store.MachineErrorProvider, fmt.Sprintf(
 				"the machine was created but did not start inside %s. The resource exists and is still being "+
 					"paid for: check the provider's console",
 				roundDuration(cfg.CreateTimeout)))
 		}
 	case store.MachineBootstrapping:
 		if overdue(m.StartedAt, m.CreatedOKAt, now, cfg.BootstrapTimeout) {
-			c.failMachine(ctx, env, m, store.MachineErrorBootstrap, fmt.Sprintf(
+			c.failMachineTimedOut(ctx, env, m, store.MachineErrorBootstrap, fmt.Sprintf(
 				"the agent was not installed inside %s. The machine is running and is still being paid for: "+
 					"check that the template has the zoomies agent installed and the guest agent answering",
 				roundDuration(cfg.BootstrapTimeout)))
 		}
 	case store.MachineEnrolling:
 		if overdue(m.BootstrappedAt, m.StartedAt, now, cfg.EnrolTimeout) {
-			c.failMachine(ctx, env, m, store.MachineErrorBootstrap, c.enrolTimeoutDetail(ctx, m, cfg.EnrolTimeout))
+			c.failMachineTimedOut(ctx, env, m, store.MachineErrorBootstrap, c.enrolTimeoutDetail(ctx, m, cfg.EnrolTimeout))
 		}
 	case store.MachineDeleting:
 		// A delete that has not confirmed is a machine somebody may still be
@@ -154,6 +154,34 @@ func (c *Controller) failMachine(ctx context.Context, env *machineEnv, m *store.
 		c.log.Warn("could not record why a machine was given up on", "machine", m.ID, "error", err)
 	}
 	c.transitionMachine(ctx, env, m, store.MachineFailed, detail)
+}
+
+// failMachineTimedOut is failMachine for a machine that ran out of the time a
+// phase is given, and counts it against its provider. A machine that never
+// reaches ready is what the breaker exists to count, and these four are how most
+// of them end: a template whose agent cannot join clones, starts and bootstraps
+// without a complaint, so the step failures that already count never fire for
+// it, and the fleet went on renting broken, running, billed machines up to the
+// ceiling. A machine that failed because its resource was destroyed outside
+// Zoomies is not counted: that says nothing about the template.
+//
+// The count is taken first: failMachine records the failure, which adds one to
+// the machine's attempts, and copies the row back, and noteProviderFailure
+// takes a machine with attempts as a retry of one it has already counted.
+func (c *Controller) failMachineTimedOut(ctx context.Context, env *machineEnv, m *store.Machine, src store.MachineErrorSource, detail string) {
+	c.noteProviderFailure(ctx, m.ProviderID, m)
+	c.failMachine(ctx, env, m, src, detail)
+}
+
+// machineReady moves an enrolled machine to ready, which is the evidence that
+// its provider can build a machine that works, and clears the provider's
+// breaker. The breaker is cleared only when the move happened: a transition a
+// racing pass or an operator got to first leaves the machine as it was.
+func (c *Controller) machineReady(ctx context.Context, env *machineEnv, m *store.Machine) {
+	c.transitionMachine(ctx, env, m, store.MachineReady, "the agent joined and this machine is serving runners")
+	if m.State == store.MachineReady {
+		c.noteProviderSuccess(ctx, m.ProviderID)
+	}
 }
 
 // overdue reports whether the phase that began at from (or at fallback, for a
@@ -475,7 +503,7 @@ func (c *Controller) sweepAbsent(ctx context.Context, env *machineEnv, pr *machi
 // is a host anyone with the operator role can have destroyed.
 func (c *Controller) stepEnrolling(ctx context.Context, env *machineEnv, m *store.Machine) {
 	if m.HostID != "" {
-		c.transitionMachine(ctx, env, m, store.MachineReady, "the agent joined and this machine is serving runners")
+		c.machineReady(ctx, env, m)
 		return
 	}
 	if m.JoinTokenID == "" {
@@ -512,7 +540,7 @@ func (c *Controller) stepEnrolling(ctx context.Context, env *machineEnv, m *stor
 		return
 	}
 	m.HostID = tok.UsedByID
-	c.transitionMachine(ctx, env, m, store.MachineReady, "the agent joined and this machine is serving runners")
+	c.machineReady(ctx, env, m)
 	c.log.Info("a machine became a host", "machine", m.ID, "name", m.Name, "host", m.HostID)
 	// A new host changes where runners can be placed, and the scheduling pass
 	// is the half that places them.

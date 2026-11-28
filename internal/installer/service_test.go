@@ -2,8 +2,10 @@ package installer
 
 import (
 	"context"
+	"encoding/xml"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -824,5 +826,151 @@ func TestWindowsServiceLogsPointSomewhereWhenThereIsNoFile(t *testing.T) {
 func TestSupervisorOutlastsAgentShutdown(t *testing.T) {
 	if serviceStopTimeout <= agent.ShutdownTimeout+time.Minute {
 		t.Fatal("supervisor can kill the controller before the embedded agent finishes")
+	}
+}
+
+// A unit file is read by systemd, not by a shell, and systemd splits a command
+// line and a list of paths on whitespace. The paths an operator chooses went into
+// the template as they were typed, so a state directory called "/srv/zoomies
+// data" made the unit run `--config /etc/zoomies zoomies.yaml` and made
+// ReadWritePaths name two directories, one of which does not exist: under
+// ProtectSystem=strict the service could not write its own state and failed on
+// start with nothing pointing at the space. A path that needs it is quoted, and
+// one that does not is left as it was, so the unit an ordinary install writes is
+// the one it always was.
+func TestAUnitKeepsEachOfAnOperatorsPathsAsOneThing(t *testing.T) {
+	requirePOSIX(t)
+	for _, unit := range []string{UnitController, UnitAgent} {
+		t.Run(unit, func(t *testing.T) {
+			spec := controllerSpec()
+			spec.Unit = unit
+			spec.ExecPath = "/opt/my zoomies/zoomies"
+			spec.ConfigFile = "/etc/my zoomies/zoomies.yaml"
+			spec.ConfigDir = "/etc/my zoomies"
+			spec.StateDir = "/srv/zoomies data"
+			spec.EnvFile = "/srv/zoomies data/agent.env"
+			out, err := RenderSystemdUnit(spec)
+			if err != nil {
+				t.Fatalf("RenderSystemdUnit: %v", err)
+			}
+			command := "controller"
+			if unit == UnitAgent {
+				command = "agent"
+			}
+			want := []string{
+				`ExecStart="/opt/my zoomies/zoomies" ` + command + ` --config "/etc/my zoomies/zoomies.yaml"`,
+				`WorkingDirectory=/srv/zoomies data`,
+				`ReadWritePaths="/srv/zoomies data"`,
+			}
+			if unit == UnitAgent {
+				want = append(want, `EnvironmentFile=-/srv/zoomies data/agent.env`)
+			}
+			for _, line := range want {
+				if !strings.Contains(out, "\n"+line+"\n") {
+					t.Errorf("the unit has no line %q:\n%s", line, out)
+				}
+			}
+		})
+	}
+}
+
+// systemd reads a % as the start of a specifier and, on a command line, a $ as
+// the start of a variable, so a path that holds either would be rewritten before
+// the service ran. Both are doubled, which is how a unit spells the character.
+func TestAUnitSpellsPercentAndDollarAsSystemdWantsThem(t *testing.T) {
+	requirePOSIX(t)
+	spec := controllerSpec()
+	spec.ExecPath = "/opt/100%/zoomies$"
+	spec.ConfigFile = "/etc/zoomies/50%$cfg.yaml"
+	spec.StateDir = "/var/lib/zoomies%h"
+	out, err := RenderSystemdUnit(spec)
+	if err != nil {
+		t.Fatalf("RenderSystemdUnit: %v", err)
+	}
+	for _, line := range []string{
+		// The executable is a path and is not expanded, so its $ is its own; the
+		// argument after it is, so its $ is doubled. Checked against
+		// systemd-analyze, which refuses "zoomies$$" as a file that is not there.
+		"ExecStart=/opt/100%%/zoomies$ controller --config /etc/zoomies/50%%$$cfg.yaml",
+		"WorkingDirectory=/var/lib/zoomies%%h",
+		"ReadWritePaths=/var/lib/zoomies%%h",
+	} {
+		if !strings.Contains(out, "\n"+line+"\n") {
+			t.Errorf("the unit has no line %q:\n%s", line, out)
+		}
+	}
+}
+
+// A line break in a path would end its line and start another, and the unit would
+// run whatever the rest said. The installer's paths are the operator's own, so
+// this is a typing mistake rather than an attack, and the answer to a mistake is
+// to say where it is instead of writing a unit that does something else.
+func TestAUnitIsNotWrittenForAPathWithALineBreakInIt(t *testing.T) {
+	requirePOSIX(t)
+	for _, field := range []string{"ExecPath", "ConfigFile", "StateDir"} {
+		spec := controllerSpec()
+		bad := "/var/lib/zoomies\nExecStartPre=/bin/false"
+		switch field {
+		case "ExecPath":
+			spec.ExecPath = bad
+		case "ConfigFile":
+			spec.ConfigFile = bad
+		case "StateDir":
+			spec.StateDir = bad
+		}
+		_, err := RenderSystemdUnit(spec)
+		if err == nil {
+			t.Errorf("a unit was rendered with a line break in %s", field)
+		} else if !strings.Contains(err.Error(), "line break") {
+			t.Errorf("the refusal for %s does not say what is wrong: %v", field, err)
+		}
+	}
+}
+
+// The plist is XML, and its template wrote a path between the tags as it was
+// typed, so a directory called "Dev & Test" produced a file launchd refuses to
+// load, which on a development Mac shows only as a controller that never starts.
+// Whatever a path holds, it has to read back as that path.
+func TestAPlistReadsBackTheOperatorsPathsWhateverTheyHold(t *testing.T) {
+	spec := controllerSpec()
+	spec.ExecPath = "/Users/me/Dev & Test/zoomies"
+	spec.ConfigFile = "/Users/me/<cfg>/zoomies.yaml"
+	spec.StateDir = `/Users/me/"state" & 'more'`
+	spec.Home = "/Users/me/Dev & Test"
+	spec.Path = "/usr/local/bin:/Users/me/a&b/bin"
+	out, err := RenderLaunchdPlist(spec)
+	if err != nil {
+		t.Fatalf("RenderLaunchdPlist: %v", err)
+	}
+
+	dec := xml.NewDecoder(strings.NewReader(out))
+	var strs []string
+	var inString bool
+	for {
+		tok, err := dec.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("the plist is not well-formed XML: %v\n%s", err, out)
+		}
+		switch el := tok.(type) {
+		case xml.StartElement:
+			inString = el.Name.Local == "string"
+			if inString {
+				strs = append(strs, "")
+			}
+		case xml.EndElement:
+			inString = false
+		case xml.CharData:
+			if inString {
+				strs[len(strs)-1] += string(el)
+			}
+		}
+	}
+	for _, want := range []string{spec.ExecPath, spec.ConfigFile, spec.StateDir, spec.Home, spec.Path} {
+		if !slices.Contains(strs, want) {
+			t.Errorf("the plist does not read back %q; its strings are %q", want, strs)
+		}
 	}
 }

@@ -173,7 +173,7 @@ type memoryRules struct {
 // the way it has to be, which is Linux's procfs; elsewhere there is nothing to
 // check a loan against, and a loan that cannot be checked is not made.
 func (a *Agent) features() []string {
-	out := []string{FeatureElasticCPU, FeatureToolCacheFill, FeatureTmpfs, FeatureDaemonShare}
+	out := []string{FeatureCacheMaintenance, FeatureElasticCPU, FeatureToolCacheFill, FeatureTmpfs, FeatureDaemonShare}
 	// Last, so the order the other flags have always had does not move. The
 	// flag follows the monitor's own ability to run the checks, never the
 	// report it last published: a container's report says container=false when

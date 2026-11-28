@@ -379,6 +379,116 @@ func TestAConflictPublishFailureIsLetGoForTheNextObservation(t *testing.T) {
 	}
 }
 
+// A publication that fails for a reason that will not go away (a protected
+// branch, a permission the App lacks, a branch name GitHub refuses) used to be
+// let go for the next observation every time, and each one downloads three
+// archives, starts a worker and runs a model session. Three failures for the
+// same head and base need a person, and are held for as long as any other
+// conflict that does.
+func TestAConflictPublicationThatKeepsFailingIsHeldForAPerson(t *testing.T) {
+	h := newHarness(t)
+	key := conflictKey("watch_1", "head", "base", "merge")
+	until := func() time.Time { return h.c.Now().Add(conflictClaimWindow) }
+
+	for i := 1; i < conflictPublishAttempts; i++ {
+		if !h.c.claimConflict(key, until()) {
+			t.Fatalf("attempt %d could not claim the incident", i)
+		}
+		if h.c.conflictPublishFailed(key) {
+			t.Fatalf("failure %d of %d held the incident already", i, conflictPublishAttempts)
+		}
+	}
+	if !h.c.claimConflict(key, until()) {
+		t.Fatal("the last attempt could not claim the incident")
+	}
+	if !h.c.conflictPublishFailed(key) {
+		t.Fatalf("failure %d did not hold the incident for a person", conflictPublishAttempts)
+	}
+	if h.c.claimConflict(key, until()) {
+		t.Fatal("a held incident was claimed again at once")
+	}
+
+	// The hold ends, and one more failure holds it again straight away: what an
+	// hour of waiting changed is not what made the first three fail.
+	h.advance(conflictPermanentCooldown + time.Minute)
+	if !h.c.claimConflict(key, until()) {
+		t.Fatal("the incident was not claimable once its hold had ended")
+	}
+	if !h.c.conflictPublishFailed(key) {
+		t.Fatal("a failure after the hold released the incident for another round of attempts")
+	}
+}
+
+func TestAPublishedConflictForgetsEarlierFailures(t *testing.T) {
+	h := newHarness(t)
+	key := conflictKey("watch_1", "head", "base", "merge")
+	for range conflictPublishAttempts - 1 {
+		h.c.claimConflict(key, h.c.Now().Add(conflictClaimWindow))
+		h.c.conflictPublishFailed(key)
+	}
+	h.c.claimConflict(key, h.c.Now().Add(conflictClaimWindow))
+	h.c.conflictPublished(key)
+	for range conflictPublishAttempts - 1 {
+		h.c.claimConflict(key, h.c.Now().Add(conflictClaimWindow))
+		if h.c.conflictPublishFailed(key) {
+			t.Fatal("failures from before a published resolution were counted against the next ones")
+		}
+	}
+}
+
+// What the count remembers is bounded: an incident that stopped failing, because
+// the pull request moved on or closed, is forgotten after a quiet day.
+func TestAConflictFailureCountDoesNotOutliveItsIncident(t *testing.T) {
+	h := newHarness(t)
+	key := conflictKey("watch_1", "head", "base", "merge")
+	h.c.claimConflict(key, h.c.Now().Add(conflictClaimWindow))
+	h.c.conflictPublishFailed(key)
+
+	h.advance(conflictFailureMemory + time.Hour)
+	h.c.claimConflict(conflictKey("watch_2", "head", "base", "merge"), h.c.Now().Add(conflictClaimWindow))
+	h.c.conflictMu.Lock()
+	left := len(h.c.conflictPublishFailures)
+	h.c.conflictMu.Unlock()
+	if left != 0 {
+		t.Fatalf("%d failure counts are still held for incidents nobody has seen for a day", left)
+	}
+}
+
+// A publication GitHub refused three times, driven through the real path rather
+// than the counter alone. A pull request that moved is not a failure of the
+// publication and does not count.
+func TestARepeatedlyRefusedPublicationHoldsTheIncidentForAPerson(t *testing.T) {
+	for name, tc := range map[string]struct {
+		failure error
+		held    bool
+	}{
+		"a refusal":            {errors.New("GitHub refused the update"), true},
+		"a pull request moved": {github.ErrSetupConflict, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			f := newConflictFixture(t, h)
+			h.c.openProvider = func(*store.AssistantProvider, string) (assistant.Provider, error) {
+				return assistant.NewFake(assistant.FakeOptions{Model: "scripted", Script: func(assistant.Request) []assistant.Event {
+					return []assistant.Event{{Delta: `{"summary":"keep both edits","files":[{"path":"file.txt","content":"a\nb\nc\n"}]}`}}
+				}}), nil
+			}
+			f.fake.conflictCommitErr = tc.failure
+			key := conflictKey(f.watch.ID, f.head, f.base, f.merge)
+			// Two earlier failures of the same incident, so the one that runs
+			// through the real path is the third.
+			for range conflictPublishAttempts - 1 {
+				h.c.claimConflict(key, h.c.Now().Add(conflictClaimWindow))
+				h.c.conflictPublishFailed(key)
+			}
+			prepareConflictAnswer(t, h, f, f.resolveAnswer())
+			if got := h.c.conflictClaimed(key); got != tc.held {
+				t.Fatalf("claimed after the third failure = %v, want %v", got, tc.held)
+			}
+		})
+	}
+}
+
 func TestAConflictWithNoWorkerHostIsLetGo(t *testing.T) {
 	h := newHarness(t)
 	watch := &store.EliRepairWatch{ID: "watch_1", InstallationID: "ins_1", Repo: "acme/repo", PullNumber: 1}

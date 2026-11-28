@@ -46,8 +46,8 @@ func (c *Controller) inspectCachePreview(ctx context.Context, installation, repo
 	if err != nil {
 		return nil, err
 	}
-	owner, name, kind := github.SplitTarget(repo)
-	if kind != store.TargetRepo || name == "" || !(inst.TargetType == store.TargetRepo && inst.Target == repo || inst.TargetType == store.TargetOrg && inst.Target == owner) {
+	_, name, kind := github.SplitTarget(repo)
+	if kind != store.TargetRepo || name == "" || !installationCovers(inst, repo) {
 		return nil, ErrOptimisationCache
 	}
 	policy, err := c.OptimisationPolicy(ctx)

@@ -10,9 +10,9 @@ description: >-
 
 Eli is the assistant built into Zoomies. The name stands for **Extremely Lively
 Intelligence**, which is what a dog is for a few minutes after a bath, and what a
-fleet is meant to be. Eli is a chat in the corner of every page. You ask in plain
-words, and Eli answers about Zoomies, about GitHub Actions and, if you allow it,
-about your own fleet.
+fleet is meant to be. Eli is one button away in the top bar of the console, and
+in the command centre's own chrome. You ask in plain words, and Eli answers
+about Zoomies, about GitHub Actions and, if you allow it, about your own fleet.
 
 Eli talks to a model **you** choose and pay for: one on your own machine such as
 Ollama, or a hosted one such as Ollama Cloud, OpenCode Zen, OpenCode Go, Anthropic or OpenAI, or your own
@@ -77,9 +77,10 @@ own instance.
 ## Setting it up
 
 Under **Settings, Eli assistant**, add a provider, choose its model from the list the
-provider gives, test it, and make it the default. Eli then appears in the corner of
-every page for signed-in users with a personal provider. Press <kbd>E</kbd> from anywhere that is not a box
-to type in, or press **Ask Eli**. <kbd>Esc</kbd> puts the panel away.
+provider gives, test it, and make it the default. Eli then appears in the top
+bar, or in the command centre's own bar, for signed-in users with a personal
+provider. Press <kbd>E</kbd> from anywhere that is not a box to type in, or press
+**Ask Eli**. <kbd>Esc</kbd> puts the panel away.
 
 The Ask Eli button opens setup guidance until you have an enabled personal provider; your default answers, or, with none ticked, the first usable one you own. Installation providers remain separate and do not pay for personal chat.
 
@@ -131,8 +132,16 @@ Things to know before you add one:
   not run. For both, whatever their tools did is ignored: it is not shown and Eli
   does nothing on the strength of it, but ignoring what a tool did is not the same as
   the tool not having done it. Only the person who added the provider can ask it
-  anything, and nothing about your fleet is put in the question, so what could lead
-  one to read a file is the person's own words.
+  anything, and in a chat nothing about your fleet is put in the question, so what
+  could lead one to read a file is the person's own words.
+* **Codex and Copilot do not answer repairs.** A repair's question is not only your
+  words: it holds the pull request's text, its diff and its failing job's log, which
+  whoever opened the pull request wrote, and what the model answers is committed to
+  that pull request. A line in a log could ask one of these tools to read a file on
+  the controller's machine and put it in the fix. So a repair through either is
+  refused, in the answer to the request or in a comment on the pull request, and
+  says what to use: an API provider (Anthropic, OpenAI or OpenAI-compatible) or
+  Claude Code, which has no tool to read with.
 * **Copilot's question is a command line argument.** Anyone who can list processes on
   the controller's machine can read it while the answer is being made.
 * **They follow the programs' releases.** The options Zoomies uses are the
@@ -747,6 +756,12 @@ for the relevant repositories. Subscribe to **Issue comment** alongside
 **Workflow job**. Existing installations may need to approve new App
 permissions. Editing `.github/workflows` also requires the appropriate GitHub
 App workflow permission, and a separate opt-in on the Zoomies policy.
+
+An App created before Zoomies asked for Issues access cannot subscribe to **Issue comment**:
+GitHub delivers that event only to an App with Issues access. In the App's settings, add
+**Issues** (read is enough for the webhook; Eli's 👀 acknowledgement needs write), have the
+installation's owner approve the permission change, then tick **Issue comment** under
+**Subscribe to events**.
 
 On a pull request, a linked maintainer can comment:
 

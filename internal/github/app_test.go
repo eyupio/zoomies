@@ -111,6 +111,31 @@ func TestCreateJITConfigRequiresLabels(t *testing.T) {
 	}
 }
 
+// GitHub takes at most MaxJITLabels labels for one just-in-time runner, counted
+// after de-duplication: a hundred distinct labels go through, a hundred and one
+// are refused before the request is sent, and duplicates do not count twice.
+func TestCreateJITConfigLabelLimit(t *testing.T) {
+	f := newFake(t)
+	c := f.Client("acme", store.TargetOrg)
+	labels := func(n int) []string {
+		out := make([]string, 0, n)
+		for i := range n {
+			out = append(out, fmt.Sprintf("l%03d", i))
+		}
+		return out
+	}
+	if _, err := c.CreateJITConfig(context.Background(), JITRequest{Name: "at-limit", Labels: labels(MaxJITLabels)}); err != nil {
+		t.Fatalf("%d labels refused: %v", MaxJITLabels, err)
+	}
+	if _, err := c.CreateJITConfig(context.Background(), JITRequest{Name: "duplicated", Labels: append(labels(MaxJITLabels), "L000", "l001")}); err != nil {
+		t.Fatalf("%d distinct labels with duplicates refused: %v", MaxJITLabels, err)
+	}
+	_, err := c.CreateJITConfig(context.Background(), JITRequest{Name: "over", Labels: labels(MaxJITLabels + 1)})
+	if err == nil || !strings.Contains(err.Error(), "at most 100") {
+		t.Fatalf("got %v, want a refusal naming the limit", err)
+	}
+}
+
 func TestCreateJITConfigUnknownRunnerGroup(t *testing.T) {
 	f := newFake(t)
 	c := f.Client("acme", store.TargetOrg)

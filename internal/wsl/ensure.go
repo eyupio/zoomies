@@ -1,11 +1,11 @@
 package wsl
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io/fs"
 	"path"
-	"path/filepath"
 	"strings"
 )
 
@@ -78,6 +78,10 @@ type Options struct {
 	// creates no task and enables no linger. It only reads, which is what lets
 	// an installer show the operator the list before asking.
 	DryRun bool
+	// Launcher is the Windows program the scheduled tasks run (the embedded
+	// cmd/zoomies-wsl build for this architecture). Nil means this build has
+	// none, and the tasks are left as they are.
+	Launcher []byte
 }
 
 // Ensure brings the distro's self-management into the wanted state, and does
@@ -99,7 +103,7 @@ func Ensure(ctx context.Context, sys System, opts Options) Report {
 	add(Step{Name: "wsl2", Status: StatusOK, Detail: "WSL2 detected, distro " + orUnknown(rep.Distro)})
 	add(ensureBootCommand(sys, opts))
 	add(ensureLinger(ctx, sys, opts))
-	for _, s := range ensureTasks(ctx, sys, rep.Distro, opts.DryRun) {
+	for _, s := range ensureTasks(ctx, sys, rep.Distro, opts) {
 		add(s)
 	}
 	return rep
@@ -195,44 +199,77 @@ func ensureLinger(ctx context.Context, sys System, opts Options) Step {
 	return step
 }
 
-func ensureTasks(ctx context.Context, sys System, distro string, dry bool) []Step {
+func ensureTasks(ctx context.Context, sys System, distro string, opts Options) []Step {
+	dry := opts.DryRun
 	skip := func(why string) []Step {
 		return []Step{{Name: "windows scheduled tasks", Status: StatusSkipped, Detail: why}}
 	}
 	if distro == "" {
 		return skip("the distro's name could not be found, so no task can start it")
 	}
+	if strings.ContainsAny(distro, "\"\r\n") {
+		return skip("the distro's name has a character a task cannot carry")
+	}
 	if !sys.Exists(SchtasksPath) {
 		return skip("Windows interop is off here (" + SchtasksPath + " is missing); enable [interop] in /etc/wsl.conf")
 	}
-	winScript, err := writeScript(ctx, sys, distro, dry)
-	if err != nil {
-		return []Step{{Name: "windows start script", Status: StatusWarn, Detail: err.Error()}}
+	if len(opts.Launcher) == 0 {
+		return []Step{{Name: "windows scheduled tasks", Status: StatusWarn,
+			Detail: "this zoomies build has no Windows launcher, so the tasks were left as they are (an old one may open a terminal window); use a release build or run `make build`"}}
 	}
-	steps := []Step{{Name: "windows start script", Status: StatusOK, Detail: winScript.detail}}
+	res, err := writeLauncher(ctx, sys, opts.Launcher, dry)
+	if err != nil {
+		return []Step{{Name: "windows launcher", Status: StatusWarn, Detail: err.Error()}}
+	}
+	steps := []Step{{Name: "windows launcher", Status: StatusOK, Detail: res.windowsPath}}
 	switch {
-	case winScript.pending:
-		steps[0].Status, steps[0].Detail = StatusPending, "write the start script "+winScript.windowsPath
-	case winScript.changed:
+	case res.pending:
+		steps[0].Status, steps[0].Detail = StatusPending, "write the launcher "+res.windowsPath
+	case res.changed:
 		steps[0].Status = StatusChanged
 	}
+	// What the old arrangement left is only taken away once both new tasks are
+	// in place. A task that could not be replaced (made elevated, and this run
+	// is not) still runs the old script, and deleting that, or the older tasks
+	// that keep the distro up, would leave nothing that works.
+	replaced := true
 	for _, spec := range taskSpecs() {
-		steps = append(steps, ensureTask(ctx, sys, spec, winScript.windowsPath, dry))
+		st := ensureTask(ctx, sys, spec, res.windowsPath, distro, dry)
+		if st.Status == StatusWarn {
+			replaced = false
+		}
+		steps = append(steps, st)
+	}
+	if !replaced {
+		return append(steps, Step{Name: "old tasks and script", Status: StatusSkipped,
+			Detail: "kept, because a new task could not be created; they are removed once both are in place"})
+	}
+	for _, name := range legacyTasks {
+		if s, found := removeLegacyTask(ctx, sys, name, dry); found {
+			steps = append(steps, s)
+		}
+	}
+	if old := path.Join(res.dir, oldScriptName); sys.Exists(old) && !dry {
+		if err := sys.Remove(old); err == nil {
+			steps = append(steps, Step{Name: "old start script", Status: StatusChanged, Detail: "removed " + oldScriptName + ", which the launcher replaces"})
+		}
 	}
 	return steps
 }
 
-type scriptResult struct {
+type launcherResult struct {
 	windowsPath string
-	detail      string
+	dir         string // the Linux path of its folder
 	changed     bool
 	pending     bool
 }
 
-// writeScript puts the start script under %LOCALAPPDATA%, which needs no
-// elevation, writing it only when its content differs.
-func writeScript(ctx context.Context, sys System, distro string, dry bool) (scriptResult, error) {
-	var res scriptResult
+// writeLauncher puts the launcher under %LOCALAPPDATA%, which needs no
+// elevation, writing it only when its content differs. A copy a running task
+// has locked cannot be replaced; that is a warning, and the next run tries
+// again.
+func writeLauncher(ctx context.Context, sys System, exe []byte, dry bool) (launcherResult, error) {
+	var res launcherResult
 	out, err := sys.Run(ctx, CmdExePath, "/c", "echo", "%LOCALAPPDATA%")
 	if err != nil {
 		return res, errors.New("asking Windows for %LOCALAPPDATA%: " + err.Error())
@@ -245,12 +282,12 @@ func writeScript(ctx context.Context, sys System, distro string, dry bool) (scri
 	if err != nil {
 		return res, errors.New("translating " + local + " to a Linux path: " + err.Error())
 	}
-	dir := filepath.Join(strings.TrimSpace(string(unixOut)), "Zoomies")
-	path := filepath.Join(dir, scriptName)
-	want := startScript(distro)
-	res.windowsPath = local + `\Zoomies\` + scriptName
-	res.detail = res.windowsPath
-	if cur, err := sys.ReadFile(path); err == nil && string(cur) == want {
+	// A Linux path, whatever the host the tests run on: slashes only.
+	dir := path.Join(strings.TrimSpace(string(unixOut)), "Zoomies")
+	file := path.Join(dir, launcherName)
+	res.dir = dir
+	res.windowsPath = local + `\Zoomies\` + launcherName
+	if cur, err := sys.ReadFile(file); err == nil && bytes.Equal(cur, exe) {
 		return res, nil
 	}
 	if dry {
@@ -260,8 +297,8 @@ func writeScript(ctx context.Context, sys System, distro string, dry bool) (scri
 	if err := sys.MkdirAll(dir, 0o755); err != nil {
 		return res, errors.New("creating " + dir + ": " + err.Error())
 	}
-	if err := sys.WriteFile(path, []byte(want), 0o644); err != nil {
-		return res, errors.New("writing " + path + ": " + err.Error())
+	if err := sys.WriteFile(file, exe, 0o755); err != nil {
+		return res, errors.New("writing " + file + " (a task that is running it may hold it; this is retried on the next run): " + err.Error())
 	}
 	res.changed = true
 	return res, nil

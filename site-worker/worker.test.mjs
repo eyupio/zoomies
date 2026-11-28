@@ -459,6 +459,47 @@ test("a page whose origin sends no Vary still varies on Accept in both variants"
   }
 });
 
+// A cache that holds the page revalidates it with a conditional request, and the
+// assets pipeline answers 304. A 304 carries the headers the 200 would have, and a
+// cache updates what it stored from them, so one that leaves out Vary: Accept tells
+// the cache the page no longer varies on it, and the Markdown copy can then be
+// handed to a browser that asked for HTML. The worker only added it to an answer
+// that was "ok", which a 304 is not.
+test("a page answered 304 still varies on Accept and wears the discovery links", async () => {
+  const origin = new Map([
+    [
+      "/quickstart/",
+      {
+        status: 304,
+        body: null,
+        headers: { etag: '"abc"', vary: "Accept-Encoding", "cache-control": "max-age=60" },
+      },
+    ],
+  ]);
+
+  const response = await handle("https://zoomies.sh/quickstart/", origin, {
+    headers: { accept: "text/html", "if-none-match": '"abc"' },
+  });
+
+  assert.equal(response.status, 304);
+  assert.deepEqual(varyTokens(response), ["accept", "accept-encoding"]);
+  assert.equal(response.headers.get("link"), discoveryLinks());
+  assert.equal(response.headers.get("etag"), '"abc"', "what the origin said is kept");
+});
+
+// The same goes for a revalidation of a file that is not a page: nothing is added.
+test("a file that is not a page answered 304 is left as it was", async () => {
+  const origin = new Map([
+    ["/install.sh", { status: 304, body: null, headers: { etag: '"x"' } }],
+  ]);
+  const response = await handle("https://zoomies.sh/install.sh", origin, {
+    headers: { "if-none-match": '"x"' },
+  });
+  assert.equal(response.status, 304);
+  assert.equal(response.headers.get("vary"), null);
+  assert.equal(response.headers.get("link"), null);
+});
+
 test("a file that is not a page does not vary on Accept", async () => {
   const response = await handle(
     "https://zoomies.sh/install.sh",

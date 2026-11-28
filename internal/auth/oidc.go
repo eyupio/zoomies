@@ -412,6 +412,22 @@ func (p *OIDCProvider) EnsureUser(ctx context.Context, st *store.Store, claims *
 			return nil, fmt.Errorf("an account named %q already exists and signs in with a password, so this single sign-on identity was not linked to it; "+
 				"an administrator can set oidc.link_by_username for the migration, or create an SSO account under another name", username)
 		}
+		// An account with no password is not always one made for single
+		// sign-on: the one ZOOMIES_BOOTSTRAP_ADMIN makes has none either, and
+		// holds the platform role and the automation's token. An account made
+		// ahead of somebody's first sign-in has never had a credential issued
+		// for it, so one that owns tokens is adopted only when the operator
+		// has asked for exactly that.
+		if u.OIDCSubject == "" && !p.cfg.LinkByUsername {
+			tokens, err := st.CountAPITokensForUser(ctx, u.ID)
+			if err != nil {
+				return nil, fmt.Errorf("checking whether the account is used by automation: %w", err)
+			}
+			if tokens > 0 {
+				return nil, fmt.Errorf("the account %q is used by API tokens and has never signed in with single sign-on, so this identity was not linked to it; "+
+					"an administrator can set oidc.link_by_username to link it, or create an SSO account under another name", username)
+			}
+		}
 		u.OIDCSubject = claims.Subject
 		return p.sync(ctx, st, u, claims, username)
 	case !errors.Is(err, store.ErrNotFound):
@@ -458,7 +474,17 @@ func (p *OIDCProvider) sync(ctx context.Context, st *store.Store, u *store.User,
 	// mapped groups to roles, and only when the mapping produced a real role;
 	// otherwise an existing account keeps the role an administrator gave it.
 	if p.mapsRoles() && claims.Role.Valid() {
-		u.Role = claims.Role
+		// The provider's word does not outrank the last-administrator rule: a
+		// mistyped group name would otherwise lock the instance.
+		if err := ensureAdminRemains(ctx, st, &before, claims.Role, false); errors.Is(err, ErrLastAdmin) || errors.Is(err, ErrLastPlatform) {
+			slog.Warn("single sign-on would have lowered the role of the last account that holds it, so the role was kept; "+
+				"check the oidc group mapping, or give another account the role first",
+				"user", username, "role", before.Role, "mapped_role", claims.Role)
+		} else if err != nil {
+			return nil, fmt.Errorf("checking the role for %q: %w", username, err)
+		} else {
+			u.Role = claims.Role
+		}
 	}
 	if before == *u {
 		return u, nil

@@ -74,7 +74,7 @@ on its own runners, and cannot read pools, jobs, users or the audit log.
 | --- | --- |
 | A malicious job tries to read another job's secrets or source | Ephemeral runners: the container that ran the previous job no longer exists |
 | A malicious job tries to reach the host | Container isolation, non-root user, dropped capabilities, no `docker.sock` by default |
-| A malicious job steals the runner registration credential and registers its own runner | JIT configurations are single-use and expire; there is no reusable PAT on the host. The entrypoint also unsets both the JIT configuration and the registration token before it starts `run.sh`, so neither is in the environment a workflow step inherits, which matters most on a pool with `ephemeral: false`, where the credential is an organisation-scoped registration token good for an hour rather than a single-use one |
+| A malicious job steals the runner registration credential and registers its own runner | JIT configurations are single-use and expire; there is no reusable PAT on the host. The entrypoint also starts itself again without the JIT configuration and the registration token, handing them to the second run on a file descriptor it closes before anything is started, so neither is in the environment a workflow step inherits and neither is in the entrypoint's own `/proc/<pid>/environ`, which a step running as the same user could otherwise read; this matters most on a pool with `ephemeral: false`, where the credential is an organisation-scoped registration token good for an hour rather than a single-use one |
 | Someone forges a webhook to make Zoomies create runners | HMAC-SHA256 signature verification on every delivery, constant-time comparison |
 | Someone reaches the controller's API | Authentication required by default; the listener binds to loopback unless told otherwise |
 | Someone reaches a freshly deployed controller before its owner does | The first-run endpoint needs the setup token printed in the controller's log, not merely an empty database |
@@ -200,8 +200,12 @@ and keep the passphrase somewhere else.
 
 Running the enrolment command on a machine hands Zoomies a small, fixed part
 of it, and nothing else. The agent does not upgrade packages, change a
-firewall, reboot, open a port or accept a connection; it only ever dials out
-to the controller. The one thing on this list that can change the host's
+firewall, reboot or open a port to the network; it only ever dials out to the
+controller. The one exception is a service it can run for the runners on its
+own host, which listens on the host's address on the runner network and on
+nothing else: a pool's cache service, when the pool turns it on, and the
+registry mirror, when `agent.registry_mirror.enabled` is on. The one thing on
+this list that can change the host's
 Zoomies is the update helper, and that is root's and is not the agent: it is
 there only where the host's owner installed it, by hand, and all the service
 can do is ask it for a release. This is the whole list, as the code does it:
@@ -215,6 +219,7 @@ can do is ask it for a release. This is the whole list, as the code does it:
 | Its kept tool cache | A directory `cache/tools/<identity>/image-<digest>` in the host's shared folder, `/var/lib/zoomies/shared` (separated by cache scope and resolved runner image) when the pool sets `cache.tools` | Never trimmed or deleted by Zoomies; it is a cache, so emptying it costs the next job its downloads and nothing else. Created writable by every account, under a shared folder only Zoomies' own account can enter. After a toolchain scan Zoomies fills it too, in a container of the pool's image as its runner user, from each toolchain's publisher (nodejs.org, go.dev, Adoptium and GitHub's `actions/python-versions`) with the publisher's checksum checked where it lists one. Runners get it read-only, beside a folder of their own in `cache/tool-runs/<runner>` that is removed with the runner, so a job cannot change what the next job runs. |
 | Its externals volumes, for `dind` pools | A named volume `zoomies-externals-<hash>` per runner image digest, labelled `io.zoomies.externals` with its own name, the image reference the pool names and the digest, and filled by a container `<volume>-fill` carrying the same label | A job's `container:` block mounts the runner's externals, the Node builds the runner ships, and under `dind` that container is created by the sidecar's daemon, which reads the externals from this volume, read-only. The fill copies them from the runner image and writes a marker last, so a fill cut short is copied again; its container is removed when it ends, and one left by an agent that died mid-fill is removed only if it carries that volume's label. Every five minutes the agent removes the externals volumes whose image reference now has a newer one: only volumes carrying the label, never the newest of a reference, never one a container uses, running or stopped (Docker refuses), and never one handed to a runner in the last ten minutes. A reference no pool uses any more keeps its newest volume, several hundred MB, until removed by hand. |
 | Its superseded runner images | Untagged images in the Docker or Podman daemon: when a runner image's tag moves on (a `:dev` or `:latest` pulled again, or a tag you republish), the image it used to name is left with no tag, about two gigabytes each | Every five minutes the agent removes such an image only when it has no tag at all, every repository it was pulled from is one the agent has prepared a runner, a sidecar or a worker from since it started, no runner was created from it in the last ten minutes, and no container uses it (the daemon refuses to remove one that does, running or stopped; the agent never forces a removal and never prunes parents). An agent that has only just started, or has not prepared an image yet, removes nothing for at least ten minutes. An image a tag still names stays, so the previous release's version tag after an upgrade is kept until you remove it; so is one built on the host, and every image of a repository the agent never prepared a runner from. |
+| Its registry mirror, only when turned on | `registry-mirror/` in the agent's shared folder | Keeps the public Docker Hub images the host's docker-in-docker sidecars pull, addressed by their hash, and serves the next pull from disk. It is bounded by `agent.registry_mirror.max_bytes` (default 10 GiB) and removes the least recently used first. It fetches anonymously and never holds a credential, so a private image is never kept, and it listens on the host's address on the sidecars' network and nowhere else. |
 | The Docker builder cache | The Docker daemon the agent uses | See below. |
 | The update helper, only where its owner installed it | `zoomies-update.path` and `zoomies-update.service`, systemd units that run as root, `zoomies-update-repair.path` and `zoomies-update-repair.service`, a second pair that repairs them, and root's own folder `/var/lib/zoomies-update` for the helper's limits and its record of where the update folder is | Not the agent, and not installed by it: only the host's owner puts it there, with `sudo zoomies updates helper install` or a yes to the question `zoomies init`, `zoomies agent join` and `zoomies upgrade` ask at a terminal (never `--yes`), or `--update-helper` typed by the person at the host (`update_helper: true` in the answer file they wrote for `zoomies init`), and `sudo zoomies updates helper remove` or `zoomies uninstall` takes it away. For a request it runs `zoomies upgrade --version <tag> --non-interactive` for the release named, never with `--yes`, at most twice for one release and once in ten minutes. Its unit loads no environment file the service could write, and keeps home directories read-only. The agent never touches these units: when a request sits unread it only looks (`systemctl is-active` and `is-enabled`, which need no privilege), and if the helper is stopped it writes `repair.json` naming the attempt and nothing else. The repair unit looks again as root and acts only on what it finds: it clears the failed state, rewrites and starts the path unit, and only then removes a request or lock that is provably abandoned (older than 15 minutes, no helper or upgrade running), at most three times a day and ten minutes apart. |
 | The update folder, only with the helper | `update/` under the state directory (`/var/lib/zoomies/update` for a root install), or under the shared folder for a container deployment, owned by the account Zoomies runs as | Made by the helper's install and by nothing else. The service writes `request.json` there, naming one release and nothing more; the helper reads it as untrusted input, removes it, and answers in `result.json`. `helper.json` says the helper is installed. |
@@ -265,10 +270,11 @@ says so when it does, and a daemon that already applies limits is left alone.
   so until they are removed. Every path writes an `auth.bootstrap` audit row
   naming how the account was made.
 * **OIDC users**: optional. Linked by `sub`, and by username only for an
-  account that has no local password: adopting one that does would let whoever
-  holds that username at the identity provider take over the local account, so
-  it takes `oidc.link_by_username`. An `email` claim is used as a username only
-  when the provider says `email_verified`.
+  account that has no local password and owns no API tokens: adopting one that
+  does would let whoever holds that username at the identity provider take over
+  the local account, or the bootstrap account the provisioner's token belongs
+  to, so it takes `oidc.link_by_username`. An `email` claim is used as a
+  username only when the provider says `email_verified`.
 * **API tokens**: `zoo_<prefix>_<secret>`, sent as `Authorization: Bearer`.
   Carry a role and optionally a narrower scope list. A token can mint tokens,
   but never one wider than itself: the role is capped at the caller's, a
@@ -1020,6 +1026,7 @@ kept; a rule that could not be made to fail did not ship.
 | Secrets are absent from responses, error bodies, audit rows, event frames, metrics and the controller's log | `TestSecretsAreNeverInAResponse`, `TestSecretsAreNeverInAFailure` (`internal/api`) |
 | A task carries the runner's registration credential and no controller secret | `TestACreateTaskCarriesNoControllerSecret` (`internal/controller`) |
 | A `process` runner's environment is built, not inherited | `TestProcessChildEnvironmentIsBuiltNotInherited` (`internal/backend`) |
+| The runner entrypoint's credentials are in neither its environment nor its children's | `TestTheEntrypointsCredentialsAreNotInItsOwnEnvironment` (`internal/backend`) |
 | Disabling an account ends its sessions, not merely its access | `TestDisablingAUserEndsItsSessionsAtTheAPI` (`internal/api`) |
 | A cross-origin sign-in is refused, and a non-browser client is not | `TestCSRFRefusesACrossOriginLogin` (`internal/api`) |
 | Signing in ends the session the browser was holding | `TestSigningInEndsTheSessionTheBrowserWasHolding` (`internal/api`) |

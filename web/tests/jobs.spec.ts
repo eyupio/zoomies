@@ -628,6 +628,10 @@ test("the fleet's own failures are one click from everything that failed", async
   for (const row of await ours.all()) {
     await expect(row).toContainText('Runner lost');
   }
+  // And the view says how each one failed. Its rows are all failures, so it
+  // gets the column the Failed view does; without it this list said that the
+  // fleet had broken jobs and not where.
+  await expect(await cellUnder(jobs(page), ours.first(), 'Failed at')).not.toBeEmpty();
 
   // A copied link reproduces it, which is how this gets sent to somebody.
   await page.reload();

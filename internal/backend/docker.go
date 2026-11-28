@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -23,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -287,7 +289,13 @@ type DockerOptions struct {
 	// SharedDirProblem is why there is no SharedDir, when there is a reason
 	// an operator can act on; Probe reports it so the Hosts page can.
 	SharedDirProblem string
-	Logger           *slog.Logger
+	// RegistryMirror keeps the public Docker Hub images this host's sidecars pull
+	// (agent.registry_mirror.enabled), and RegistryMirrorMaxBytes bounds what it
+	// keeps (agent.registry_mirror.max_bytes; zero is the default). Off changes
+	// nothing.
+	RegistryMirror         bool
+	RegistryMirrorMaxBytes int64
+	Logger                 *slog.Logger
 }
 
 // ExtraCADir is where the extra CA bundle is mounted inside a runner and its
@@ -344,7 +352,7 @@ type DockerBackend struct {
 	workDir string
 	pull    PullPolicy
 	dind    string
-	auth    string
+	creds   registryCredentials
 	extraCA string
 	// sharedDir is DockerOptions.SharedDir, and sharedProblem its
 	// SharedDirProblem.
@@ -355,7 +363,15 @@ type DockerBackend struct {
 	toolCacheMu      sync.Mutex
 	toolCacheProblem string
 	// cacheSvcs runs the pool cache services runners are pointed at.
-	cacheSvcs *cacheServices
+	cacheSvcs     *cacheServices
+	cacheGate     sync.Mutex
+	cachePeers    []*DockerBackend
+	cacheBusy     int
+	cachePolicies []CachePolicy
+	cacheStorage  []CacheStorage
+	// regMirror is the host's registry mirror, which the sidecars that run the
+	// default image are pointed at; nothing when it is off.
+	regMirror *registryMirror
 	// externalsMu guards the maps below. Each externals volume has a lock of
 	// its own, so a fill blocks only the runners waiting for that volume.
 	// externalsReady is every volume filled and checked by this agent, and
@@ -463,7 +479,7 @@ func newContainerBackend(opts DockerOptions, fl flavor, detect func() []string, 
 		workDir: strings.TrimSpace(opts.WorkDir),
 		pull:    pull,
 		dind:    dind,
-		auth:    opts.RegistryAuth,
+		creds:   newRegistryCredentials(opts.RegistryAuth),
 		extraCA: strings.TrimSpace(opts.ExtraCAFile),
 
 		sharedDir:     strings.TrimSpace(opts.SharedDir),
@@ -477,15 +493,69 @@ func newContainerBackend(opts DockerOptions, fl flavor, detect func() []string, 
 		imagesSince: time.Now(),
 	}
 	b.cacheSvcs = newCacheServices(b.sharedDir, b.sharedProblem, b.log, api.NetworkGateway)
+	b.regMirror = newRegistryMirror(registryMirrorOptions{
+		Enabled: opts.RegistryMirror, MaxBytes: opts.RegistryMirrorMaxBytes,
+		SharedDir: b.sharedDir, SharedProblem: b.sharedProblem,
+		Log: b.log, Gateway: api.NetworkGateway,
+		HostImageCustom: dind != DefaultDinDImage,
+	})
 	return b, nil
 }
 
 // Close stops what this backend runs on the host for its runners, which is the
-// cache services. It does not touch a runner: those outlive the agent by design.
-func (b *DockerBackend) Close() { b.cacheSvcs.close() }
+// cache services and the registry mirror. It does not touch a runner: those
+// outlive the agent by design.
+func (b *DockerBackend) Close() {
+	b.cacheSvcs.close()
+	b.regMirror.close()
+}
+
+// registryMirrorFor returns the address of the host's registry mirror for a
+// sidecar that will run image on network, or "" when it is not to be offered.
+//
+// Only the default sidecar image is offered it. A custom image, from
+// agent.dind_image or the pool's own dind_image, is where an operator keeps a
+// daemon.json of their own, and a daemon that is given a mirror in two places
+// does not start, so a pool that has taken the sidecar over is left as it made
+// it. The mirror is only an accelerator, so nothing here fails a create.
+func (b *DockerBackend) registryMirrorFor(ctx context.Context, image, network string) string {
+	if image != DefaultDinDImage {
+		return ""
+	}
+	return b.regMirror.urlFor(ctx, network)
+}
 
 // CacheStats is what this backend's cache services have done, by pool.
-func (b *DockerBackend) CacheStats() []CacheStats { return b.cacheSvcs.stats() }
+func (b *DockerBackend) CacheStats() []CacheStats {
+	out := b.cacheSvcs.stats()
+	b.cacheGate.Lock()
+	defer b.cacheGate.Unlock()
+	for _, storage := range b.cacheStorage {
+		found := false
+		for i := range out {
+			if out[i].PoolID == storage.PoolID {
+				out[i].Storage = &storage
+				found = true
+				break
+			}
+		}
+		if !found {
+			out = append(out, CacheStats{PoolID: storage.PoolID, Storage: &storage})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].PoolID < out[j].PoolID })
+	return out
+}
+
+// RegistryMirrorReport is what this host's registry mirror has done, holds and
+// has wrong with it, or nil while it is off. A backend that cannot run a
+// docker-in-docker sidecar has no mirror to be on, whatever the settings say.
+func (b *DockerBackend) RegistryMirrorReport() *RegistryMirrorReport {
+	if !b.fl.supportsDinD {
+		return nil
+	}
+	return b.regMirror.report()
+}
 
 // Kind identifies the implementation.
 func (b *DockerBackend) Kind() store.BackendKind { return b.fl.kind }
@@ -530,6 +600,10 @@ func (b *DockerBackend) Probe(ctx context.Context) Info {
 		if sys.MemTotal > 0 {
 			info.MemoryMB = sys.MemTotal / (1 << 20)
 		}
+		// The platform its containers run as, which is what a runner started
+		// through it registers as: a Linux container on a Mac is linux.
+		info.OS = strings.ToLower(strings.TrimSpace(sys.OSType))
+		info.Arch = naming.NormalizeArch(sys.Architecture)
 		// What the daemon can enforce, in its own words. Rootless Docker on a
 		// host that delegates only memory and pids to the user -- the default
 		// on Debian and Ubuntu -- says so here, and a CPU quota sent to it
@@ -625,6 +699,11 @@ type containerOptions struct {
 	// CacheServiceURL is the address, as the runner reaches it, of the cache
 	// service this runner's pool is offered; empty when there is none.
 	CacheServiceURL string
+	// RegistryMirrorURL is the address, as the docker-in-docker sidecar reaches
+	// it, of this host's registry mirror; empty when the mirror is off or this
+	// sidecar is not to be given it (see registryMirrorFor). It is only used
+	// when building a sidecar config.
+	RegistryMirrorURL string
 }
 
 // extraCABind is the read-only mount for the extra CA bundle. The Podman
@@ -851,7 +930,10 @@ func runnerEnv(spec Spec, o containerOptions) []string {
 // not the daemon's.
 //
 // The runner reaches this daemon on 127.0.0.1, which proxy-aware clients
-// already exempt from the proxy, so NO_PROXY needs nothing added for it.
+// already exempt from the proxy, so NO_PROXY needs nothing added for it. The
+// host's registry mirror is the exception: it is on the host's private address,
+// which a proxy cannot reach, so when the sidecar goes through a proxy at all the
+// mirror's address is added to its exemptions.
 func dindEnv(spec Spec, o containerOptions) []string {
 	env := []string{"DOCKER_TLS_CERTDIR="}
 	env = append(env, o.ProxyEnv...)
@@ -860,7 +942,66 @@ func dindEnv(spec Spec, o containerOptions) []string {
 			env = append(env, k+"="+v)
 		}
 	}
+	if o.RegistryMirrorURL != "" {
+		env = exemptFromProxy(env, o.RegistryMirrorURL)
+	}
 	return env
+}
+
+// exemptFromProxy adds the host of address to NO_PROXY and no_proxy in env, if
+// env sends the sidecar through a proxy at all, and otherwise returns it as it
+// was: a host with no proxy has nothing to be exempted from, and a pool that
+// switched its proxy off with an empty value has said so.
+//
+// Both spellings are set because the daemon and the tools around it disagree
+// about which they read, and each is written once, replacing what was there: the
+// daemon keeps the last of a repeated name, so a second entry would hide the
+// first. NO_PROXY's value is the one extended when both were set, and a bare
+// host matches any port.
+func exemptFromProxy(env []string, address string) []string {
+	u, err := url.Parse(address)
+	if err != nil || u.Hostname() == "" {
+		return env
+	}
+	var proxied bool
+	var upper, lower string
+	kept := make([]string, 0, len(env)+2)
+	for _, e := range env {
+		k, v, _ := strings.Cut(e, "=")
+		switch k {
+		case "HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy":
+			proxied = proxied || v != ""
+		case "NO_PROXY":
+			upper = v
+			continue
+		case "no_proxy":
+			lower = v
+			continue
+		}
+		kept = append(kept, e)
+	}
+	if !proxied {
+		return env
+	}
+	existing := firstNonEmpty(upper, lower)
+	merged := existing
+	if !slices.ContainsFunc(strings.Split(existing, ","), func(entry string) bool { return strings.TrimSpace(entry) == u.Hostname() }) {
+		merged = strings.Trim(existing+","+u.Hostname(), ",")
+	}
+	return append(kept, "NO_PROXY="+merged, "no_proxy="+merged)
+}
+
+// dindCommand is the sidecar's command. It is dockerd, listening on the port the
+// runner reaches it by and on the socket, and, when the host offers its registry
+// mirror to this sidecar, told to pull through it. The daemon falls back to
+// Docker Hub when the mirror does not answer, so naming it can slow a pull down
+// and cannot fail one.
+func dindCommand(o containerOptions) []string {
+	cmd := []string{"dockerd", "--host=tcp://127.0.0.1:2375", "--host=unix:///var/run/docker.sock"}
+	if o.RegistryMirrorURL != "" {
+		cmd = append(cmd, "--registry-mirror="+o.RegistryMirrorURL)
+	}
+	return cmd
 }
 
 // buildDinDConfig assembles the privileged sidecar that gives a pool its own
@@ -888,7 +1029,7 @@ func buildDinDConfig(spec Spec, fl flavor, o containerOptions) ContainerCreateRe
 		Labels:   labels,
 		Tty:      false,
 		Env:      dindEnv(spec, o),
-		Cmd:      []string{"dockerd", "--host=tcp://127.0.0.1:2375", "--host=unix:///var/run/docker.sock"},
+		Cmd:      dindCommand(o),
 		HostConfig: &HostConfig{
 			LogConfig: runnerLogConfig(fl),
 			// A nested daemon needs real privileges; this is the cost of the
@@ -1304,6 +1445,8 @@ func (b *DockerBackend) Create(ctx context.Context, spec Spec) (Handle, error) {
 }
 
 func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (result CreateResult, createErr error) {
+	endCacheUse := b.beginCacheUse()
+	defer endCacheUse()
 	if err := spec.Validate(); err != nil {
 		return CreateResult{}, err
 	}
@@ -1378,7 +1521,7 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (result
 	b.pruneCacheFor(ctx, spec)
 	// Offered, never required: a host that cannot run the service leaves the
 	// runner on GitHub's cache, as it was before the pool asked for one.
-	opts.CacheServiceURL = b.cacheSvcs.urlFor(ctx, spec, network)
+	opts.CacheServiceURL = b.cacheServiceURL(ctx, spec, network)
 
 	var dindReadyDuration *time.Duration
 	switch spec.DockerMode {
@@ -1391,6 +1534,10 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (result
 		} else {
 			opts.ExternalsVolume = vol
 		}
+		// Offered, never required: a host that cannot run the mirror, or a sidecar
+		// that runs an image of the operator's own, pulls from Docker Hub as it did
+		// before.
+		opts.RegistryMirrorURL = b.registryMirrorFor(ctx, dindImage, network)
 		dindStarted := time.Now()
 		dindID, err = b.startDinD(ctx, spec, opts)
 		dindElapsed := time.Since(dindStarted)
@@ -1471,7 +1618,7 @@ func (b *DockerBackend) prepareImage(ctx context.Context, image string, policy s
 	var duration *time.Duration
 	if pull {
 		started := time.Now()
-		if err := b.api.ImagePull(ctx, image, b.auth); err != nil {
+		if err := b.api.ImagePull(ctx, image, b.authFor(image)); err != nil {
 			return "", "", false, nil, imageErr(fmt.Errorf("backend: pulling %s: %w", image, err))
 		}
 		d := time.Since(started)
@@ -1613,7 +1760,7 @@ func (b *DockerBackend) ensureImage(ctx context.Context, image string) (bool, er
 
 func (b *DockerBackend) applyPullPolicy(ctx context.Context, image string) (bool, error) {
 	if b.pull == PullAlways {
-		if err := b.api.ImagePull(ctx, image, b.auth); err != nil {
+		if err := b.api.ImagePull(ctx, image, b.authFor(image)); err != nil {
 			return false, imageErr(fmt.Errorf("backend: pulling %s: %w", image, err))
 		}
 		return true, nil
@@ -1629,7 +1776,7 @@ func (b *DockerBackend) applyPullPolicy(ctx context.Context, image string) (bool
 	if b.pull == PullNever {
 		return false, imageErr(fmt.Errorf("backend: image %s is not on this host and the pull policy is %q; pull it here first (docker pull %s) or set the pull policy to if-missing", image, b.pull, image))
 	}
-	if err := b.api.ImagePull(ctx, image, b.auth); err != nil {
+	if err := b.api.ImagePull(ctx, image, b.authFor(image)); err != nil {
 		return false, imageErr(fmt.Errorf("backend: pulling %s: %w", image, err))
 	}
 	return true, nil
@@ -2129,6 +2276,22 @@ func (b *DockerBackend) Remove(ctx context.Context, h Handle) error {
 // host may drift, not a quota, so carrying one runner's worth of excess costs
 // some disk; deleting a running job's cache costs the job.
 func (b *DockerBackend) pruneCacheFor(ctx context.Context, spec Spec) {
+	// Shared caches can still be mounted on the other daemon after a backend
+	// switch. The coordinated maintenance pass checks both inventories.
+	if len(b.cachePeers) > 1 {
+		return
+	}
+	b.cacheGate.Lock()
+	defer b.cacheGate.Unlock()
+	if b.cacheBusy > 1 {
+		return
+	}
+	for _, p := range b.cachePolicies {
+		if p.PoolID == spec.PoolID {
+			spec.Cache.SizeLimit = p.Cache.SizeLimit
+			break
+		}
+	}
 	// No limit is nothing to enforce, and no reason to ask the daemon.
 	if spec.Cache.SizeLimit <= 0 {
 		return
@@ -2136,6 +2299,13 @@ func (b *DockerBackend) pruneCacheFor(ctx context.Context, spec Spec) {
 	dir, ok := cacheDirectory(spec)
 	if !ok {
 		return
+	}
+	if identity, err := cacheIdentity(spec); err == nil && b.sharedDir != "" {
+		for _, kind := range []string{"tools", "service"} {
+			if cachePathsOverlap(dir, filepath.Join(b.sharedDir, "cache", kind, identity)) {
+				return
+			}
+		}
 	}
 	switch inUse, err := b.cacheInUse(ctx, dir); {
 	case err != nil:
@@ -2331,6 +2501,10 @@ func (b *DockerBackend) workloadFrom(ctx context.Context, s ContainerSummary, si
 				w.Status.Phase = PhaseFailed
 				w.Status.Message = oomMessage(insp)
 			}
+		} else if !errors.Is(err, ErrNotFound) {
+			// An exit reported with no code is recorded as a clean end for good,
+			// so this pass reports none and the next one asks again.
+			w.Status.Phase = PhaseRunning
 		}
 	}
 	return w

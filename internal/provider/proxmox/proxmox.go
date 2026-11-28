@@ -76,7 +76,10 @@ const shutdownGrace = 60 * time.Second
 // parsed once here so that a mistake in them is an error when the provider is
 // built rather than a failure at the first clone.
 type Provider struct {
-	client   *Client
+	client *Client
+	// lxc is the same connection pointed at containers; see locate for which of
+	// the two a machine is served by.
+	lxc      *Client
 	settings settings
 	caps     provider.Capabilities
 	log      *slog.Logger
@@ -116,6 +119,7 @@ func NewProvider(cfg provider.Config) (*Provider, error) {
 	}
 	return &Provider{
 		client:   client,
+		lxc:      client.forContainers(),
 		settings: set,
 		caps:     capabilities(cfg.Deadlines),
 		log:      log.With("component", "provider.proxmox"),
@@ -287,7 +291,7 @@ func (p *Provider) Allocate(ctx context.Context, spec provider.MachineSpec) (pro
 		err = p.client.AssertVMIDFree(ctx, vmid)
 		switch provider.KindOf(err) {
 		case "":
-			return provider.MachineRef{Zone: node, ID: strconv.Itoa(vmid), Name: spec.Name}, nil
+			return provider.MachineRef{Zone: node, ID: p.machineID(vmid), Name: spec.Name}, nil
 		case provider.FailureConflict, provider.FailureConfig:
 			// Somebody took it between the listing and now. Proxmox reports
 			// that from two places -- its parameter check and the cluster's
@@ -354,15 +358,15 @@ func (p *Provider) placeOn(guests []ClusterVM) (string, error) {
 // re-issued after an outcome nobody heard safe, and it is checked here by
 // asking what is at the identifier before anything is cloned.
 func (p *Provider) Create(ctx context.Context, ref provider.MachineRef, spec provider.MachineSpec) (provider.OperationRef, error) {
-	node, vmid, err := p.locate(ref, "create a machine")
+	c, node, vmid, err := p.locate(ref, "create a machine")
 	if err != nil {
 		return provider.OperationRef{}, err
 	}
 
-	switch existing, err := p.client.VMStatus(ctx, node, vmid); {
+	switch existing, err := c.VMStatus(ctx, node, vmid); {
 	case err == nil && existing.Name != "" && existing.Name != ref.Name:
 		return provider.OperationRef{}, &provider.Error{
-			Kind: provider.FailureConflict, Op: "create a machine", Ref: vmRef(node, vmid),
+			Kind: provider.FailureConflict, Op: "create a machine", Ref: c.guestRef(node, vmid),
 			Message: fmt.Sprintf("VMID %d on %s is already a guest called %q, so this machine's identifier belongs to something else",
 				vmid, node, existing.Name),
 			Remedy: "nothing has been created; the machine is given a new identifier, and a VMID range nothing else allocates from stops this happening",
@@ -374,6 +378,10 @@ func (p *Provider) Create(ctx context.Context, ref provider.MachineRef, spec pro
 	case errors.Is(err, provider.ErrNotFound):
 	default:
 		return provider.OperationRef{}, err
+	}
+
+	if c.lxc {
+		return p.createContainer(ctx, node, vmid, ref, spec)
 	}
 
 	req := CloneRequest{
@@ -398,6 +406,58 @@ func (p *Provider) Create(ctx context.Context, ref provider.MachineRef, spec pro
 	return provider.OperationRef{Kind: provider.OpCreate, Handle: upid}, nil
 }
 
+// lxcDefaultDiskGB is the root filesystem of a container whose row names no
+// size. A container archive carries no disk of its own to inherit, and the
+// default Proxmox would give is too small for a Docker image cache.
+const lxcDefaultDiskGB = 32
+
+// createContainer makes a container from the operator's template archive.
+//
+// The whole of the machine is in this one call, marks and size included,
+// because a container has no clone lock to wait out: it is unprivileged with
+// nesting, the only shape a token may ask for, and Start has nothing left to
+// configure. The ownership record is written by the create itself, so a create
+// whose answer was lost leaves something findable and provably ours, as a clone
+// does.
+func (p *Provider) createContainer(ctx context.Context, node string, vmid int, ref provider.MachineRef, spec provider.MachineSpec) (provider.OperationRef, error) {
+	req := LXCRequest{
+		VMID:        vmid,
+		Hostname:    ref.Name,
+		OSTemplate:  p.settings.osTemplate,
+		Storage:     p.settings.storage,
+		DiskGB:      lxcDefaultDiskGB,
+		Cores:       coresFor(spec.Shape.CPUs),
+		MemoryMB:    spec.Shape.MemoryMB,
+		Net0:        p.containerNet(),
+		Pool:        p.settings.pool,
+		Description: Describe(spec.Owner, ref.Name),
+		Tags:        EncodeTags("", Tags(spec.Owner)),
+	}
+	if mb := spec.Shape.DiskMB; mb > 0 {
+		req.DiskGB = int(math.Ceil(float64(mb) / 1024))
+	}
+	upid, err := p.lxc.CreateLXC(ctx, node, req)
+	if err != nil {
+		return provider.OperationRef{}, err
+	}
+	return provider.OperationRef{Kind: provider.OpCreate, Handle: upid}, nil
+}
+
+// containerNet is a container's one interface. Its address is part of the same
+// property, so the cloud-init ipconfig answer is reused: the two grammars share
+// their ip= and gw= keys, and a container with no address could never claim.
+func (p *Provider) containerNet() string {
+	ip := p.settings.ipConfig
+	if ip == "" {
+		ip = defaultIPConfig
+	}
+	net := "name=eth0,bridge=" + p.settings.bridge + "," + ip
+	if p.settings.vlan > 0 {
+		net += ",tag=" + strconv.Itoa(p.settings.vlan)
+	}
+	return net
+}
+
 // Start sizes a machine, marks it, and powers it on.
 //
 // All three are here because a clone locks its target until it finishes, and
@@ -407,11 +467,11 @@ func (p *Provider) Create(ctx context.Context, ref provider.MachineRef, spec pro
 // where Create recorded it, so that a controller which restarted between the
 // two calls still builds the machine the operator asked for.
 func (p *Provider) Start(ctx context.Context, ref provider.MachineRef) (provider.OperationRef, error) {
-	node, vmid, err := p.locate(ref, "start a machine")
+	c, node, vmid, err := p.locate(ref, "start a machine")
 	if err != nil {
 		return provider.OperationRef{}, err
 	}
-	status, err := p.client.VMStatus(ctx, node, vmid)
+	status, err := c.VMStatus(ctx, node, vmid)
 	if err != nil {
 		return provider.OperationRef{}, err
 	}
@@ -421,17 +481,20 @@ func (p *Provider) Start(ctx context.Context, ref provider.MachineRef) (provider
 		return provider.OperationRef{}, nil
 	}
 	if status.Lock != "" {
-		return provider.OperationRef{}, lockedError("start a machine", node, vmid, status.Lock)
+		return provider.OperationRef{}, lockedError(c, "start a machine", node, vmid, status.Lock)
 	}
 
-	cfg, err := p.client.VMConfig(ctx, node, vmid)
-	if err != nil {
-		return provider.OperationRef{}, err
+	// A container was given its size, network and marks by the create.
+	if !c.lxc {
+		cfg, err := c.VMConfig(ctx, node, vmid)
+		if err != nil {
+			return provider.OperationRef{}, err
+		}
+		if err := p.configure(ctx, node, vmid, cfg); err != nil {
+			return provider.OperationRef{}, err
+		}
 	}
-	if err := p.configure(ctx, node, vmid, cfg); err != nil {
-		return provider.OperationRef{}, err
-	}
-	upid, err := p.client.StartVM(ctx, node, vmid)
+	upid, err := c.StartVM(ctx, node, vmid)
 	if err != nil {
 		return provider.OperationRef{}, err
 	}
@@ -460,7 +523,11 @@ func (p *Provider) configure(ctx context.Context, node string, vmid int, cfg VMC
 		"onboot": {"0"},
 	}
 	if p.settings.bridge != "" {
-		params.Set("net0", netDevice(cfg.Net0, p.settings.bridge))
+		dev := netDevice(cfg.Net0, p.settings.bridge)
+		if p.settings.vlan > 0 {
+			dev += ",tag=" + strconv.Itoa(p.settings.vlan)
+		}
+		params.Set("net0", dev)
 	}
 	if p.settings.ipConfig != "" {
 		params.Set("ipconfig0", p.settings.ipConfig)
@@ -491,7 +558,7 @@ func (p *Provider) configure(ctx context.Context, node string, vmid int, cfg VMC
 		params.Set("tags", EncodeTags(cfg.Tags, Tags(owner)))
 	}
 
-	if _, err := p.client.ConfigureVM(ctx, node, vmid, params); err != nil {
+	if err := p.client.ConfigureVM(ctx, node, vmid, params); err != nil {
 		return err
 	}
 	if !haveShape || shape.DiskMB <= 0 {
@@ -536,15 +603,15 @@ func (p *Provider) growDisk(ctx context.Context, node string, vmid int, cfg VMCo
 // leave a machine nothing can destroy, because Proxmox will not remove one that
 // is running.
 func (p *Provider) Stop(ctx context.Context, ref provider.MachineRef, graceful bool) (provider.OperationRef, error) {
-	node, vmid, err := p.locate(ref, "stop a machine")
+	c, node, vmid, err := p.locate(ref, "stop a machine")
 	if err != nil {
 		return provider.OperationRef{}, err
 	}
 	var upid string
 	if graceful {
-		upid, err = p.client.ShutdownVM(ctx, node, vmid, shutdownGrace, true)
+		upid, err = c.ShutdownVM(ctx, node, vmid, shutdownGrace, true)
 	} else {
-		upid, err = p.client.StopVM(ctx, node, vmid)
+		upid, err = c.StopVM(ctx, node, vmid)
 	}
 	if err != nil {
 		return provider.OperationRef{}, err
@@ -564,21 +631,22 @@ func (p *Provider) Stop(ctx context.Context, ref provider.MachineRef, graceful b
 // what is on the machine -- and what stands between a sweep and a delete is
 // exactly that difference.
 func (p *Provider) Inspect(ctx context.Context, ref provider.MachineRef) (provider.Machine, error) {
-	node, vmid, err := p.locate(ref, "inspect a machine")
+	c, node, vmid, err := p.locate(ref, "inspect a machine")
 	if err != nil {
 		return provider.Machine{}, err
 	}
-	status, err := p.client.VMStatus(ctx, node, vmid)
+	status, err := c.VMStatus(ctx, node, vmid)
 	if err != nil {
 		return provider.Machine{}, err
 	}
 	m := provider.Machine{
-		Ref:    provider.MachineRef{Zone: node, ID: strconv.Itoa(vmid), Name: status.Name},
+		// The identifier is handed back as it was given, kind and all.
+		Ref:    provider.MachineRef{Zone: node, ID: ref.ID, Name: status.Name},
 		Phase:  phaseOf(status.Status),
 		Locked: status.Lock,
 		Detail: describeStatus(node, vmid, status),
 	}
-	cfg, err := p.client.VMConfig(ctx, node, vmid)
+	cfg, err := c.VMConfig(ctx, node, vmid)
 	if err != nil {
 		// The guest answered a moment ago, so a configuration that cannot be
 		// read is a refusal to report rather than a machine to guess about:
@@ -590,9 +658,40 @@ func (p *Provider) Inspect(ctx context.Context, ref provider.MachineRef) (provid
 		m.Owner = owner
 	}
 	if m.Ref.Name == "" {
-		m.Ref.Name = cfg.Name
+		m.Ref.Name = firstNonEmpty(cfg.Name, cfg.Hostname)
+	}
+	if c.lxc && status.Status == statusRunning {
+		m.Address = p.containerAddress(ctx, node, vmid)
 	}
 	return m, nil
+}
+
+// containerAddress is where Proxmox says a running container is, or empty when
+// it cannot say yet. A failure to read it is not a failure to inspect: the
+// machine is fine and the address is the one thing missing, which is what the
+// enrolment claim reads as "not yet" rather than "refused".
+func (p *Provider) containerAddress(ctx context.Context, node string, vmid int) string {
+	ifaces, err := p.lxc.LXCInterfaces(ctx, node, vmid)
+	if err != nil {
+		p.log.Debug("could not read a container's addresses", "node", node, "vmid", vmid, "error", err)
+		return ""
+	}
+	for _, i := range ifaces {
+		// shortcut: the first IPv4 address of a non-loopback interface, so a
+		// container reaching the controller over IPv6 alone is refused its claim;
+		// upgrade when a second address family is wanted.
+		if ip, _, ok := strings.Cut(i.Inet, "/"); ok && i.Name != "lo" && ip != "" {
+			return ip
+		}
+	}
+	return ""
+}
+
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }
 
 // List is the ownership sweep: every guest that wears this fleet's tag or its
@@ -614,9 +713,9 @@ func (p *Provider) List(ctx context.Context, owner provider.Owner) ([]provider.M
 	}
 	var out []provider.Machine
 	for _, g := range guests {
-		// Templates are never machines, and a container cannot run an agent
-		// this fleet installs.
-		if g.Type != "qemu" || bool(g.Template) {
+		// Templates are never machines, and the cluster listing holds nothing
+		// else but the two kinds of guest this provider builds.
+		if (g.Type != "qemu" && g.Type != "lxc") || bool(g.Template) {
 			continue
 		}
 		// Ours by tag, or wearing our naming grammar: the second is how an
@@ -626,12 +725,16 @@ func (p *Provider) List(ctx context.Context, owner provider.Owner) ([]provider.M
 			continue
 		}
 		vmid := g.VMID.Int()
+		id, c := strconv.Itoa(vmid), p.client
+		if g.Type == "lxc" {
+			id, c = lxcPrefix+id, p.lxc
+		}
 		m := provider.Machine{
-			Ref:    provider.MachineRef{Zone: g.Node, ID: strconv.Itoa(vmid), Name: g.Name},
+			Ref:    provider.MachineRef{Zone: g.Node, ID: id, Name: g.Name},
 			Phase:  phaseOf(g.Status),
 			Detail: fmt.Sprintf("VMID %d on %s", vmid, g.Node),
 		}
-		cfg, err := p.client.VMConfig(ctx, g.Node, vmid)
+		cfg, err := c.VMConfig(ctx, g.Node, vmid)
 		switch {
 		case errors.Is(err, provider.ErrNotFound):
 			// Destroyed between the listing and this read. It is gone, which
@@ -716,11 +819,11 @@ const taskLogLines = 20
 // Deleting a guest that is already gone is success: the desired end state has
 // been reached, so there is nothing to follow and nothing to report.
 func (p *Provider) Delete(ctx context.Context, ref provider.MachineRef) (provider.OperationRef, error) {
-	node, vmid, err := p.locate(ref, "destroy a machine")
+	c, node, vmid, err := p.locate(ref, "destroy a machine")
 	if err != nil {
 		return provider.OperationRef{}, err
 	}
-	status, err := p.client.VMStatus(ctx, node, vmid)
+	status, err := c.VMStatus(ctx, node, vmid)
 	switch {
 	case errors.Is(err, provider.ErrNotFound):
 		return provider.OperationRef{}, nil
@@ -728,16 +831,16 @@ func (p *Provider) Delete(ctx context.Context, ref provider.MachineRef) (provide
 		return provider.OperationRef{}, err
 	}
 	if status.Lock != "" {
-		return provider.OperationRef{}, lockedError("destroy a machine", node, vmid, status.Lock)
+		return provider.OperationRef{}, lockedError(c, "destroy a machine", node, vmid, status.Lock)
 	}
 	if status.Status == statusRunning {
-		upid, err := p.client.ShutdownVM(ctx, node, vmid, shutdownGrace, true)
+		upid, err := c.ShutdownVM(ctx, node, vmid, shutdownGrace, true)
 		if err != nil {
 			return provider.OperationRef{}, err
 		}
 		return provider.OperationRef{Kind: provider.OpDelete, Handle: upid}, nil
 	}
-	upid, err := p.client.DeleteVM(ctx, node, vmid)
+	upid, err := c.DeleteVM(ctx, node, vmid)
 	switch {
 	case errors.Is(err, provider.ErrNotFound):
 		return provider.OperationRef{}, nil
@@ -852,31 +955,58 @@ func describeStatus(node string, vmid int, s VMStatus) string {
 
 // locate turns a ref into the node and identifier every call needs, refusing a
 // ref that names neither rather than guessing at one.
-func (p *Provider) locate(ref provider.MachineRef, op string) (string, int, error) {
+func (p *Provider) locate(ref provider.MachineRef, op string) (*Client, string, int, error) {
 	node := strings.TrimSpace(ref.Zone)
 	if node == "" {
-		return "", 0, &provider.Error{
+		return nil, "", 0, &provider.Error{
 			Kind: provider.FailureInternal, Op: op, Ref: ref.Name,
 			Message: "this machine has no node recorded, and a guest cannot be found without one",
 			Remedy:  "the row was written before the node was chosen; release this machine and let the fleet build another",
 		}
 	}
-	vmid, err := strconv.Atoi(strings.TrimSpace(ref.ID))
+	// The kind of guest is part of the identifier, which is the one thing about
+	// a machine that is stored with it and read back by nothing but this
+	// package. That is what keeps a container a container when the provider's
+	// machine type is changed afterwards, and a QEMU guest's identifier is the
+	// bare number it has always been.
+	id, c := strings.TrimSpace(ref.ID), p.client
+	if rest, ok := strings.CutPrefix(id, lxcPrefix); ok {
+		id, c = rest, p.lxc
+	}
+	vmid, err := strconv.Atoi(id)
 	if err != nil || vmid <= 0 {
-		return "", 0, &provider.Error{
+		return nil, "", 0, &provider.Error{
 			Kind: provider.FailureInternal, Op: op, Ref: ref.Name,
 			Message: fmt.Sprintf("%q is not a VMID, so there is no guest to act on", ref.ID),
 			Remedy:  "release this machine and let the fleet build another",
 		}
 	}
-	return node, vmid, nil
+	return c, node, vmid, nil
+}
+
+// lxcPrefix marks an identifier that names a container: lxc:9042.
+const lxcPrefix = "lxc:"
+
+// machineID is the identifier a new machine is given, carrying its kind.
+func (p *Provider) machineID(vmid int) string {
+	if p.settings.lxc {
+		return lxcPrefix + strconv.Itoa(vmid)
+	}
+	return strconv.Itoa(vmid)
+}
+
+// Claims reports whether a machine enrols by asking the controller for its
+// credential instead of being handed one. A container has no agent inside it
+// that Proxmox can run a command through, so it is the one kind that does.
+func (p *Provider) Claims(ref provider.MachineRef) bool {
+	return strings.HasPrefix(strings.TrimSpace(ref.ID), lxcPrefix)
 }
 
 // lockedError is another operation holding a guest: something to wait for and
 // observe, never something to force or to build a second machine over.
-func lockedError(op, node string, vmid int, lock string) error {
+func lockedError(c *Client, op, node string, vmid int, lock string) error {
 	return &provider.Error{
-		Kind: provider.FailureConflict, Op: op, Ref: vmRef(node, vmid),
+		Kind: provider.FailureConflict, Op: op, Ref: c.guestRef(node, vmid),
 		Message: fmt.Sprintf("VM %d on %s is held by a %s", vmid, node, lock),
 		Remedy:  "nothing is forced; the operation holding it is waited for",
 	}
@@ -1022,6 +1152,16 @@ const (
 	SettingIPConfig      = "ipconfig0"
 	SettingNameserver    = "nameserver"
 	SettingControllerURL = "controller_url"
+	SettingMachineType   = "machine_type"
+	SettingOSTemplate    = "ostemplate"
+	SettingVLAN          = "vlan"
+)
+
+// The two kinds of machine this provider builds. QEMU is the default and what
+// every provider row written before containers existed means.
+const (
+	MachineTypeQEMU = "qemu"
+	MachineTypeLXC  = "lxc"
 )
 
 // defaultIPConfig is what a cloud image is told about its network when nobody
@@ -1042,6 +1182,11 @@ type settings struct {
 	ipConfig         string
 	nameserver       string
 	tokenID          string
+	// lxc selects containers built from osTemplate instead of VMs cloned from
+	// a template. vlan is an optional tag on the machine's interface.
+	lxc        bool
+	osTemplate string
+	vlan       int
 }
 
 // prereqs is the configured half of this provider in preflight's terms.
@@ -1055,9 +1200,11 @@ func (s settings) prereqs() Prereqs {
 		Pool:         s.pool,
 		VMIDMin:      s.vmidMin,
 		VMIDMax:      s.vmidMax,
-		// Always: the qualified bootstrap is the guest agent, so the two
-		// privileges it needs are prerequisites rather than extras.
-		GuestAgent: true,
+		// A VM is enrolled through the guest agent, so the privileges it needs
+		// are prerequisites rather than extras; a container has no such agent.
+		GuestAgent: !s.lxc,
+		LXC:        s.lxc,
+		OSTemplate: s.osTemplate,
 	}
 }
 
@@ -1077,6 +1224,7 @@ func parseSettings(in map[string]string) (settings, []config.Finding) {
 		pool:         get(SettingPool),
 		nameserver:   get(SettingNameserver),
 		tokenID:      get(SettingTokenID),
+		osTemplate:   get(SettingOSTemplate),
 		fullClone:    true,
 		ipConfig:     defaultIPConfig,
 	}
@@ -1122,19 +1270,62 @@ func parseSettings(in map[string]string) (settings, []config.Finding) {
 		})
 	}
 
-	var err error
-	if raw := get(SettingTemplateID); raw != "" {
-		if s.templateID, err = strconv.Atoi(raw); err != nil || s.templateID <= 0 {
-			s.templateID = 0
+	unknownType := false
+	switch kind := strings.ToLower(get(SettingMachineType)); kind {
+	case "", MachineTypeQEMU:
+	case MachineTypeLXC:
+		s.lxc = true
+	default:
+		// Which template is needed depends on the type, so one typo is one
+		// finding rather than that and a complaint about the other kind's template.
+		unknownType = true
+		add(config.Finding{
+			Code: "proxmox.setting_invalid", Severity: config.SeverityError, Setting: SettingMachineType,
+			Title:  fmt.Sprintf("%q is not a machine type", kind),
+			Detail: "machines are either virtual machines cloned from a template or containers made from a container template.",
+			Fix:    "set machine_type to qemu or lxc, or leave it empty for qemu.",
+		})
+	}
+	if raw := get(SettingVLAN); raw != "" {
+		if s.vlan, _ = strconv.Atoi(raw); s.vlan < 1 || s.vlan > 4094 {
+			s.vlan = 0
+			add(config.Finding{
+				Code: "proxmox.setting_invalid", Severity: config.SeverityError, Setting: SettingVLAN,
+				Title:  fmt.Sprintf("%q is not a VLAN tag", raw),
+				Detail: "a tag is a number from 1 to 4094, and a machine given anything else is refused by the cluster.",
+				Fix:    "give the VLAN's number, or leave it empty for an untagged interface.",
+			})
 		}
 	}
-	if s.templateID <= 0 {
-		add(config.Finding{
-			Code: "proxmox.template_missing", Severity: config.SeverityError, Setting: SettingTemplateID,
-			Title:  "no template is configured",
-			Detail: "every machine starts as a clone of one, and a template is named by its VMID.",
-			Fix:    "prepare a template as the runbook describes and give its VMID here.",
-		})
+
+	var err error
+	switch {
+	case unknownType:
+	case s.lxc:
+		// A container is made from a template archive, which is named by its
+		// volume id: storage:vztmpl/file. The VM template does not apply.
+		if !strings.Contains(s.osTemplate, ":vztmpl/") {
+			add(config.Finding{
+				Code: "proxmox.template_missing", Severity: config.SeverityError, Setting: SettingOSTemplate,
+				Title:  "no container template is configured",
+				Detail: "every container is made from a template archive, which is named by its volume id, for example local:vztmpl/zoomies-runner.tar.zst.",
+				Fix:    "prepare the template as the runbook describes and give its volume id here; `pveam list local` shows the ones a storage holds.",
+			})
+		}
+	default:
+		if raw := get(SettingTemplateID); raw != "" {
+			if s.templateID, err = strconv.Atoi(raw); err != nil || s.templateID <= 0 {
+				s.templateID = 0
+			}
+		}
+		if s.templateID <= 0 {
+			add(config.Finding{
+				Code: "proxmox.template_missing", Severity: config.SeverityError, Setting: SettingTemplateID,
+				Title:  "no template is configured",
+				Detail: "every machine starts as a clone of one, and a template is named by its VMID.",
+				Fix:    "prepare a template as the runbook describes and give its VMID here.",
+			})
+		}
 	}
 
 	s.vmidMin, s.vmidMax = atoiOrZero(get(SettingVMIDMin)), atoiOrZero(get(SettingVMIDMax))
@@ -1235,11 +1426,24 @@ func (Factory) Settings() []provider.SettingSpec {
 			Source:      "The node names in the tree on the left of the Proxmox console, or `pvesh get /nodes` on any node.",
 		},
 		{
-			Key: SettingTemplateID, Label: "Template VMID", Kind: provider.SettingChoice, Required: true,
+			Key: SettingMachineType, Label: "Machine type", Kind: provider.SettingChoice,
+			Default:     MachineTypeQEMU,
+			Help:        "Whether machines are virtual machines (qemu) or containers (lxc).",
+			Consequence: "A container starts faster and costs far less than a VM, and shares the node's kernel with every other guest on it. Experimental: see the LXC section of the Proxmox page before choosing it.",
+			Source:      "Your choice. Containers need a container template archive instead of a VM template.",
+		},
+		{
+			Key: SettingTemplateID, Label: "Template VMID", Kind: provider.SettingChoice,
 			Discovers:   "templates",
-			Help:        "The prepared template every machine is cloned from.",
+			Help:        "The prepared VM template every machine is cloned from. Required for virtual machines.",
 			Consequence: "What is in the template is what a runner gets: Zoomies installs nothing that is not already there.",
 			Source:      "The number beside the template in the console tree; `qm list` on its node shows every guest with its VMID.",
+		},
+		{
+			Key: SettingOSTemplate, Label: "Container template", Kind: provider.SettingText,
+			Help:        "The prepared container template archive every container is made from, as storage:vztmpl/file. Required for containers.",
+			Consequence: "What is in the archive is what a runner gets: Docker and an unenrolled Zoomies agent have to be in it, and it has to be on the same storage name on every node machines are placed on.",
+			Source:      "`pveam list <storage>` on a node, or the storage's CT Templates tab in the console.",
 		},
 		{
 			Key: SettingStorage, Label: "Storage", Kind: provider.SettingChoice, Required: true,
@@ -1294,6 +1498,12 @@ func (Factory) Settings() []provider.SettingSpec {
 			Default:     defaultIPConfig,
 			Help:        "What a cloud image is told about its network, in Proxmox's ipconfig0 grammar.",
 			Consequence: "Clear it for a template that has no cloud-init drive; a machine with no address can never enrol.",
+		},
+		{
+			Key: SettingVLAN, Label: "VLAN tag", Kind: provider.SettingNumber, Advanced: true,
+			Help:        "A VLAN tag put on every machine's network interface. Empty means untagged.",
+			Consequence: "A machine on a VLAN its bridge does not carry has no network and never enrols.",
+			Source:      "The VLAN the rest of this network's guests use, from a working guest's network device.",
 		},
 		{
 			Key: SettingNameserver, Label: "Nameserver", Kind: provider.SettingText, Advanced: true,

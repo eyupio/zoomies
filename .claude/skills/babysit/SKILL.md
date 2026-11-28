@@ -46,14 +46,13 @@ Then record the iteration in the run log described below and continue.
 
 ## Sparse breakpoints
 
-Do not report after every iteration; a per-iteration narration is noise, and
-it defeats the point of an autonomous loop. Surface to the operator only at
-these points:
+Report to the operator when something has changed that they would want to know,
+not after every iteration. Surface at these points:
 
 - **Baseline.** One line stating what is failing and the plan, before
   iteration one.
-- **Every fifth iteration.** A three-line status: what is fixed, what remains,
-  what you are trying next.
+- **A change of direction.** A short status: what is fixed, what remains, what
+  you are trying next.
 - **A category change.** The failure moves to a different package, or a
   compile error becomes a test failure, or a new check goes red.
 - **A blocker.** A decision only a person can make; a schema change, an API
@@ -62,7 +61,7 @@ these points:
   so a skipped e2e run is not a blocker.
 - **The exit.** Green, blocked or looping, with the run log.
 
-Everything between breakpoints stays in the log.
+The run log carries everything else.
 
 ## Loop protection
 

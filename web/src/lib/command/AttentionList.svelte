@@ -38,7 +38,7 @@
   }
 </script>
 
-<RailSection id="command-attention" title="Needs attention" count={problems.length}>
+<RailSection id="command-attention" title="Needs attention" count={problems.length} nameLines={2}>
   <ul>
     {#each shown as problem (problemKey(problem))}
       {@const href = problemHref(problem)}

@@ -547,6 +547,8 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1417](https://github.com/eyupio/zoomies/pull/1417), open, stacked on #1416 | S4 UI: repair settings lead with the three behaviours and admit repository watching on save; the hub and repair settings list each repository's effective behaviour, watched count, last successful observation, activity and attention with its pull requests underneath; one pull request shows its intended action, evidence, first failure, published commit and files and the checks now; pause one pull request, pause a repository, resume either and stop all, each saying what happens to work already under way; a failed read never shows an all-clear | UI unit, type, lint and production build pass; 26 Playwright cases on desktop and mobile for the watching spec, the repairs, setup, hub and automatic suites and the repairs accessibility audit; Go and docs tests unchanged and green; no live model, worker image or GitHub PR | Live end-to-end validation; the attempt history beside the current pull request; one row per repository; non-administrator activity; notifications |
 | [#1418](https://github.com/eyupio/zoomies/pull/1418), open, stacked on #1417 | S4 UI follow-up: the watched pull request's disclosure lists every attempt on that pull request, newest first, with how it ended, when, who began it and the commit it published, and links each to the attempt page; the list is narrowed to the watched pull request, a failed read says so, and a truncated history says older attempts may be missing | UI type, lint and production build pass; 1,335 unit cases pass including two new history-order cases; 28 Playwright cases on desktop and mobile for `repair-watching`, including the new history case; the repairs pages of the accessibility audit pass on both devices; no Go or API change | One row per repository; non-administrator activity or an explicit administrator-only statement; notifications; live end-to-end validation |
 | [#1497](https://github.com/eyupio/zoomies/pull/1497), open | Corrective, not a slice: a finished attempt stops asking in **Needs you** once its pull request no longer needs it. See "Finished attempts that no longer need anyone, 14 November 2026" | Store and controller tests named in that section, the full Go suite, vet, gofmt, UI type check and lint pass; checked against one live instance's list, read-only; no live model or GitHub write | Unchanged: the S4 items in the checkpoint table |
+| [#1535](https://github.com/eyupio/zoomies/pull/1535), open | Corrective, not a slice: fixes from the 21 November 2026 audit that touch Eli repair. See "Corrective fixes from the 21 November 2026 audit" | The tests named in that section, vet and gofmt pass; the full Go suite is run once for the whole pull request, not per fix; fakes only, no live model and nothing written to GitHub | Unchanged: the S4 items in the checkpoint table |
+| PR: https://github.com/eyupio/zoomies/pull/1570 | Corrective, not a slice: a repair refuses the Codex and GitHub Copilot providers. See "Corrective fix from the 26 November 2026 audit" | `TestARepairRefusesAToolThatCanReadTheControllersFiles` failed first and passes; the narrow controller and API tests, the docs tests and gofmt pass; fakes only, no live model and nothing written to GitHub | Unchanged: the S4 items in the checkpoint table |
 | [#1392](https://github.com/eyupio/zoomies/pull/1392), open | Controller load, not a slice: the S2c due-watch claim looks on the reader pool before taking the writer, alongside the enrichment claim, the event stream's figures and the database file's mapping | Full `make test` race suite (55 packages), vet, staticcheck, gofmt and `go mod tidy -diff` pass; no UI, public API or watch behaviour change | Unchanged: S3b resolution and publication, then S4 UX |
 
 S4 attempt-history validation on 6 November 2026:
@@ -2255,3 +2257,185 @@ commit pass and the page's "checks passed" wording is Eli's own claim.
 `TestSettlingAnEliRepairLeavesOneThatHasMovedOnAlone`. Fakes only: no live
 model, and nothing was written to GitHub or to the instance the list was read
 from.
+
+## Corrective fixes from the 21 November 2026 audit
+
+Corrective PR: [#1535](https://github.com/eyupio/zoomies/pull/1535). Not a slice;
+S4's remaining items in the checkpoint table are unchanged and still the next
+unfinished step. The fixes come from `plans/audit-2026-11-21.md` and are listed
+here one at a time, as each lands.
+
+**Plan 014: the conflict commit moves the branch it was given.**
+`CommitConflictResolution` built the ref URL as
+`base+"/git/refs/heads/"+p.Branch` and sent it through `repairRequest`, which
+parses it as a URL. A branch named `main#42-fix` lost everything from `#`, so the
+update went to `refs/heads/main`; because the target's tip is the merge commit's
+second parent, that update is a fast-forward and would have published the merge
+to the target branch. `feature/#123` went to `refs/heads/feature/`, `what?now`
+to `refs/heads/what`, and `100%done` failed to parse at all, so every
+publication for it failed. The branch is now escaped one segment at a time
+(`escapeRefPath`), keeping the slashes. The other pasted values in the Eli
+requests are commit SHAs GitHub returned, and the check repair path already goes
+through the client library's `UpdateRef`, which escapes. The test is
+`TestAConflictCommitMovesTheBranchItWasGivenWhateverItsName`; it failed before
+the change for the four unsafe names.
+
+**Plan 015: a conflict in a file that is not UTF-8 is not handed on.**
+`gitmerge.side` counted a blob as text when it held no NUL byte. The text then
+crossed to the controller inside JSON, where `encoding/json` replaces bytes that
+are not valid UTF-8 with U+FFFD, and every later check (`prrepair`'s text
+validation, the `utf8.Valid` in the conflict commit) accepts that because U+FFFD
+is itself valid UTF-8. A Latin-1, Windows-1252 or Shift-JIS file that conflicted
+would have been shown to the model, and published, with each of its non-ASCII
+characters gone, on lines nobody touched. `side` now refuses a blob that is not
+valid UTF-8 with the reason "conflict text is not UTF-8, which a model cannot be
+handed without changing it", and the file is reported as an unsupported conflict
+like a binary one. Clean-merged files are not affected: `Change.Content` is
+`[]byte`. The test is `TestMergeRefusesAConflictInAFileThatIsNotUTF8`; it failed
+before the change because the Latin-1 conflict came back as a supported one.
+`go test -race ./internal/gitmerge/...` passes, and the conflict and merge tests
+in `internal/controller`, `internal/conflictresolve` and `internal/agent` pass.
+
+**Plan 024: a conflict publication that keeps failing is held for a person.**
+When `CommitConflictResolution` failed for any reason other than the pull request
+having moved, the claim was released, so the next observation, two to five minutes
+later, started again: three archive downloads, a worker container and a full model
+session of up to twelve steps. Nothing counted attempts, unlike the three-attempt
+check repair chain, so a publication that could never succeed (a protected branch,
+a permission the App lacks, a branch GitHub refuses) billed a model session every
+few minutes until somebody read the logs. `conflictPublishFailed` now counts the
+failures of one incident (watch, head, base and merge base): the first two release
+the claim as before, and from the third the claim is held for
+`conflictPermanentCooldown`, an hour, with a warning that says what to check. The
+count survives the hold, so after an hour one more failure holds it again straight
+away instead of allowing three more; a published resolution forgets it
+(`conflictPublished`), and a count nobody has added to for a day
+(`conflictFailureMemory`) is swept by the next claim. A pull request that moved
+(`ErrSetupConflict`) is not a failed publication and does not count.
+
+Known limit: the count is in memory beside the claims, so a restart starts it
+again, which costs at most three attempts. Putting it in the store would need a
+table for a figure that is only worth keeping while a controller is up.
+
+The tests are `TestAConflictPublicationThatKeepsFailingIsHeldForAPerson`,
+`TestAPublishedConflictForgetsEarlierFailures`,
+`TestAConflictFailureCountDoesNotOutliveItsIncident` and
+`TestARepeatedlyRefusedPublicationHoldsTheIncidentForAPerson`, the last through
+the real publication path for both a refusal and a moved pull request.
+`TestAConflictPublishFailureIsLetGoForTheNextObservation` is unchanged: one failure
+still releases the claim. `go test ./internal/controller/` passes.
+
+**Plan 026: what Eli sends a model is redacted by shape, not by one pattern.**
+One pattern in `internal/prrepair` did two jobs and was wrong in both directions.
+It hides credentials in the text sent to the model, and a file that matches it may
+not be rewritten. Its `sk-` alternative had no word boundary, so
+`task-queue-worker-pool`, `disk-usage-threshold` and `-webkit-mask-box-image-source`
+read as keys: the model was shown `ta[redacted credential]`, and any fix touching
+such a file was refused with "a file containing credentials cannot be rewritten by
+Eli". Now `\bsk-`. Its private-key alternative ended in `|$`, and the whole
+snapshot is redacted as one JSON document, so a key header with no footer (a
+constant in code, a pull request body) matched to the end of it, took the failures
+the model is there to read and left something that was not JSON. Neither form of
+the key may cross a quote now: a key never holds one, and a quote is where the
+string it is in ends. And the pattern knew four shapes, so a failed job's log with
+a password in an address, a bearer token, a Slack, Google or npm token, or a
+setting that says it is a secret reached the provider as written; GitHub masks only
+the secrets it was given. `prrepair.Scrub` is `Redact` followed by
+`internal/redact.Text`, applied to one piece of text at a time (the pull request's
+title and body, the diff, each failed job's log and each window of source). It is
+not applied to the whole snapshot, where the wider rules would read escaped quotes
+as the text's own, so that pass stays `Redact`; and the refusal to rewrite a file
+that holds a credential stays on the narrow pattern, so the wider rules can block
+no edit. A multi-line key is still replaced by one line, so line numbers inside a
+window that held one are off by the lines it had, as they already were.
+
+The tests are `TestOrdinaryHyphenatedWordsAreNotCredentials`,
+`TestAnUnterminatedPrivateKeyDoesNotSwallowWhatFollows`,
+`TestEverythingBoundForTheModelLosesTheCommonSecretShapes`,
+`TestSourceWindowsLoseTheSecretsInThem` (in `internal/prrepair`) and
+`TestRepairFailuresDoNotSendTheSecretsInALogToTheModel` (in `internal/github`), each
+failed before the change. `go test -race` over `internal/prrepair`,
+`internal/github` and `internal/redact`, and the Eli tests in
+`internal/controller`, pass. This landed as one commit rather than the three the
+plan suggested, because the pattern and `Scrub` overlap in `repair.go`.
+
+## Smaller findings from the 21 November 2026 audit, second pass
+
+Corrective PR: [#1542](https://github.com/eyupio/zoomies/pull/1542). Not a slice; S4's remaining items
+in the checkpoint table are unchanged and still the next unfinished step. Two of
+the five fixes touch the Eli merge path, and the other three do not.
+
+**A merge attempt belongs to the host its task was queued to.** The agent routes
+`GET` and `POST /api/v1/agent/merge/{id}` checked only that the caller was some
+registered host, so any agent holding an attempt id could pull another host's
+repository (three commits of a private repository) or answer for it, and an answer
+becomes the tree of a commit pushed to a contributor's branch.
+`QueueMergeConflict` now binds the attempt to the host it queues the task to
+(`mergeAttempts.bind`), before the task exists, and `PullMergeRepository` and
+`ReportMergeAnswer` refuse every other host with `ErrNoMergeAttempt`, the same
+answer an unknown id gets, so a host that was not given an attempt learns nothing
+about it and its trying spends neither of the real host's one pull or one answer.
+An attempt nobody has queued is open to nobody. Giving an attempt to a second host
+is refused. An id that holds no attempt binds nothing and is not an error, because
+`QueueMergeConflict`'s own tests queue synthetic ids and the pull that follows says
+it is not here. The tests are
+`TestAMergeAttemptCanOnlyBePulledAndAnsweredByTheHostItWasGivenTo` (through the
+API, failing first with the other host receiving the repository) and
+`TestAMergeAttemptBelongsToTheOneHostItWasQueuedTo`; the helper in
+`internal/api/agent_merge_test.go` now queues to the host it pulls as. Known limit:
+the binding is in memory with the attempt, like the attempt, so a restart drops
+both.
+
+**`gitfetch.Remove` does not follow a symlink.** It cleared the read-only bit with
+one `chmod` per entry, and `chmod` follows links. A built repository holds none,
+but the merge worker runs in a container with the workspace mounted writable, so a
+link left there is the container's to choose, and the agent removes the workspace
+as the user that owns the host's own files: a link to a file or directory of the
+container's choosing had its mode set to 0644. The walk now skips links, and
+`RemoveAll` deletes the link and not its target.
+`TestRemoveDoesNotChangeWhatASymlinkPointsAt` failed first, with a 0600 file and a
+0700 directory both changed. `makeMergeWorkspaceWritable` in the agent chmods only
+real directories, and before the worker runs, so it was not changed.
+
+`go test -race` over `internal/backup`, `internal/auth`, `internal/gitfetch`, the
+Eli tests in `internal/controller`, and plain runs of `internal/controller`,
+`internal/api` and `internal/agent` pass. The other three fixes (restore's digest
+check, the authorize limit, the Argon2 bound) are in `plans/audit-2026-11-21.md`
+and the commit messages.
+
+## Corrective fix from the 26 November 2026 audit
+
+PR: https://github.com/eyupio/zoomies/pull/1570. Not a slice; S4's remaining items in the checkpoint table are
+unchanged and still the next unfinished step.
+
+**A repair does not run through Codex or GitHub Copilot.** An administrator's own
+subscription provider could answer a repair they asked for, from the page or with
+`/eli fix`. Claude Code is run with every tool off, but Codex is run in its
+read-only sandbox, which can read any file the controller's user can read, and
+Copilot keeps tools of its own too. `docs/eli.md` accepted that because nothing
+but the person's own words reached those tools, which is true of a chat and not of
+a repair: a repair's question holds the pull request's text, its diff and its
+failing job's log, and its answer is committed to the pull request. A line in a
+log could have had Codex read the controller's key or database and return it in
+the fix, where whoever opened the pull request reads it.
+
+Scope: `repairKindRefusal` in `internal/controller/eli_repairs.go` names the two
+kinds and the sentence a person is told. `requestPinnedEliRepair` returns it
+before a row is queued, as an error the API already answers with its own words
+(it matches `ErrAssistantSubscriptionRestricted`, a 403), and `runEliRepair`
+fails the attempt with it before any evidence or source is read, which is what a
+`/eli fix` comment gets back on the pull request. Claude Code and every API
+provider are untouched, and so are automatic repairs and conflict repairs, which
+only ever use a team provider and a team provider cannot be a subscription.
+`docs/eli.md` says so under "Using your own subscription".
+
+Validation: `TestARepairRefusesAToolThatCanReadTheControllersFiles` in
+`internal/controller/eli_repair_tools_test.go` failed first, with the repair
+reaching the source read through a Codex provider, and passes. The narrow
+controller and API tests, `go test ./internal/docs/...` and gofmt pass. Fakes
+only: no live model, no real Codex or Copilot, nothing written to GitHub.
+
+Not done: the readiness answer (`EliReadiness`) does not name this blocker ahead
+of the request, so the page learns of it when the request is refused. Copilot's
+question is still one command line argument, which Linux caps at 128 KiB; with
+repairs refused, a chat's 32 KiB bound keeps it under that.

@@ -15,6 +15,10 @@ import (
 	"github.com/eyupio/zoomies/internal/store"
 )
 
+// maxConcurrentUploads is how many snapshots the controller takes at once. Each
+// one that is admitted holds up to aicontext.MaxSnapshotBytes while it arrives.
+const maxConcurrentUploads = 4
+
 // handleAIContextUpload receives a Zoomies-only snapshot from the managed
 // workflow. It has no session and no API token: the only credential is the
 // run's GitHub Actions OIDC token, minted for this controller's upload address,
@@ -32,17 +36,26 @@ func (s *Server) handleAIContextUpload(w http.ResponseWriter, r *http.Request) {
 		unauthorized(w, "send the workflow run's GitHub Actions OIDC token, minted for this upload address, as a bearer token")
 		return
 	}
-	// The token first: nobody without one gets the controller to buffer a body.
+	// The token, and the repository it names, first: nobody without a token for
+	// a repository this controller serves gets it to buffer a body. A token only
+	// proves GitHub issued it, and a workflow in any repository can have GitHub
+	// issue one for this address.
 	if err := s.ctrl.CheckAIContextUploadToken(r.Context(), raw, audience); err != nil {
-		if errors.Is(err, github.ErrActionsKeysUnavailable) {
-			actionsKeysUnavailable(w, err)
-			return
-		}
-		if errors.Is(err, github.ErrActionsToken) {
-			unauthorized(w, "the GitHub Actions OIDC token is not valid for this controller: check that the workflow requests it for this upload address and that it has not expired")
-			return
-		}
-		s.fail(w, r, "verifying the upload's GitHub Actions token", err)
+		s.failUpload(w, r, "verifying the upload's GitHub Actions token", err)
+		return
+	}
+	// Each admitted upload holds up to 32 MiB while it arrives, so how many at
+	// once is bounded, and one too many is told to come back rather than queued
+	// behind a body that may never finish.
+	select {
+	case s.uploads <- struct{}{}:
+		defer func() { <-s.uploads }()
+	default:
+		w.Header().Set("Retry-After", "30")
+		writeError(w, http.StatusServiceUnavailable, errorEnvelope{Error: errorBody{
+			Code:    codeInternal,
+			Message: "this controller is already receiving other Zoomies-only snapshots; run the workflow again in a minute",
+		}})
 		return
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, aicontext.MaxSnapshotBytes+1))
@@ -57,25 +70,8 @@ func (s *Server) handleAIContextUpload(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
 	out, err := s.ctrl.IngestAIContextUpload(ctx, raw, audience, body)
-	switch {
-	case err == nil:
-	case errors.Is(err, github.ErrActionsKeysUnavailable):
-		actionsKeysUnavailable(w, err)
-		return
-	case errors.Is(err, github.ErrActionsToken):
-		unauthorized(w, "the GitHub Actions OIDC token is not valid for this controller: check that the workflow requests it for this upload address and that it has not expired")
-		return
-	case errors.Is(err, store.ErrNotFound):
-		notFound(w, "no repository on this controller is set up for Zoomies-only output with this GitHub repository ID")
-		return
-	case errors.Is(err, controller.ErrAIContextUploadSuperseded):
-		conflict(w, err.Error())
-		return
-	case errors.Is(err, controller.ErrAIContextUploadRefused):
-		forbidden(w, err.Error())
-		return
-	default:
-		s.fail(w, r, "verifying the uploaded AI context", err)
+	if err != nil {
+		s.failUpload(w, r, "verifying the uploaded AI context", err)
 		return
 	}
 	var commit, snapshot string
@@ -85,6 +81,26 @@ func (s *Server) handleAIContextUpload(w http.ResponseWriter, r *http.Request) {
 	s.auth.Auditor().Act(r.Context(), &auth.Identity{Kind: auth.KindSystem, Name: "github-actions"}, "context.upload", "ai_context", out.ID,
 		map[string]any{"commit": commit, "snapshot_id": snapshot})
 	writeJSON(w, http.StatusAccepted, map[string]any{"repository_id": out.ID, "commit": commit, "snapshot_id": snapshot})
+}
+
+// failUpload answers an upload that did not get in, with the status its reason
+// deserves: both halves of the check use it, the one before the body is read and
+// the one that guards the write.
+func (s *Server) failUpload(w http.ResponseWriter, r *http.Request, what string, err error) {
+	switch {
+	case errors.Is(err, github.ErrActionsKeysUnavailable):
+		actionsKeysUnavailable(w, err)
+	case errors.Is(err, github.ErrActionsToken):
+		unauthorized(w, "the GitHub Actions OIDC token is not valid for this controller: check that the workflow requests it for this upload address and that it has not expired")
+	case errors.Is(err, store.ErrNotFound):
+		notFound(w, "no repository on this controller is set up for Zoomies-only output with this GitHub repository ID")
+	case errors.Is(err, controller.ErrAIContextUploadSuperseded):
+		conflict(w, err.Error())
+	case errors.Is(err, controller.ErrAIContextUploadRefused):
+		forbidden(w, err.Error())
+	default:
+		s.fail(w, r, what, err)
+	}
 }
 
 // actionsKeysUnavailable is a 503 rather than a 401: the token was not judged,

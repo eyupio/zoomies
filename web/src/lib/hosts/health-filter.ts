@@ -5,13 +5,13 @@
  * is in the app shell (the feed imports from it), so anything added there spends
  * shell bytes that only this page would use.
  *
- * The pill on each card is the one authority on a host's health, and the filter
- * asks it. `healthBucket` calls `healthSummary` exactly as the card does, so the
- * count on the "Need attention" tile, the chip and the pills can never disagree.
- * Three things follow from that, and each is said where it shows:
+ * Disk admission comes from the controller's host problem, as the card's red
+ * status does. It takes precedence even when no OS report has arrived.
+ * Otherwise healthBucket asks healthSummary, exactly as the card does, so
+ * the Need attention tile, chip and cards agree. For OS reports:
  *
  *  - The three buckets are exclusive and do not add up to All. A host with a
- *    clean report, a partial report or "Checks unavailable" is in none of them,
+ *    clean report, a partial report or "Checks unavailable" and no disk block is in none of them,
  *    because its pill says nothing is wrong and nothing is missing.
  *  - A host whose agent is not connected is "Report stale" even with a fresh
  *    report, because its pill reads "Last known report". A stale host that is
@@ -22,18 +22,18 @@
  *    the problems list for a few minutes. The pill is what the card shows, and
  *    the count follows the card.
  */
-import type { Host } from '$lib/api/types';
+import type { Host, Problem } from '$lib/api/types';
 import { pluralise } from '../format';
 import { healthSummary } from './health';
+import { diskProblemFor } from './disk';
 
 export const HEALTH_FILTERS = [
   { value: 'all', label: 'All', title: 'Every host.', note: '' },
   {
     value: 'attention',
     label: 'Need attention',
-    title:
-      'OS settings below the recommendation, or a reboot pending. The same hosts whose health pill says warnings, errors or a reboot.',
-    note: 'OS settings below the recommendation, or a reboot pending.',
+    title: 'Disk blocking placement, OS settings below the recommendation, or a reboot pending.',
+    note: 'disk blocking placement, OS settings below the recommendation, or a reboot pending.',
   },
   {
     value: 'stale',
@@ -54,8 +54,8 @@ export type HealthFilter = (typeof HEALTH_FILTERS)[number]['value'];
 export type HealthBucket = Exclude<HealthFilter, 'all'>;
 export type HealthCounts = Record<HealthFilter, number>;
 
-/** What the pill reads, and nothing else of the host. */
-type Judged = Pick<Host, 'doctor' | 'healthy'>;
+/** The host identity and OS report the card reads. */
+type Judged = Pick<Host, 'doctor' | 'healthy'> & { id?: string; cordoned?: boolean };
 
 /**
  * The filter a query value names. Exact matches only: an address somebody
@@ -70,7 +70,12 @@ export function healthFilterFrom(raw: string): HealthFilter {
  * The one bucket a host is in, or null when its pill has nothing to say about
  * it: Health OK, Partial report and Checks unavailable.
  */
-export function healthBucket(host: Judged, now: number): HealthBucket | null {
+export function healthBucket(
+  host: Judged,
+  now: number,
+  problems: readonly Problem[] = [],
+): HealthBucket | null {
+  if (diskProblemFor(host, problems)) return 'attention';
   // "Health unavailable": no report, or one that arrived without the
   // controller's count of it. Asked first, because healthSummary also calls a
   // missing report stale and would put it in the wrong bucket.
@@ -81,10 +86,14 @@ export function healthBucket(host: Judged, now: number): HealthBucket | null {
   return tone === 'danger' || tone === 'pending' ? 'attention' : null;
 }
 
-export function healthCounts(hosts: readonly Judged[], now: number): HealthCounts {
+export function healthCounts(
+  hosts: readonly Judged[],
+  now: number,
+  problems: readonly Problem[] = [],
+): HealthCounts {
   const counts: HealthCounts = { all: hosts.length, attention: 0, stale: 0, 'no-report': 0 };
   for (const host of hosts) {
-    const bucket = healthBucket(host, now);
+    const bucket = healthBucket(host, now, problems);
     if (bucket) counts[bucket] += 1;
   }
   return counts;
@@ -95,9 +104,10 @@ export function hostsFor<T extends Judged>(
   hosts: readonly T[],
   filter: HealthFilter,
   now: number,
+  problems: readonly Problem[] = [],
 ): readonly T[] {
   if (filter === 'all') return hosts;
-  return hosts.filter((host) => healthBucket(host, now) === filter);
+  return hosts.filter((host) => healthBucket(host, now, problems) === filter);
 }
 
 /** The line under the chips while a filter is on, or nothing for All. Written for a screen reader as much as for the eye. */
@@ -116,7 +126,7 @@ export function filterSentence(filter: HealthFilter, shown: number, total: numbe
 export function attentionDetail(counts: HealthCounts): string {
   const silent = counts.stale + counts['no-report'];
   if (counts.attention === 0 && silent > 0) return `${silent} without a current OS report`;
-  return 'OS settings below the recommendation, or a reboot pending';
+  return 'Disk blocking placement, OS settings below the recommendation, or a reboot pending';
 }
 
 /** What the page says when a filter matches nothing. */
@@ -130,7 +140,7 @@ export function emptyCopy(
     return {
       title: 'No host needs attention',
       description:
-        'Every host with a current report is within what Zoomies recommends, and none is waiting for a reboot.' +
+        'No host has disk blocking placement. Every host with a current report is within what Zoomies recommends, and none is waiting for a reboot.' +
         (silent > 0
           ? ` ${pluralise(silent, 'host')} ${has(silent)} no current report, so nothing is known about ${silent === 1 ? 'it' : 'them'} yet.`
           : ''),

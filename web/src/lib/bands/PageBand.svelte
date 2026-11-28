@@ -174,6 +174,7 @@
     </BrandStage>
     <div class="tools">
       <div class="sizes" role="group" aria-label={`${name} band size`}>
+        <span class="size-label" aria-hidden="true">Band size</span>
         {#each BAND_SIZES as option (option.key)}
           {@const SizeIcon = BAND_SIZE_ICONS[option.key]}
           <Tooltip bare text={option.name} placement="bottom">
@@ -355,6 +356,18 @@
     display: flex;
     align-items: center;
     gap: var(--z-space-1);
+  }
+  /* The four glyphs read as window controls on their own; the words say what
+     they change when the band is being looked at. */
+  .size-label {
+    font-size: var(--z-text-2xs);
+    color: var(--z-panel-text-muted);
+    opacity: 0;
+    transition: opacity var(--z-motion-fast) var(--z-ease);
+  }
+  .band:hover .size-label,
+  .band:focus-within .size-label {
+    opacity: 1;
   }
   .size {
     display: grid;

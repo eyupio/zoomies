@@ -49,6 +49,23 @@ func host(t *testing.T) (*config.Config, *store.Store, *cryptox.Key) {
 	return cfg, st, key
 }
 
+// reseal records the backup's database as it is now in its manifest, for a test
+// that changes the file on purpose and still wants the restore to get past the
+// digest comparison.
+func reseal(t *testing.T, dir string) {
+	t.Helper()
+	m, err := ReadManifest(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Database.SHA256, err = FileSHA256(filepath.Join(dir, DBName)); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeManifest(dir, m); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func take(t *testing.T, cfg *config.Config, st *store.Store, opts TakeOptions) *Entry {
 	t.Helper()
 	opts.Config = cfg
@@ -450,6 +467,10 @@ func TestARestoreThatFailsAfterTheCopySaysSoAndKeepsTheFenceUp(t *testing.T) {
 				t.Fatalf("breaking the backup: %v", err)
 			}
 			db.Close()
+			// The break stands in for a write failing later, not for a file that
+			// changed on the shelf, so the manifest is brought up to date: a
+			// restore now refuses a copy that no longer matches what it recorded.
+			reseal(t, e.Dir)
 
 			_, err = Restore(ctx, cfg, e.Dir, RestoreOptions{Replace: true})
 			if err == nil {
@@ -474,6 +495,139 @@ func TestARestoreThatFailsAfterTheCopySaysSoAndKeepsTheFenceUp(t *testing.T) {
 				t.Errorf("the restored database is fenced=%v, want %v", f.Fenced, tc.wantFence)
 			}
 		})
+	}
+}
+
+// A restore that fails while it is still copying must leave the database that
+// is there exactly where it was. The copy used to come after the live database
+// had been moved aside, so a copy that ran out of room (the moved file still
+// holds its space) left nothing at the path, and a controller started on it
+// made a new, empty database: the fleet came up with no pools, hosts or users.
+func TestARestoreWhoseCopyFailsLeavesTheLiveDatabaseWhereItWas(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	cfg, st, _ := host(t)
+	e := take(t, cfg, st, TakeOptions{})
+
+	before, err := os.Stat(cfg.Database.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stamp := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	// A directory where the staged copy has to go makes writing it fail, which
+	// is what a full disk does at that point, without a seam in the code.
+	blocker := cfg.Database.Path + ".restoring-20260102-030405"
+	if err := os.Mkdir(blocker, 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = Restore(ctx, cfg, e.Dir, RestoreOptions{Replace: true, Now: func() time.Time { return stamp }})
+	if err == nil {
+		t.Fatal("the restore reported success although it could not copy the backup")
+	}
+	if !strings.Contains(err.Error(), "Nothing was moved") {
+		t.Errorf("the error does not say nothing was moved, so an operator cannot tell the database is safe:\n%v", err)
+	}
+	after, statErr := os.Stat(cfg.Database.Path)
+	if statErr != nil {
+		t.Fatalf("there is no database at %s after a failed copy: %v", cfg.Database.Path, statErr)
+	}
+	if !os.SameFile(before, after) {
+		t.Error("the file at the database path is not the one that was there before")
+	}
+	if kept, _ := filepath.Glob(cfg.Database.Path + ".before-restore-*"); len(kept) != 0 {
+		t.Errorf("the database was moved aside although nothing was copied: %v", kept)
+	}
+}
+
+// The last move can fail too. By then the database has been set aside, and an
+// error that leaves it there leaves nothing at the path, so it is put back.
+func TestARestoreWhoseLastMoveFailsPutsTheDatabaseBack(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	cfg, st, _ := host(t)
+	e := take(t, cfg, st, TakeOptions{})
+
+	before, err := os.Stat(cfg.Database.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stamp := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	_, err = Restore(ctx, cfg, e.Dir, RestoreOptions{
+		Replace: true,
+		Now:     func() time.Time { return stamp },
+		rename: func(oldpath, newpath string) error {
+			if newpath == cfg.Database.Path {
+				return errors.New("injected: the final move failed")
+			}
+			return os.Rename(oldpath, newpath)
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "injected") {
+		t.Fatalf("Restore = %v; want the failed move reported", err)
+	}
+	after, statErr := os.Stat(cfg.Database.Path)
+	if statErr != nil {
+		t.Fatalf("there is no database at %s after the last move failed: %v", cfg.Database.Path, statErr)
+	}
+	if !os.SameFile(before, after) {
+		t.Error("the file at the database path is not the original, which should have been put back")
+	}
+	for _, pattern := range []string{".before-restore-*", ".restoring-*"} {
+		if left, _ := filepath.Glob(cfg.Database.Path + pattern); len(left) != 0 {
+			t.Errorf("%s left behind: %v", pattern, left)
+		}
+	}
+}
+
+// A backup is trusted because the manifest recorded what the database was when
+// it was taken. `backup verify` compares that digest, and a restore compared it
+// only for portable snapshots, so a copy that was truncated or swapped on the
+// shelf could still be restored over a good database whenever the damaged file
+// happened to open. The restore has to stop at the same place verify does,
+// and before anything has been moved.
+func TestARestoreRefusesABackupWhoseDatabaseIsNotWhatTheManifestRecorded(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	cfg, st, _ := host(t)
+	e := take(t, cfg, st, TakeOptions{})
+
+	m, err := ReadManifest(e.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Database.SHA256 == "" {
+		t.Fatal("the manifest records no digest, so this test proves nothing")
+	}
+	// The database stays sound and openable; only the record of it is wrong,
+	// which is what a swapped file looks like to the comparison.
+	m.Database.SHA256 = strings.Repeat("0", len(m.Database.SHA256))
+	if err := writeManifest(e.Dir, m); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := Check(ctx, cfg, e.Dir); err == nil {
+		t.Error("Check passed a backup whose database does not match its manifest")
+	} else if !strings.Contains(err.Error(), "digest") {
+		t.Errorf("the refusal does not say the digest is what is wrong, so an operator cannot tell why:\n%v", err)
+	}
+
+	before, err := os.Stat(cfg.Database.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Restore(ctx, cfg, e.Dir, RestoreOptions{Replace: true}); err == nil {
+		t.Fatal("Restore replaced the live database with a backup that does not match its manifest")
+	}
+	after, err := os.Stat(cfg.Database.Path)
+	if err != nil {
+		t.Fatalf("there is no database at %s after the refusal: %v", cfg.Database.Path, err)
+	}
+	if !os.SameFile(before, after) {
+		t.Error("the live database was moved although the backup was refused")
+	}
+	if kept, _ := filepath.Glob(cfg.Database.Path + ".before-restore-*"); len(kept) != 0 {
+		t.Errorf("the live database was set aside although the backup was refused: %v", kept)
 	}
 }
 
