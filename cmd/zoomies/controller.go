@@ -168,6 +168,7 @@ func runController(ctx context.Context, e *env, args []string) error {
 	}
 
 	health := hosttune.LocalOptions(cfg.Agent.WorkDir)
+	health.Disk = &hosttune.DiskThresholds{WarnFreePercent: cfg.Agent.Disk.WarnFreePercent, WarnFreeGiB: cfg.Agent.Disk.WarnFreeGiB}
 	health.DockerHost = cfg.Agent.DockerHost
 	health.HostReportPath = filepath.Join(config.SharedDir(), "host-health", "report.json")
 	ctrl, err := controller.New(controller.Options{

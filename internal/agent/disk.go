@@ -1,6 +1,12 @@
 package agent
 
-import "math"
+import (
+	"fmt"
+	"math"
+	"slices"
+
+	"github.com/eyupio/zoomies/internal/backend"
+)
 
 // diskFromStatfs turns a filesystem's raw block counts into bytes, and refuses
 // figures that cannot describe one.
@@ -26,4 +32,50 @@ func diskFromStatfs(blocks, bavail uint64, bsize int64) (total, avail int64, ok 
 		return 0, 0, false
 	}
 	return total, avail, true
+}
+
+// diskRefusal says why a new runner may not start for want of disk, or "" when
+// it may. It measures the filesystem holding the agent's work directory only:
+// that is where the process backend keeps a runner and its job. A container
+// backend keeps images and layers under the daemon's own root, which this does
+// not look at, so the reserve is meant for hosts running the process backend.
+//
+// An unmeasurable disk refuses too. A reserve that waves work through when it
+// cannot see the disk would fail exactly when it is needed.
+func (a *Agent) diskRefusal() string {
+	if a.opts.StopFreeGiB <= 0 {
+		return ""
+	}
+	measure := a.opts.diskSpace
+	if measure == nil {
+		measure = diskSpace
+	}
+	_, free, ok := measure(a.opts.WorkDir)
+	if !ok {
+		return "cannot measure work directory free disk; new runners paused"
+	}
+	if float64(free) < a.opts.StopFreeGiB*(1<<30) {
+		return fmt.Sprintf("work directory has %.1f GiB free, below %.1f GiB; new runners paused", float64(free)/(1<<30), a.opts.StopFreeGiB)
+	}
+	return ""
+}
+
+// diskBackends is the probes as the controller should see them while the
+// reserve holds: every backend unavailable, with the reason as its detail, so
+// an older controller that only knows availability stops placing runners here.
+// It is applied to the heartbeat's Backends field alone. The probes the agent
+// sizes the host from keep their CPU and memory figures, which a pause must not
+// replace with the agent's own, smaller cgroup limits. The operator's cordon is
+// left as it was.
+func (a *Agent) diskBackends(infos []backend.Info) []backend.Info {
+	why := a.diskRefusal()
+	if why == "" {
+		return infos
+	}
+	paused := slices.Clone(infos)
+	for i := range paused {
+		paused[i].Available = false
+		paused[i].Detail = why
+	}
+	return paused
 }

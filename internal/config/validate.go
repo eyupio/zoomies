@@ -4,6 +4,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"math"
 	"net"
 	"net/url"
 	"os"
@@ -840,6 +841,28 @@ func (c *Config) validateAgent(add func(Finding)) {
 				Title: fmt.Sprintf("%q is not a runner backend", c.Agent.Backend),
 				Fix:   `use "docker", "podman" or "process".`,
 			})
+		}
+		for _, threshold := range []struct {
+			setting string
+			value   float64
+			limit   float64
+		}{
+			{"warn_free_percent", c.Agent.Disk.WarnFreePercent, 100},
+			{"warn_free_gib", c.Agent.Disk.WarnFreeGiB, math.Inf(1)},
+			{"stop_free_gib", c.Agent.Disk.StopFreeGiB, math.Inf(1)},
+		} {
+			if math.IsNaN(threshold.value) || math.IsInf(threshold.value, 0) || threshold.value < 0 || threshold.value > threshold.limit {
+				key := "agent.disk." + threshold.setting
+				fix := fmt.Sprintf("set %s to a number of at least 0.", key)
+				if threshold.limit == 100 {
+					fix = fmt.Sprintf("set %s to a percentage from 0 to 100.", key)
+				}
+				add(Finding{
+					Code: "agent.disk", Severity: SeverityError, Setting: key,
+					Title: fmt.Sprintf("%s is %v, which is not a usable disk threshold", key, threshold.value),
+					Fix:   fix,
+				})
+			}
 		}
 		if c.Agent.Capacity <= 0 {
 			add(Finding{

@@ -139,6 +139,9 @@ type HostDoctor interface {
 
 // Options configures an Agent.
 type Options struct {
+	// StopFreeGiB pauses new runner admission below this reserve; zero disables it.
+	StopFreeGiB float64
+	diskSpace   func(string) (int64, int64, bool)
 	// Doctor is enabled by production wiring; tests inject a fake or leave it nil.
 	// Production passes a *hosttune.Monitor, whose methods are all safe on a
 	// nil receiver, because a typed nil inside an interface is not a nil
@@ -1079,7 +1082,7 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 		DiskKind:          m.DiskKind,
 		DiskTotalMB:       total,
 		DiskFreeMB:        free,
-		Backends:          infos,
+		Backends:          a.diskBackends(infos),
 		Runners:           runners,
 		Runtime:           a.runtimeReport(),
 		Update:            update,
@@ -1825,6 +1828,16 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 			TaskID: task.ID, Kind: task.Kind, RunnerID: task.RunnerID, OK: true,
 			Handle: handle, State: state, CompletedAt: now,
 		})
+		return
+	}
+
+	// Only a runner this host does not already have costs disk, so the reserve
+	// is checked here, after the redelivery answer above. Refusing earlier
+	// would report a live runner as failed when its create came round again
+	// below the reserve.
+	if why := a.diskRefusal(); why != "" {
+		release()
+		a.reportFailure(ctx, task, why, store.FaultBackend)
 		return
 	}
 

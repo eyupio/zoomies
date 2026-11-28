@@ -735,8 +735,24 @@ type GitHub struct {
 	RunnerVersion string `yaml:"runner_version"`
 }
 
+// AgentDisk is how much free disk the agent's work directory should keep. The
+// two warning levels feed doctor's free-space check and change nothing else;
+// the stop reserve is the only one that changes what the agent does.
+type AgentDisk struct {
+	// WarnFreePercent warns below this share of the filesystem free. Zero
+	// turns the percentage warning off.
+	WarnFreePercent float64 `yaml:"warn_free_percent"`
+	// WarnFreeGiB warns below this many GiB free. Zero turns it off.
+	WarnFreeGiB float64 `yaml:"warn_free_gib"`
+	// StopFreeGiB refuses new runners below this many GiB free, so a job that
+	// would fill the disk is not started on a host already close to it. Running
+	// jobs are never touched. Zero, the default, turns the reserve off.
+	StopFreeGiB float64 `yaml:"stop_free_gib"`
+}
+
 // Agent configures the runner-executing half of the system.
 type Agent struct {
+	Disk AgentDisk `yaml:"disk"`
 	// Embedded runs an agent inside the controller process, so the single-VM
 	// case needs exactly one process.
 	Embedded bool   `yaml:"embedded"`
@@ -1298,6 +1314,7 @@ func Default() *Config {
 			RunnerImage:               DefaultRunnerImage,
 		},
 		Agent: Agent{
+			Disk:              AgentDisk{WarnFreePercent: 10, WarnFreeGiB: 10},
 			Embedded:          true,
 			Capacity:          defaultCapacity(),
 			Backend:           "docker",

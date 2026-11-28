@@ -2367,6 +2367,7 @@ func (c *Controller) StartEmbeddedAgent(ctx context.Context, cfg *config.Config)
 
 	tr := c.EmbeddedTransport()
 	a, err := agent.New(agent.Options{
+		StopFreeGiB:        cfg.Agent.Disk.StopFreeGiB,
 		Doctor:             c.doctor,
 		Name:               cfg.Agent.Name,
 		WorkDir:            cfg.Agent.WorkDir,
