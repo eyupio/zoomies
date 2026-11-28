@@ -83,6 +83,8 @@ const tailPoll = 250 * time.Millisecond
 type ProcessOptions struct {
 	// WorkDir is the root of the layout above. It must be writable.
 	WorkDir string
+	// AdmissionFile supplies optional host-local slot limits.
+	AdmissionFile string
 	// RunnerVersion is the actions/runner release used when a pool does not pin
 	// one. Empty means DefaultRunnerVersion.
 	RunnerVersion string
@@ -105,6 +107,7 @@ type ProcessOptions struct {
 // ProcessBackend runs runners as ordinary processes on the host.
 type ProcessBackend struct {
 	root            string
+	admissionFile   string
 	version         string
 	sha256          string
 	allowUnverified bool
@@ -157,6 +160,7 @@ func NewProcess(opts ProcessOptions) (*ProcessBackend, error) {
 
 	return &ProcessBackend{
 		root:            abs,
+		admissionFile:   opts.AdmissionFile,
 		version:         version,
 		sha256:          strings.ToLower(strings.TrimSpace(opts.RunnerSHA256)),
 		allowUnverified: opts.AllowUnverifiedDownload,
@@ -278,6 +282,17 @@ func (b *ProcessBackend) CreateWithResult(ctx context.Context, spec Spec) (Creat
 	if err := os.MkdirAll(filepath.Join(dir, runnerWorkDir), 0o750); err != nil {
 		return CreateResult{}, fmt.Errorf("backend: creating the runner directory %s: %w", dir, err)
 	}
+	lease, err := b.reserveSlot(dir, &spec)
+	if err != nil {
+		_ = os.RemoveAll(dir)
+		return CreateResult{}, err
+	}
+	startedOK := false
+	defer func() {
+		if !startedOK {
+			lease.release()
+		}
+	}()
 	// Each runner needs its own copy of the tree, because the runner keeps its
 	// credentials and its state next to the binary. Files are hard-linked where
 	// the filesystem allows it, so the copy costs inodes rather than gigabytes.
@@ -303,9 +318,14 @@ func (b *ProcessBackend) CreateWithResult(ctx context.Context, spec Spec) (Creat
 	}
 
 	if err := b.start(dir, args, env, spec, version); err != nil {
-		_ = os.RemoveAll(dir)
+		if errors.Is(err, errProcessStillRunning) {
+			startedOK = true // A surviving process retains its directory and reservation.
+		} else {
+			_ = os.RemoveAll(dir)
+		}
 		return CreateResult{}, err
 	}
+	startedOK = true
 	b.log.Info("runner process started", "runner", spec.Name, "pool", spec.PoolName, "dir", dir, "runner_version", version)
 	return CreateResult{Handle: Handle(dir), CreateDuration: time.Since(started)}, nil
 }
@@ -378,7 +398,7 @@ func transientStartError(err error) bool {
 
 // start launches the listener detached and records enough on disk for a future
 // agent process to find it again.
-func (b *ProcessBackend) start(dir string, args, env []string, spec Spec, version string) error {
+func (b *ProcessBackend) start(dir string, args, env []string, spec Spec, version string) (err error) {
 	bin := filepath.Join(dir, listenerPath)
 	if _, err := os.Stat(bin); err != nil {
 		return fmt.Errorf("backend: the runner binary %s is missing: %w", bin, err)
@@ -423,6 +443,14 @@ func (b *ProcessBackend) start(dir string, args, env []string, spec Spec, versio
 		return fmt.Errorf("backend: starting the runner in %s: %w", dir, startErr)
 	}
 	adoptRunner(cmd)
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, b.abandon(cmd, logFile, 10*time.Second))
+		}
+	}()
+	if err := readProcessLease(dir).bind(cmd.Process.Pid); err != nil {
+		return err
+	}
 
 	now := time.Now().UTC()
 	meta := processMeta{
@@ -438,15 +466,12 @@ func (b *ProcessBackend) start(dir string, args, env []string, spec Spec, versio
 	}
 	meta.ProcessIdentity, err = processIdentity(meta.PID)
 	if err != nil {
-		abandon(cmd, logFile)
 		return fmt.Errorf("recording native process identity: %w", err)
 	}
 	if err := writeMeta(dir, meta); err != nil {
-		abandon(cmd, logFile)
 		return err
 	}
 	if err := os.WriteFile(filepath.Join(dir, runnerPIDFile), []byte(strconv.Itoa(cmd.Process.Pid)), 0o640); err != nil {
-		abandon(cmd, logFile)
 		return fmt.Errorf("backend: writing the pid file in %s: %w", dir, err)
 	}
 
@@ -490,12 +515,29 @@ type child struct {
 // microseconds, not an expectation.
 const reapGrace = 5 * time.Second
 
-// abandon kills a child we have decided not to keep and reaps it, so that a
-// half-failed create leaves no zombie behind.
-func abandon(cmd *exec.Cmd, log *os.File) {
-	_ = cmd.Process.Kill()
-	_ = cmd.Wait()
-	_ = log.Close()
+var errProcessStillRunning = errors.New("runner process survived startup cleanup; inspect its retained directory and slot")
+
+// A failed metadata write must not leave a worker running after its slot is freed.
+func (b *ProcessBackend) abandon(cmd *exec.Cmd, log *os.File, timeout time.Duration) error {
+	done := make(chan struct{})
+	go func() { _ = cmd.Wait(); _ = log.Close(); releaseRunner(cmd.Process.Pid); close(done) }()
+	if runtime.GOOS == "darwin" {
+		_ = signalRunner(cmd.Process, syscall.SIGTERM)
+		if !waitFor(context.Background(), func() bool { return !runnerAlive(cmd.Process.Pid) }, timeout, 20*time.Millisecond) {
+			_ = signalRunner(cmd.Process, syscall.SIGKILL)
+		}
+	} else {
+		_ = cmd.Process.Kill()
+	}
+	if !waitFor(context.Background(), func() bool { return !runnerAlive(cmd.Process.Pid) }, killGrace, 20*time.Millisecond) {
+		return errProcessStillRunning
+	}
+	select {
+	case <-done:
+		return nil
+	case <-time.After(killGrace):
+		return errProcessStillRunning
+	}
 }
 
 // childEnv builds the runner's environment. It is assembled rather than
@@ -662,12 +704,17 @@ func (b *ProcessBackend) Logs(ctx context.Context, h Handle, opts LogOptions) (i
 	}, nil
 }
 
-// Stop sends SIGINT, which the runner treats as "finish this job and exit",
-// then escalates.
+// Stop sends TERM on macOS and INT elsewhere, then escalates after the timeout.
 func (b *ProcessBackend) Stop(ctx context.Context, h Handle, timeout time.Duration) error {
 	dir := string(h)
 	pid := readPID(dir)
-	if pid <= 0 || !processAlive(pid) {
+	if pid <= 0 {
+		return nil
+	}
+	if !processAlive(pid) {
+		if runtime.GOOS == "darwin" && runnerGroupAlive(pid) {
+			return fmt.Errorf("backend: runner leader exited but its process group remains; retaining directory and slot")
+		}
 		return nil
 	}
 	meta, err := readMeta(dir)
@@ -695,16 +742,31 @@ func (b *ProcessBackend) Stop(ctx context.Context, h Handle, timeout time.Durati
 	}
 	// The whole group, not the listener alone: the job runs in a worker the
 	// listener spawned, and it is the worker that has to be told to stop.
-	if err := signalRunner(proc, syscall.SIGINT); err != nil && !errors.Is(err, os.ErrProcessDone) {
+	signal := syscall.SIGINT
+	if runtime.GOOS == "darwin" {
+		signal = syscall.SIGTERM
+	}
+	if err := signalRunner(proc, signal); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		b.log.Warn("could not interrupt the runner; killing it", "dir", dir, "pid", pid, "error", err)
 		return b.kill(ctx, proc, dir)
 	}
-	if waitFor(ctx, func() bool { return !processAlive(pid) }, timeout, 200*time.Millisecond) {
+	if waitFor(ctx, func() bool { return !runnerAlive(pid) }, timeout, 20*time.Millisecond) {
 		return nil
 	}
 
-	b.log.Warn("runner did not exit after SIGINT; killing it", "dir", dir, "pid", pid, "timeout", timeout)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	b.log.Warn("runner did not exit after graceful stop; killing it", "dir", dir, "pid", pid, "timeout", timeout)
 	return b.kill(ctx, proc, dir)
+}
+
+// Native workers can outlive their listener; a free slot means the group is gone.
+func runnerAlive(pid int) bool {
+	if runtime.GOOS == "darwin" {
+		return runnerGroupAlive(pid)
+	}
+	return processAlive(pid)
 }
 
 // killGrace is how long to wait for a killed runner to actually be gone.
@@ -715,10 +777,10 @@ func (b *ProcessBackend) Stop(ctx context.Context, h Handle, timeout time.Durati
 const killGrace = 5 * time.Second
 
 func (b *ProcessBackend) kill(ctx context.Context, proc *os.Process, dir string) error {
-	if !processAlive(proc.Pid) {
+	if !runnerAlive(proc.Pid) {
 		return nil
 	}
-	{
+	if processAlive(proc.Pid) {
 		meta, err := readMeta(dir)
 		if err != nil {
 			return err
@@ -741,8 +803,8 @@ func (b *ProcessBackend) kill(ctx context.Context, proc *os.Process, dir string)
 	// to delete the directory it is running in -- which fails, or worse
 	// half-succeeds, while the process still has files open there. The SIGINT
 	// path above already waits; this one has to as well.
-	if !waitFor(ctx, func() bool { return !processAlive(proc.Pid) }, killGrace, 20*time.Millisecond) {
-		b.log.Warn("a killed runner is still there", "dir", dir, "pid", proc.Pid, "waited", killGrace)
+	if !waitFor(ctx, func() bool { return !runnerAlive(proc.Pid) }, killGrace, 20*time.Millisecond) {
+		return fmt.Errorf("backend: runner group %d remains after KILL; retaining its directory and slot", proc.Pid)
 	}
 	return nil
 }
@@ -754,10 +816,15 @@ func (b *ProcessBackend) Remove(ctx context.Context, h Handle) error {
 }
 
 func (b *ProcessBackend) wipe(ctx context.Context, dir string) error {
+	lease := b.processLease(dir)
+	if readPID(dir) <= 0 && lease.ownerAlive() {
+		return fmt.Errorf("backend: runner metadata is gone but its slot owner remains; retaining slot")
+	}
 	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
+		lease.release()
 		return nil
 	}
-	if pid := readPID(dir); pid > 0 && processAlive(pid) {
+	if pid := readPID(dir); pid > 0 && runnerAlive(pid) {
 		if err := b.Stop(ctx, Handle(dir), 10*time.Second); err != nil {
 			return fmt.Errorf("refusing to remove a runner whose process could not be stopped: %w", err)
 		}
@@ -788,6 +855,7 @@ func (b *ProcessBackend) wipe(ctx context.Context, dir string) error {
 	if err := removeAllRetry(ctx, dir, removeGrace, os.RemoveAll); err != nil {
 		return fmt.Errorf("backend: removing the runner directory %s: %w", dir, err)
 	}
+	lease.release()
 	return nil
 }
 

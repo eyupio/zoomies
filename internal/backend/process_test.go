@@ -115,7 +115,11 @@ func newStubProcessBackend(t *testing.T) (*ProcessBackend, string) {
 
 	t.Helper()
 	root := t.TempDir()
-	installStubRunner(t, root, stubVersion, stubListener, stubConfigOK)
+	listener := stubListener
+	if runtime.GOOS == "darwin" {
+		listener = strings.Replace(listener, " INT\n", " TERM\n", 1)
+	}
+	installStubRunner(t, root, stubVersion, listener, stubConfigOK)
 	b, err := NewProcess(ProcessOptions{WorkDir: root, RunnerVersion: stubVersion, Logger: quietLogger()})
 	if err != nil {
 		t.Fatalf("NewProcess: %v", err)
@@ -253,7 +257,7 @@ func TestProcessStopSignalsTheRunner(t *testing.T) {
 	}
 	st := waitForPhase(t, b, h, PhaseExited, 10*time.Second)
 	if st.ExitCode != 0 {
-		t.Fatalf("exit code = %d; SIGINT must let the runner finish cleanly", st.ExitCode)
+		t.Fatalf("exit code = %d; graceful stop must let the runner finish cleanly", st.ExitCode)
 	}
 	if st.ExitedAt.IsZero() {
 		t.Fatal("an exited runner needs an exit time")
