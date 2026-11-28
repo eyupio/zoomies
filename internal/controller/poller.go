@@ -521,11 +521,41 @@ func (c *Controller) jobRecoveryLoop(ctx context.Context) {
 	for {
 		if c.mayAct() {
 			c.reconcileKnownJobs(ctx, c.Now())
+			c.releaseRunnersOfCompletedJobs(ctx)
 			c.recoveries.Add(1)
 		}
 		if !c.awaitRecoveryTick(ctx, ticker, &interval) {
 			return
 		}
+	}
+}
+
+// releaseRunnersOfCompletedJobs releases the runners still held by a job that
+// has completed, which is the release a completion recorded and then lost.
+//
+// reconcileKnownJobs cannot find them: it checks the jobs that have not
+// completed, and these have. It reads only the store and asks GitHub nothing,
+// so it costs no quota; the job's row is the authority, as the completion that
+// wrote it was. A completion still being applied is harmless, because the
+// release is guarded by the job it names and the second caller changes nothing.
+func (c *Controller) releaseRunnersOfCompletedJobs(ctx context.Context) {
+	const batch = 50
+	runners, err := c.st.RunnersHeldByCompletedJobs(ctx, batch)
+	if err != nil {
+		c.log.Warn("could not list runners held by completed jobs", "error", err)
+		return
+	}
+	for _, r := range runners {
+		if ctx.Err() != nil {
+			return
+		}
+		j, err := c.st.GetJob(ctx, r.CurrentJobID)
+		if err != nil {
+			continue
+		}
+		c.log.Info("releasing a runner still held by a job that has completed",
+			"runner", r.ID, "job", j.ID, "state", r.State)
+		c.releaseRunner(ctx, r.ID, j)
 	}
 }
 
