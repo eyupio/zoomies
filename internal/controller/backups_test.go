@@ -112,6 +112,67 @@ func TestAFailingScheduleIsAProblemAndBacksOff(t *testing.T) {
 	}
 }
 
+// A backup directory the service can write but not list is not a directory
+// with no backup in it: the schedule must not take one every minute, as it
+// did in the reported case until 1,033 copies filled the disk.
+func TestAnUnlistableBackupDirectoryDoesNotMakeABackupDueEveryMinute(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root lists every directory; run as an ordinary user")
+	}
+	h := newHarness(t)
+	h.c.UpdateConfig(func(c *config.Config) { c.Backup.Interval = time.Hour })
+	root := filepath.Join(h.onDisk(), backup.DefaultDirName)
+
+	h.c.scheduledBackup(h.ctx)
+	if err := os.Chmod(root, 0o300); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(root, 0o700) })
+	for range 3 {
+		h.offset.Add(int64(time.Minute))
+		time.Sleep(1100 * time.Millisecond)
+		h.c.scheduledBackup(h.ctx)
+	}
+	if err := os.Chmod(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if entries, err := backup.List(root); err != nil || len(entries) != 1 {
+		t.Fatalf("a directory it could not list made the schedule take %d backups in three minutes, %v", len(entries), err)
+	}
+}
+
+// While the directory cannot be listed, a scheduled backup that failed is
+// retried after the back-off, as anywhere else, and not a whole interval later.
+func TestAFailedBackupInAnUnlistableDirectoryIsRetriedAfterTheBackOff(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root lists and writes every directory; run as an ordinary user")
+	}
+	h := newHarness(t)
+	h.c.UpdateConfig(func(c *config.Config) { c.Backup.Interval = 24 * time.Hour })
+	root := filepath.Join(h.onDisk(), backup.DefaultDirName)
+
+	h.c.scheduledBackup(h.ctx)
+	if status := h.c.BackupStatus(); status.LastError != "" || status.LastScheduledID == "" {
+		t.Fatalf("the first backup did not work: %+v", status)
+	}
+	if err := os.Chmod(root, 0o100); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(root, 0o700) })
+
+	h.offset.Add(int64(24*time.Hour + time.Minute))
+	h.c.scheduledBackup(h.ctx)
+	failed := h.c.BackupStatus()
+	if failed.LastError == "" {
+		t.Fatalf("a backup into a directory it cannot write did not fail: %+v", failed)
+	}
+	h.offset.Add(int64(backupRetry + time.Minute))
+	h.c.scheduledBackup(h.ctx)
+	if retried := h.c.BackupStatus(); !retried.LastScheduledAt.After(failed.LastScheduledAt) {
+		t.Fatalf("the failed backup was not retried after the back-off: last attempt still %s", retried.LastScheduledAt)
+	}
+}
+
 // Two backups at once would race for one directory name and a prune could
 // delete the copy being taken. The second caller is refused, not queued.
 func TestOnlyOneBackupIsTakenAtATime(t *testing.T) {

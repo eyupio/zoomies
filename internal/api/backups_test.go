@@ -87,6 +87,29 @@ func TestABackupTakenFromThePageIsListedWithWhatARestoreNeedsToKnow(t *testing.T
 	assertShape(t, doc, "Backup", one.body)
 }
 
+// A backup whose database cannot be read is refused before the download
+// starts, rather than sent as a 200 that ends in a short file.
+func TestABackupThatCannotBeReadIsNotDownloaded(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads every directory; run as an ordinary user")
+	}
+	h := newHarness(t)
+	h.installation()
+	cookie := h.platform()
+	taken := h.takeBackup(t, cookie)
+	dir := filepath.Join(h.ctrl.BackupDir(), taken.ID)
+	if err := os.Chmod(dir, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	resp := h.do(request{method: http.MethodGet, path: "/api/v1/backups/" + taken.ID + "/download", cookie: cookie})
+	resp.mustStatus(t, http.StatusConflict, "download of a backup that cannot be read")
+	if bytes.HasPrefix(resp.body, []byte("PK\x03\x04")) {
+		t.Fatal("the refusal carries an archive")
+	}
+}
+
 // A download is the backup leaving the machine and an upload is it coming
 // back, so the two have to agree exactly: plain, and encrypted with a
 // passphrase that is then required.

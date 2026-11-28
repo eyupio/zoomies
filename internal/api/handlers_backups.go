@@ -1,6 +1,7 @@
 package api
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -390,6 +391,12 @@ func (s *Server) handleDownloadBackup(w http.ResponseWriter, r *http.Request) {
 	e, _, err := s.findBackup(chiURLParam(r, "id"))
 	if err != nil {
 		s.failBackup(w, r, "reading the backup", err)
+		return
+	}
+	// Refused before any header is written: once the 200 is out, a database
+	// that cannot be read would reach the client as a short file.
+	if _, err := os.Stat(filepath.Join(e.Dir, backup.DBName)); err != nil {
+		conflict(w, "this backup cannot be downloaded: "+cmp.Or(e.Problem, err.Error()))
 		return
 	}
 	passphrase := ""
