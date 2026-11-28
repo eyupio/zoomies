@@ -76,12 +76,37 @@ func WriteArchive(w io.Writer, entry *Entry) error {
 	return err
 }
 
+// openBackupDir opens the directory a backup is archived from, and refuses one
+// that is a link or was replaced as it was opened.
+//
+// Whoever archives a backup is not always the account that owns it: root ships
+// a copy offsite after `sudo zoomies backup` hands it to the service account.
+// Reading its files by name would follow a link left in a file's place to
+// wherever it leads, so they are read through this handle, and a link that
+// leaves the directory is an error.
+func openBackupDir(dir string) (*os.Root, error) {
+	opened, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, fmt.Errorf("backup: opening %s: %w", dir, err)
+	}
+	if !isMade(dir, opened) {
+		opened.Close()
+		return nil, fmt.Errorf("backup: %s is a link, or was replaced as it was opened, so nothing was archived from it; find out what else writes to %s, then archive the backup again", dir, filepath.Dir(dir))
+	}
+	return opened, nil
+}
+
 // writeArchive writes a tar of the backup's directory, optionally compressed,
 // and reports the size and SHA-256 of the uncompressed tar. The digest is what
 // a stored object's manifest records for the plaintext, and it is taken before
 // compression and encryption so the same archive can be verified however it
 // travelled.
 func writeArchive(w io.Writer, entry *Entry, compressed bool) (int64, string, error) {
+	dir, err := openBackupDir(entry.Dir)
+	if err != nil {
+		return 0, "", err
+	}
+	defer dir.Close()
 	plain := newDigestWriter(w)
 	var dst io.Writer = plain
 	var gz *gzip.Writer
@@ -93,12 +118,22 @@ func writeArchive(w io.Writer, entry *Entry, compressed bool) (int64, string, er
 	// The manifest first, so a reader that wants only the description does
 	// not have to read the database to reach it.
 	for _, name := range archiveMembers {
-		p := filepath.Join(entry.Dir, name)
-		info, err := os.Stat(p)
+		// Opened through the handle, and before the header is written, so that a
+		// member refused for being a link leaves no half-written entry behind.
+		f, err := dir.Open(name)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
+		p := filepath.Join(entry.Dir, name)
 		if err != nil {
+			return 0, "", fmt.Errorf("backup: reading %s: %w", p, err)
+		}
+		info, err := f.Stat()
+		if err == nil && !info.Mode().IsRegular() {
+			err = errors.New("it is not a regular file")
+		}
+		if err != nil {
+			f.Close()
 			return 0, "", fmt.Errorf("backup: reading %s: %w", p, err)
 		}
 		hdr := &tar.Header{
@@ -109,10 +144,7 @@ func writeArchive(w io.Writer, entry *Entry, compressed bool) (int64, string, er
 			Format:  tar.FormatPAX,
 		}
 		if err := tw.WriteHeader(hdr); err != nil {
-			return 0, "", err
-		}
-		f, err := os.Open(p)
-		if err != nil {
+			f.Close()
 			return 0, "", err
 		}
 		// io.CopyN rather than io.Copy: the header promised a size, and a
