@@ -907,6 +907,53 @@ func TestARunnerReleasedByTheRecoverySweepIsBusyOnTheJobItIsRunning(t *testing.T
 	}
 }
 
+// A runner runs one job at a time, so when it is released and more than one
+// in-progress row names it (the completion of the others was lost too), the
+// job that started last is the one it has now. Queue order says nothing about
+// start order: a job that waited longer for a runner was queued first and
+// started last, and picking by queue time would hand the runner a job that
+// had finished, which refuses the real job's completion until recovery settles it.
+func TestAReleasedRunnerIsStartedOnTheJobThatStartedLastNotTheOneQueuedLast(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	pool.Ephemeral = false
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	labels := []string{"self-hosted", "linux", "x64", "demo"}
+	held, runner := startJobOnRunner(t, h, host.ID, 6026, labels)
+	completeJobRowOnly(t, h, held)
+
+	now := h.c.Now()
+	for _, j := range []struct {
+		ghID            int64
+		name            string
+		queued, started time.Time
+	}{
+		{6027, "running", now.Add(-30 * time.Minute), now.Add(-time.Minute)},
+		{6028, "finished", now.Add(-20 * time.Minute), now.Add(-10 * time.Minute)},
+	} {
+		started := j.started
+		if _, _, err := h.st.ApplyJob(h.ctx, &store.Job{
+			GitHubJobID: j.ghID, Repo: held.Repo, Workflow: "CI", JobName: j.name, Labels: store.StringSlice(labels),
+			State: store.JobInProgress, QueuedAt: j.queued, StartedAt: &started, Matched: true, PoolID: pool.ID, RunnerID: runner.ID,
+		}); err != nil {
+			t.Fatalf("ApplyJob %s: %v", j.name, err)
+		}
+	}
+	running, err := h.st.GetJobByGitHubID(h.ctx, 6027)
+	if err != nil {
+		t.Fatalf("GetJobByGitHubID: %v", err)
+	}
+
+	h.c.releaseRunnersOfCompletedJobs(h.ctx)
+	got := h.runnerByID(t, runner.ID)
+	if got.State != store.RunnerBusy || got.CurrentJobID != running.ID {
+		t.Fatalf("after the sweep the runner is state %q on job %q; want busy on %q, the job that started last",
+			got.State, got.CurrentJobID, running.ID)
+	}
+}
+
 // An ephemeral runner held the same way is finished and its workload removed,
 // as the completion would have done.
 func TestAnEphemeralRunnerHeldByACompletedJobIsRemovedByTheRecoverySweep(t *testing.T) {

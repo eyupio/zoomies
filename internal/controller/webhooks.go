@@ -732,9 +732,23 @@ func (c *Controller) resumeRunnerJob(ctx context.Context, r *store.Runner) {
 	if len(running) == 0 {
 		return
 	}
-	// A runner runs one job at a time: the one queued last is the one it has
-	// now, and any earlier one is left for job recovery to settle with GitHub.
-	j := running[len(running)-1]
+	// A runner runs one job at a time, so the one that started last is the one
+	// it has now, and any earlier one is left for job recovery to settle with
+	// GitHub. The rows come in queue order, which is not start order (a job
+	// that waited longest is queued first and starts last), so queue order only
+	// breaks a tie, and a row with no start time counts as the earliest.
+	startedAt := func(j *store.Job) time.Time {
+		if j.StartedAt == nil {
+			return time.Time{}
+		}
+		return *j.StartedAt
+	}
+	j := running[0]
+	for _, next := range running[1:] {
+		if !startedAt(next).Before(startedAt(j)) {
+			j = next
+		}
+	}
 	started, changed, err := c.st.StartRunnerJob(ctx, r.ID, j.ID,
 		fmt.Sprintf("running %s / %s", j.Workflow, j.JobName))
 	if err != nil {
