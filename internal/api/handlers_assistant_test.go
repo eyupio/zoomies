@@ -332,3 +332,33 @@ func TestAnOutputLimitIsRefusedOnAKindWhoseToolTakesNone(t *testing.T) {
 		t.Errorf("the refusal does not name the field: %s", resp.body)
 	}
 }
+
+// A sealed key is never shown, so it must not be sent anywhere its owner did
+// not send it: a test or an edit that names another address with the key box
+// left blank would hand the key to whoever answers there.
+func TestASealedKeyIsNotSentToANewAddressUntilItIsTypedAgain(t *testing.T) {
+	h, cookie := assistantAdmin(t, func(c *config.Config) { c.Assistant.AllowPrivateProvider = true })
+	srv := assistanttest.NewOpenAI(t)
+	other := assistanttest.NewOpenAI(t)
+	id := h.do(request{method: http.MethodPost, path: assistantProviders, cookie: cookie, body: providerBody(srv, "Ollama")}).json(t)["id"].(string)
+	moved := map[string]any{"id": id, "base_url": other.URL + "/v1"}
+	for _, req := range []request{
+		{method: http.MethodPost, path: assistantProviders + "/check", cookie: cookie, body: moved},
+		{method: http.MethodPost, path: assistantProviders + "/models", cookie: cookie, body: moved},
+		{method: http.MethodPatch, path: assistantProviders + "/" + id, cookie: cookie, body: map[string]any{"base_url": other.URL + "/v1"}},
+	} {
+		resp := h.do(req)
+		resp.mustStatus(t, http.StatusUnprocessableEntity, req.method+" "+req.path+" with a new address and no key")
+		if !strings.Contains(string(resp.body), "enter the key again for the new address") {
+			t.Errorf("%s %s does not say what to do: %s", req.method, req.path, resp.body)
+		}
+	}
+	if n := len(other.Requests()); n != 0 {
+		t.Errorf("the new address was sent %d requests carrying the sealed key", n)
+	}
+	if row, _ := h.st.GetAssistantProvider(h.ctx, id); row.BaseURL != srv.URL+"/v1" {
+		t.Errorf("the refused edit was saved: base_url = %q", row.BaseURL)
+	}
+	moved["api_key"] = "sk-other"
+	h.do(request{method: http.MethodPost, path: assistantProviders + "/check", cookie: cookie, body: moved}).mustStatus(t, http.StatusOK, "checking the new address with its own key")
+}

@@ -31,6 +31,16 @@ type Config struct {
 	Insecure bool   `yaml:"insecure,omitempty"`
 }
 
+// maxValueBytes bounds every value read from or written to the file. The file
+// is plain YAML that a person edits, so a value that is huge or spans lines is
+// a mistake (or an injection attempt) rather than something to pass on.
+const maxValueBytes = 4096
+
+// oneLine reports whether s fits the bound and holds no line break or NUL.
+func oneLine(s string) bool {
+	return len(s) <= maxValueBytes && !strings.ContainsAny(s, "\r\n\x00")
+}
+
 // Validate checks what the CLI is about to save or use. A URL is held to the
 // same rule the client applies: a command has to be able to dial it, and a
 // credential must not be smuggled into the address.
@@ -45,8 +55,8 @@ func (c Config) Validate() error {
 		{"token", c.Token},
 		{"ca_file", c.CAFile},
 	} {
-		if len(field.value) > 4096 || strings.ContainsAny(field.value, "\r\n\x00") {
-			return fmt.Errorf("invalid %s: it must be one line of at most 4096 bytes", field.name)
+		if !oneLine(field.value) {
+			return fmt.Errorf("invalid %s: it must be one line of at most %d bytes", field.name, maxValueBytes)
 		}
 	}
 	return nil
@@ -60,7 +70,7 @@ func ValidateURL(raw string) error {
 	if raw == "" {
 		return errors.New("a controller URL is needed, for example https://zoomies.example.com")
 	}
-	if len(raw) > 4096 || strings.ContainsAny(raw, "\r\n\x00") {
+	if !oneLine(raw) {
 		return errors.New("invalid controller URL")
 	}
 	u, err := url.Parse(raw)

@@ -475,3 +475,29 @@ func TestAnUnreachableProviderIsADiscoveryFailureAndAMissingSettingIsNot(t *test
 		t.Errorf("a missing client secret = %v; want a configuration error, not a discovery failure", err)
 	}
 }
+
+// The identity provider decides a linked account's role, but a group name
+// typed wrong must not be able to leave the instance with nobody who can
+// administer it: only a shell on the host could then put that right.
+func TestSingleSignOnKeepsTheRoleOfTheLastPlatformAccount(t *testing.T) {
+	s, st, _ := newService(t)
+	ctx := t.Context()
+	if _, err := s.CreateFirstAdmin(ctx, "root", "correct horse battery"); err != nil {
+		t.Fatal(err)
+	}
+	p := &OIDCProvider{cfg: config.OIDC{AdminGroups: []string{"zoomies-admins"}, LinkByUsername: true}}
+	claims, err := p.claimsFrom("subject-1", map[string]any{"preferred_username": "root", "groups": []any{"engineering"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := p.EnsureUser(ctx, st, claims, false)
+	if err != nil {
+		t.Fatalf("the sign-in was refused: %v", err)
+	}
+	if u.Role != store.RolePlatform {
+		t.Errorf("role = %s, want platform: the last platform account was demoted", u.Role)
+	}
+	if n, _ := st.CountPlatform(ctx); n != 1 {
+		t.Errorf("platform accounts = %d, want 1", n)
+	}
+}

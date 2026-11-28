@@ -534,3 +534,32 @@ func TestTheAutoUpdateIdentityIsASystemActorOfItsOwn(t *testing.T) {
 		t.Error("the auto-update identity may not apply an update")
 	}
 }
+
+// An account signs in with its whole role, so a token narrowed to managing
+// users that could make or take over an operator or administrator account
+// would turn its one scope into everything the role reaches.
+func TestAScopedCallerCannotManageAnAccountThatWouldOutreachItsScopes(t *testing.T) {
+	scoped := &Identity{Kind: KindToken, Role: store.RoleAdmin, Scopes: []string{"users:write"}}
+	whole := &Identity{Kind: KindUser, Role: store.RoleAdmin}
+	for _, tc := range []struct {
+		name    string
+		by      *Identity
+		role    store.Role
+		refused bool
+	}{
+		{"a scoped token and an administrator account", scoped, store.RoleAdmin, true},
+		{"a scoped token and an operator account", scoped, store.RoleOperator, true},
+		{"a scoped token and a viewer account", scoped, store.RoleViewer, false},
+		{"an unscoped administrator and an administrator account", whole, store.RoleAdmin, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ManageWithin(tc.by, tc.role)
+			if (err != nil) != tc.refused {
+				t.Fatalf("ManageWithin = %v, want refused = %v", err, tc.refused)
+			}
+			if err != nil && !strings.Contains(err.Error(), "users:write") {
+				t.Errorf("the refusal does not name the scopes the caller is limited to: %v", err)
+			}
+		})
+	}
+}

@@ -783,7 +783,18 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 		var dropped []string
 		var err error
 		if !existing.RecoveryRequired {
-			dropped, err = c.st.DeleteHost(ctx, existing.ID)
+			// The delete takes a rented machine's link to this row with it, and a
+			// ready machine with no host is released, so the link is made again below.
+			if machineID == "" {
+				var rented []*store.Machine
+				rented, _, err = c.st.ListMachines(ctx, store.MachineFilter{HostIDs: []string{existing.ID}}, store.Page{Limit: 1})
+				if len(rented) > 0 {
+					machineID, joinTokenID = rented[0].ID, rented[0].JoinTokenID
+				}
+			}
+			if err == nil {
+				dropped, err = c.st.DeleteHost(ctx, existing.ID)
+			}
 		}
 		if err != nil {
 			return nil, fmt.Errorf("replacing the previous registration of host %s: %w", name, err)
@@ -1737,12 +1748,8 @@ func (c *Controller) applyReports(ctx context.Context, hostID string, reports []
 				continue
 			}
 		}
-		if rep.GitHubRunnerID != 0 && r.GitHubRunnerID == 0 {
-			if err := c.st.SetRunnerGitHubID(ctx, r.ID, rep.GitHubRunnerID); err != nil {
-				errs = append(errs, err)
-				continue
-			}
-		}
+		// rep.GitHubRunnerID is not taken: a registration is deleted by that id,
+		// so GitHub says which one a runner has (runnerOnline), never its host.
 		resourcesMoved := false
 		if rep.Stats.SampledAt != nil || rep.Stats.CPUPercent != 0 || rep.Stats.MemoryBytes != 0 {
 			sample, _ := json.Marshal(rep.Stats)

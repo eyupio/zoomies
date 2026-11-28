@@ -892,3 +892,84 @@ func TestABudgetCanShrinkToZeroAndGrowWithoutRestartingTheService(t *testing.T) 
 		t.Fatal("larger live budget did not permit a save")
 	}
 }
+
+// An upload that says how long it is takes that much of the room and no more.
+// Handed the whole room, the first block of an archive left none for the blocks
+// the toolkit sends beside it, which failed the save; no other job could start
+// one; and a save that finished meanwhile counted the whole room as stored and
+// evicted every entry the pool had.
+func TestUploadsThatSayTheirLengthShareTheRoomAndEvictNothing(t *testing.T) {
+	// What the agent gives the service: a budget and nothing else.
+	h := newHarness(t, Options{Budget: NewBudget(1 << 20)})
+	h.save(mainToken, "old", "v", []byte("kept"))
+	big, _ := h.reserve(mainToken, "big")
+	beside, _ := h.reserve(mainToken, "beside")
+	if st := h.put(beside, []byte("beside")); st != http.StatusCreated {
+		t.Fatalf("the upload beside answered %d", st)
+	}
+
+	const blocks = 4
+	gate := make(chan struct{})
+	statuses := make(chan int, blocks)
+	for i := range blocks {
+		go func() {
+			// More than the client buffers, then a wait before the last byte, so
+			// every block is inside the service at once.
+			const first = 8 << 10
+			body := io.MultiReader(strings.NewReader(strings.Repeat("x", first)), readerFunc(func(p []byte) (int, error) {
+				<-gate
+				p[0] = 'x'
+				return 1, io.EOF
+			}))
+			id := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("b%d", i)))
+			r, _ := http.NewRequest(http.MethodPut, big+"?comp=block&blockid="+id, body)
+			r.ContentLength = first + 1
+			resp, err := http.DefaultClient.Do(r)
+			if err != nil {
+				statuses <- -1
+				return
+			}
+			resp.Body.Close()
+			statuses <- resp.StatusCode
+		}()
+	}
+	time.Sleep(300 * time.Millisecond)
+	if _, st := h.reserve(mainToken, "another"); st != http.StatusOK {
+		t.Errorf("a save could not start while another was uploading: %d", st)
+	}
+	h.call(mainToken, "FinalizeCacheEntryUpload", map[string]string{"key": "beside", "version": "v", "sizeBytes": "6"})
+	close(gate)
+	for range blocks {
+		if st := <-statuses; st != http.StatusCreated {
+			t.Errorf("a block uploaded beside the others answered %d", st)
+		}
+	}
+	if key, _ := h.restore(mainToken, "old", "v"); key == "" {
+		t.Error("a save that finished during an upload evicted an entry from a pool with room to spare")
+	}
+}
+
+// What a job chooses must not be free to keep. A key is held in memory and on
+// disk for as long as its entry is, and an entry of no bytes weighed nothing
+// against the ceiling, so a job could file entries of megabyte keys until the
+// agent's memory or the host's disk ran out.
+func TestEmptyEntriesAndLongKeysCannotGrowTheServiceWithoutBound(t *testing.T) {
+	h := newHarness(t, Options{MaxBytes: 5})
+	for i := range 8 {
+		if !h.save(mainToken, fmt.Sprintf("empty-%d", i), "v", nil) {
+			t.Fatalf("empty save %d was refused", i)
+		}
+	}
+	if n := h.svc.Stats().Entries; n > 5 {
+		t.Errorf("%d entries of no bytes are kept under a ceiling of 5 bytes", n)
+	}
+	long := strings.Repeat("k", maxKeyRunes+1)
+	for _, req := range []map[string]string{{"key": long, "version": "v"}, {"key": "k", "version": long}} {
+		if st, _ := h.call(mainToken, "CreateCacheEntry", req); st != http.StatusBadRequest {
+			t.Errorf("a key or version of %d characters answered %d", maxKeyRunes+1, st)
+		}
+	}
+	if st, _ := h.call(mainToken, "CreateCacheEntry", map[string]string{"key": long[1:], "version": "v"}); st != http.StatusOK {
+		t.Errorf("a key of exactly %d characters answered %d", maxKeyRunes, st)
+	}
+}

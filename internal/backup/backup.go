@@ -276,6 +276,14 @@ func Take(ctx context.Context, st *store.Store, opts TakeOptions) (*Entry, error
 		}
 	}()
 
+	var made *os.Root
+	if handOn {
+		if made, err = openMade(dest, os.Geteuid()); err != nil {
+			return nil, fmt.Errorf("backup: %s was replaced as soon as it was made (%w), so no copy was taken; find out what else writes to %s, then take the backup again", dest, err, root)
+		}
+		defer made.Close()
+	}
+
 	dbPath := filepath.Join(dest, DBName)
 	if err := st.Backup(ctx, dbPath); err != nil {
 		return nil, err
@@ -287,11 +295,15 @@ func Take(ctx context.Context, st *store.Store, opts TakeOptions) (*Entry, error
 	if err := writeManifest(dest, m); err != nil {
 		return nil, err
 	}
+	// The copy was written by name, so a name that now leads elsewhere means it is not all in this directory.
+	if handOn && !isMade(dest, made) {
+		return nil, fmt.Errorf("backup: %s was replaced while the copy was being taken, so the copy is not whole and was not kept; find out what else writes to %s, then take the backup again", dest, root)
+	}
 	ok = true
 	// The copy is sound whoever owns it, so a failure here is a warning and not
 	// a reason to throw away the one thing an upgrade is waiting on.
 	if handOn {
-		if err := handOver(root, dest, uid, gid, os.Lchown); err != nil && opts.Warn != nil {
+		if err := handOver(root, made, uid, gid, (*os.Root).Lchown); err != nil && opts.Warn != nil {
 			opts.Warn("could not give the backup in %s to uid %d, the owner of %s, so the service may not be able to read it: %v; fix it with: sudo chown -R %d:%d %s",
 				dest, uid, root, err, uid, gid, dest)
 		}

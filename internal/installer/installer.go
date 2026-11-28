@@ -34,7 +34,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/huh"
+	"charm.land/huh/v2"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/eyupio/zoomies/internal/auth"

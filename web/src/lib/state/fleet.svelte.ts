@@ -363,7 +363,12 @@ class Fleet {
    * can find a runner the operator is looking at without a second request.
    */
   ingestRunners(rows: readonly Runner[]): void {
-    for (const runner of rows) if (runner.id) this.#set(this.#data.runners, runner.id, runner);
+    for (const runner of rows) {
+      if (!runner.id) continue;
+      // As the stream handler does: a grid that lists removed runners must not put them back.
+      if (runner.state === 'removed') this.#delete(this.#data.runners, runner.id);
+      else this.#set(this.#data.runners, runner.id, runner);
+    }
   }
 
   ingestPools(rows: readonly Pool[]): void {

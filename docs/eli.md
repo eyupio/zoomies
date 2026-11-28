@@ -132,8 +132,16 @@ Things to know before you add one:
   not run. For both, whatever their tools did is ignored: it is not shown and Eli
   does nothing on the strength of it, but ignoring what a tool did is not the same as
   the tool not having done it. Only the person who added the provider can ask it
-  anything, and nothing about your fleet is put in the question, so what could lead
-  one to read a file is the person's own words.
+  anything, and in a chat nothing about your fleet is put in the question, so what
+  could lead one to read a file is the person's own words.
+* **Codex and Copilot do not answer repairs.** A repair's question is not only your
+  words: it holds the pull request's text, its diff and its failing job's log, which
+  whoever opened the pull request wrote, and what the model answers is committed to
+  that pull request. A line in a log could ask one of these tools to read a file on
+  the controller's machine and put it in the fix. So a repair through either is
+  refused, in the answer to the request or in a comment on the pull request, and
+  says what to use: an API provider (Anthropic, OpenAI or OpenAI-compatible) or
+  Claude Code, which has no tool to read with.
 * **Copilot's question is a command line argument.** Anyone who can list processes on
   the controller's machine can read it while the answer is being made.
 * **They follow the programs' releases.** The options Zoomies uses are the
