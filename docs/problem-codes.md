@@ -163,6 +163,11 @@ than about what any one setting says.
 | Code | Severity | Setting | What to do |
 | --- | --- | --- | --- |
 | `scheduler.history_sizing` | error | `scheduler.history_sizing` | Use `off`, `shadow` or `on`. |
+| `scheduler.cpu_hold_percent` | error | `scheduler.cpu_hold_percent` | Use a share of the host's CPU from 1 to 100, or 0 for the default, 95. |
+| `scheduler.cpu_hold_window` | error | `scheduler.cpu_hold_window` | Use a window no longer than the throttle ladder's step, 2m; 30s is the default. |
+| `scheduler.cpu_release_percent` | error | `scheduler.cpu_release_percent` | Use a share from 1 to 100 below `scheduler.cpu_hold_percent`, so a held host can be released; the default, 85, is 10 points below the default start line. |
+| `scheduler.cpu_paced_percent` | error | `scheduler.cpu_paced_percent` | Use a share of the host's CPU from 1 to 100, or 0 for the default, 85. |
+| `scheduler.elastic_cpu_busy_percent` | error | `scheduler.elastic_cpu_busy_percent` | Use a share of the host's CPU from 1 to 100, or 0 for the default, 85. |
 | `scheduler.history_percentile` | error | `scheduler.history_percentile` | Use a percentile from 1 to 100; 75 is the default and 100 sizes for the heaviest job waiting. |
 | `scheduler.history_max_multiple` | error | `scheduler.history_max_multiple` | Use a multiple from 1 to 8; 2 is the default and 1 never raises a runner above its share. |
 | `scheduler.elastic_cpu_history` | error | `scheduler.elastic_cpu_history` | Use `off`, `shadow` or `on`. |

@@ -156,11 +156,12 @@ func TestTheThrottleLadderIsPacedAgainstTheMeasurementsItClimbsOn(t *testing.T) 
 		t.Fatalf("scheduler.ThrottleRecovery is %s, not longer than store.HostUsageMaxAge at %s; a single calm sample could step a host down", scheduler.ThrottleRecovery, store.HostUsageMaxAge)
 	}
 	// A rung may not be climbed faster than the CPU hold that feeds the
-	// ladder can trip: the hold needs CPUHoldWindow of saturation, and a step
+	// ladder can trip: the hold needs its window of saturation, at most
+	// store.MaxCPUHoldWindow however it is set, and a step
 	// shorter than that would let the ladder climb on measurements the hold
 	// had not yet judged sustained.
-	if scheduler.ThrottleStep < store.CPUHoldWindow {
-		t.Fatalf("scheduler.ThrottleStep is %s, shorter than the %s CPU hold that feeds it; the ladder would climb on pressure the hold had not called sustained", scheduler.ThrottleStep, store.CPUHoldWindow)
+	if scheduler.ThrottleStep < store.MaxCPUHoldWindow {
+		t.Fatalf("scheduler.ThrottleStep is %s, shorter than the longest CPU hold that feeds it, %s; the ladder would climb on pressure the hold had not called sustained", scheduler.ThrottleStep, store.MaxCPUHoldWindow)
 	}
 	// A host that stops measuring is lifted after StaleThrottleReset, and a
 	// host that stops heartbeating is given up on after hostLostAfter. The

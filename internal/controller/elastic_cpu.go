@@ -349,7 +349,7 @@ func elasticHostBusy(h *store.Host, lent float64) bool {
 	if h.CPUs > 0 {
 		cpu = max(cpu-lent/float64(h.CPUs)*100, 0)
 	}
-	return h.Throttle.Active() || cpu >= 85 ||
+	return h.Throttle.Active() || cpu >= h.Usage.Thresholds().ElasticBusyPercent ||
 		h.Usage.MemoryAvailableMB != nil && *h.Usage.MemoryAvailableMB <= h.MemoryReserve()
 }
 

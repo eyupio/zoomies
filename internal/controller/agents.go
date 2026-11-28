@@ -1111,7 +1111,7 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 	c.noteHelperUnsupported(hostID, req.UpdateUnsupported)
 
 	if req.Usage != nil {
-		usage := store.ObserveHostUsage(h.Usage, *req.Usage, c.lentCPUPercent(ctx, h, req.Runners, now), h.MemoryMB, now)
+		usage := store.ObserveHostUsage(h.Usage, *req.Usage, c.lentCPUPercent(ctx, h, req.Runners, now), h.MemoryMB, now, c.cpuThresholds())
 		if err := c.st.SetHostUsage(ctx, hostID, usage); err != nil {
 			return nil, err
 		}

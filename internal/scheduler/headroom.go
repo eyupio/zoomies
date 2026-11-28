@@ -1,7 +1,9 @@
 package scheduler
 
 import (
+	"fmt"
 	"math"
+	"strconv"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/store"
@@ -14,7 +16,8 @@ func HostAdmissionReason(h *store.Host, now time.Time) string {
 		return ""
 	}
 	if h.Usage.CPUHeld {
-		return "new starts held after sustained CPU pressure; they resume when CPU usage falls below 85%"
+		return fmt.Sprintf("new starts held after sustained CPU pressure; they resume when CPU usage falls below %s%%",
+			strconv.FormatFloat(h.Usage.Thresholds().ReleasePercent, 'f', -1, 64))
 	}
 	if v := h.Usage.MemoryAvailableMB; v != nil && *v <= h.MemoryReserve() {
 		return "new starts held because available memory is at or below the host reserve"
@@ -26,7 +29,7 @@ func hostUnderCPUPressure(h *store.Host, now time.Time) bool {
 	// Lent CPU in use is load the elastic plan chose, and the next plan
 	// takes it back for a start, so it is not pressure.
 	v := h.Usage.UnlentCPUPercent()
-	return h.Usage.Fresh(now) && v != nil && *v >= 85
+	return h.Usage.Fresh(now) && v != nil && *v >= h.Usage.Thresholds().PacedPercent
 }
 
 func (hs *hostSet) score(h *store.Host, p *store.Pool) float64 {

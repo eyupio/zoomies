@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_from": "1ead14f",
+  "generated_from": "bfcd2cd4",
   "entries": [
     {
       "id": "agent.backend_missing",
@@ -3534,6 +3534,62 @@
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#configuration-the-scheduler-and-the-rest"
     },
     {
+      "id": "scheduler.cpu_hold_percent",
+      "kind": "problem",
+      "title": "scheduler.cpu_hold_percent",
+      "category": "configuration",
+      "severity": "error",
+      "detection": "static",
+      "detects": "Use a share of the host's CPU from 1 to 100, or 0 for the default, 95.",
+      "fix": "Use a share of the host's CPU from 1 to 100, or 0 for the default, 95.",
+      "verify": null,
+      "setting": "scheduler.cpu_hold_percent",
+      "docs_html": "https://zoomies.sh/problem-codes/#configuration-the-scheduler-and-the-rest",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#configuration-the-scheduler-and-the-rest"
+    },
+    {
+      "id": "scheduler.cpu_hold_window",
+      "kind": "problem",
+      "title": "scheduler.cpu_hold_window",
+      "category": "configuration",
+      "severity": "error",
+      "detection": "static",
+      "detects": "Use a window no longer than the throttle ladder's step, 2m; 30s is the default.",
+      "fix": "Use a window no longer than the throttle ladder's step, 2m; 30s is the default.",
+      "verify": null,
+      "setting": "scheduler.cpu_hold_window",
+      "docs_html": "https://zoomies.sh/problem-codes/#configuration-the-scheduler-and-the-rest",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#configuration-the-scheduler-and-the-rest"
+    },
+    {
+      "id": "scheduler.cpu_paced_percent",
+      "kind": "problem",
+      "title": "scheduler.cpu_paced_percent",
+      "category": "configuration",
+      "severity": "error",
+      "detection": "static",
+      "detects": "Use a share of the host's CPU from 1 to 100, or 0 for the default, 85.",
+      "fix": "Use a share of the host's CPU from 1 to 100, or 0 for the default, 85.",
+      "verify": null,
+      "setting": "scheduler.cpu_paced_percent",
+      "docs_html": "https://zoomies.sh/problem-codes/#configuration-the-scheduler-and-the-rest",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#configuration-the-scheduler-and-the-rest"
+    },
+    {
+      "id": "scheduler.cpu_release_percent",
+      "kind": "problem",
+      "title": "scheduler.cpu_release_percent",
+      "category": "configuration",
+      "severity": "error",
+      "detection": "static",
+      "detects": "Use a share from 1 to 100 below `scheduler.cpu_hold_percent`, so a held host can be released; the default, 85, is 10 points below the default start line.",
+      "fix": "Use a share from 1 to 100 below `scheduler.cpu_hold_percent`, so a held host can be released; the default, 85, is 10 points below the default start line.",
+      "verify": null,
+      "setting": "scheduler.cpu_release_percent",
+      "docs_html": "https://zoomies.sh/problem-codes/#configuration-the-scheduler-and-the-rest",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#configuration-the-scheduler-and-the-rest"
+    },
+    {
       "id": "scheduler.default_runner_limits_off",
       "kind": "problem",
       "title": "scheduler.default_runner_limits_off",
@@ -3544,6 +3600,20 @@
       "fix": "A pool that sets no `cpus` or `memory_mb` gets runners with no cgroup limit at all, so a host's worth of them can each take every core and all of the memory; the shape that stops Docker answering. Leave it on, or set both on every pool.",
       "verify": null,
       "setting": "scheduler.default_runner_limits",
+      "docs_html": "https://zoomies.sh/problem-codes/#configuration-the-scheduler-and-the-rest",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#configuration-the-scheduler-and-the-rest"
+    },
+    {
+      "id": "scheduler.elastic_cpu_busy_percent",
+      "kind": "problem",
+      "title": "scheduler.elastic_cpu_busy_percent",
+      "category": "configuration",
+      "severity": "error",
+      "detection": "static",
+      "detects": "Use a share of the host's CPU from 1 to 100, or 0 for the default, 85.",
+      "fix": "Use a share of the host's CPU from 1 to 100, or 0 for the default, 85.",
+      "verify": null,
+      "setting": "scheduler.elastic_cpu_busy_percent",
       "docs_html": "https://zoomies.sh/problem-codes/#configuration-the-scheduler-and-the-rest",
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#configuration-the-scheduler-and-the-rest"
     },

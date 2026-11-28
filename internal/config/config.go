@@ -965,6 +965,25 @@ type Scheduler struct {
 	// survives a controller restart, and a re-run an operator asked for by
 	// hand counts against it like any other.
 	AutoRerunLimit int `yaml:"auto_rerun_limit"`
+	// CPUHoldPercent is the CPU occupancy, as a share of the host with lent CPU
+	// taken out, at which the clock towards holding new starts begins. Zero is
+	// the default, 95.
+	CPUHoldPercent float64 `yaml:"cpu_hold_percent"`
+	// CPUHoldWindow is how long occupancy has to stay at or above
+	// CPUHoldPercent before new starts are held. Zero is the default, 30s; it
+	// can be no longer than the throttle ladder's step, which the hold feeds.
+	CPUHoldWindow time.Duration `yaml:"cpu_hold_window"`
+	// CPUReleasePercent is the occupancy below which a hold is lifted and a
+	// throttled host counts as calm again. Zero is the default, 85; it has to
+	// be below CPUHoldPercent, or a host would be released while still held.
+	CPUReleasePercent float64 `yaml:"cpu_release_percent"`
+	// CPUPacedPercent is the occupancy at or above which runners are started a
+	// few at a time, each waiting for the ones before it to come up. Zero is
+	// the default, 85.
+	CPUPacedPercent float64 `yaml:"cpu_paced_percent"`
+	// ElasticCPUBusyPercent is the occupancy at or above which a host lends
+	// its runners no spare CPU. Zero is the default, 85.
+	ElasticCPUBusyPercent float64 `yaml:"elastic_cpu_busy_percent"`
 	// HostThrottling lets the controller throttle a host whose measurements
 	// say it is overwhelmed: fewer slots, and a lower CPU quota on the runners
 	// already on it, stepped back up after a stretch of calm. Off, the
@@ -1339,6 +1358,11 @@ func Default() *Config {
 			HistoryMaxMultiple:      2,
 			ElasticCPUHistory:       "shadow",
 			HostThrottling:          true,
+			CPUHoldPercent:          95,
+			CPUHoldWindow:           30 * time.Second,
+			CPUReleasePercent:       85,
+			CPUPacedPercent:         85,
+			ElasticCPUBusyPercent:   85,
 			HostAutoAdjust:          true,
 			AutoRerunLimit:          1,
 			// Everything about size classes is off until an operator turns it

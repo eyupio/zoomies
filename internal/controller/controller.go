@@ -1044,6 +1044,20 @@ func (c *Controller) Config() *config.Config { return c.live.Load() }
 // on every pass.
 func (c *Controller) cfg() *config.Config { return c.live.Load() }
 
+// cpuThresholds is the set of CPU figures the scheduler settings give, stamped
+// on every host measurement so that what reads the hold later judges by the
+// same figures the hold was decided on.
+func (c *Controller) cpuThresholds() store.CPUThresholds {
+	s := c.cfg().Scheduler
+	return store.CPUThresholds{
+		HoldPercent:        s.CPUHoldPercent,
+		HoldWindow:         s.CPUHoldWindow,
+		ReleasePercent:     s.CPUReleasePercent,
+		PacedPercent:       s.CPUPacedPercent,
+		ElasticBusyPercent: s.ElasticCPUBusyPercent,
+	}.OrDefault()
+}
+
 // UpdateConfig changes the running configuration.
 //
 // fn is applied to a copy of the current snapshot, which then replaces it, so
